@@ -1,0 +1,66 @@
+/* Badges (software), state pills, tags. */
+.c-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.c-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.c-pill::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.c-pill.is-running {
+  color: var(--color-success);
+}
+
+.c-pill.is-starting,
+.c-pill.is-stopping,
+.c-pill.is-busy {
+  color: var(--color-warning);
+}
+
+.c-pill.is-crashed {
+  color: var(--color-danger);
+}
+
+.c-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c-tag {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  font-size: var(--text-sm);
+}
+
+.c-muted {
+  color: var(--color-text-muted);
+}

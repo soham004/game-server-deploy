@@ -1,0 +1,90 @@
+[
+ {
+  "id": 244,
+  "time": "2026-11-06T11:34:02Z",
+  "channel": "STABLE",
+  "commits": [
+   {
+    "sha": "35a2d155771786a370831ad2ad3c8bd45dc0bb1a",
+    "time": "2026-11-06T11:33:46Z",
+    "message": "Fix dimension suggestions for dynamically loaded worlds (#14399)"
+   }
+  ],
+  "downloads": {
+   "server:default": {
+    "name": "paper-26.3-244.jar",
+    "checksums": {
+     "sha256": "9601f9a26a2a52a0f2c807cf1abf691f96ee4fb287878313b601cebc2c51eabf"
+    },
+    "size": 55279049,
+    "url": "https://fill-data.papermc.io/v1/objects/9601f9a26a2a52a0f2c807cf1abf691f96ee4fb287878313b601cebc2c51eabf/paper-26.3-244.jar"
+   }
+  }
+ },
+ {
+  "id": 243,
+  "time": "2026-11-05T23:26:23Z",
+  "channel": "STABLE",
+  "commits": [
+   {
+    "sha": "7ef2f69f9031eb8cba93088b51b2a19130901ed4",
+    "time": "2026-11-05T23:26:05Z",
+    "message": "Add current recipe implementation for Crafter (#14429)"
+   }
+  ],
+  "downloads": {
+   "server:default": {
+    "name": "paper-26.3-243.jar",
+    "checksums": {
+     "sha256": "650805b63174770b557d83bbfcdd16ec39531124b7b850589bad59bc4b6a0af8"
+    },
+    "size": 55279926,
+    "url": "https://fill-data.papermc.io/v1/objects/650805b63174770b557d83bbfcdd16ec39531124b7b850589bad59bc4b6a0af8/paper-26.3-243.jar"
+   }
+  }
+ },
+ {
+  "id": 242,
+  "time": "2026-11-05T02:15:21Z",
+  "channel": "STABLE",
+  "commits": [
+   {
+    "sha": "fd28d653a2e04d27ab9d288ee487116f9cfde60c",
+    "time": "2026-11-05T02:15:03Z",
+    "message": "Fixup some smaller packages, enable on other subprojects (#14458)"
+   }
+  ],
+  "downloads": {
+   "server:default": {
+    "name": "paper-26.3-242.jar",
+    "checksums": {
+     "sha256": "fc704a4510a2744bab90a6770336b202038e60333e37f24af8027ee948935d20"
+    },
+    "size": 55279626,
+    "url": "https://fill-data.papermc.io/v1/objects/fc704a4510a2744bab90a6770336b202038e60333e37f24af8027ee948935d20/paper-26.3-242.jar"
+   }
+  }
+ },
+ {
+  "id": 241,
+  "time": "2026-11-04T11:40:42Z",
+  "channel": "STABLE",
+  "commits": [
+   {
+    "sha": "5050b0f3339ab37730744c604939996bf2e0e628",
+    "time": "2026-11-04T11:40:23Z",
+    "message": "Fix health capped at their base max health upon join (MC-17876) (#13500)\n\nCo-authored-by: Warrior <50800980+Warriorrrr@users.noreply.github.com>"
+   }
+  ],
+  "downloads": {
+   "server:default": {
+    "name": "paper-26.3-241.jar",
+    "checksums": {
+     "sha256": "ea1081663127a4256ca8ce500899a44b896c3a834a8bfac65d1e58ee1f1bee13"
+    },
+    "size": 55268063,
+    "url": "https://fill-data.papermc.io/v1/objects/ea1081663127a4256ca8ce500899a44b896c3a834a8bfac65d1e58ee1f1bee13/paper-26.3-241.jar"
+   }
+  }
+ }
+]

@@ -7,8 +7,12 @@ manager, starting with Minecraft: Java Edition ("Prism Launcher for servers").
 Linux-first Docker image, multi-user RBAC in v1, per-server isolation, mods and plugins equally, user-supplied CurseForge key,
 nginx for TLS, browser-only, build-time branding.
 
-**M0 (skeleton) is implemented** (2026-11-07): 54 tests pass and clippy (pedantic, `-D warnings`) is clean. The only open
-M0 item left is login rate limiting, which was deliberately moved to M6; the Docker image is verified. Next step: M1 in `plan/06-roadmap.md`. The implementation log is in `decisions.md` (D-024+).
+**M0 (skeleton) and M1 (first server runs, isolated) are implemented** (2026-11-07): 167 tests pass, clippy (pedantic,
+`-D warnings`) is clean, and a real Paper 26.3 server was created, started, commanded and stopped through the API inside the
+Landlock sandbox. Open M1 item: cgroup limits (moved to M2). Next step: M2 in `plan/06-roadmap.md`. Implementation log:
+`decisions.md` D-024 (M0) and D-025 (M1, including lessons from the real runs).
+
+CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.
 
 ### How to build and test (dev machine)
 Edit on Windows; build in WSL2 with a Linux-native target dir:

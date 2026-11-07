@@ -1,6 +1,6 @@
 [package]
 name = "gsd-core"
-description = "Game-agnostic core: persistence, auth/RBAC, audit, and (later) supervisor, jobs, scheduler, backups."
+description = "Game-agnostic core: persistence, auth/RBAC, audit, jobs, Java runtimes, instances and the sandboxed process supervisor."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,19 +11,35 @@ gsd-brand.workspace = true
 argon2.workspace = true
 base64.workspace = true
 chrono.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
 getrandom.workspace = true
 hex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha1.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
+tar.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
 tracing.workspace = true
 ulid.workspace = true
+zip.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock.workspace = true
+libc.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true

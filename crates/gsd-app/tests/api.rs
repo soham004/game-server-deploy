@@ -1,136 +1,28 @@
-//! End-to-end tests of the HTTP API against an in-memory database.
+//! End-to-end tests of the auth, setup and static-asset API.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod common;
 
 use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
-    response::Response,
     routing::get,
 };
+use common::{PASSWORD, TestApp, json_body, session_cookie, text_body};
 use gsd_app::{
-    config::Config,
     http::{
         self,
         authorize::{Authorized, AuthorizedGlobal, perm},
     },
-    state::{AppState, SetupGate},
+    state::SetupGate,
 };
 use gsd_core::{
-    auth::{
-        GlobalRole, Grant, Username, password,
-        users::{NewUser, UserRepo},
-    },
+    auth::{GlobalRole, Grant},
     ids::InstanceId,
-    store::{self, SqlitePool},
 };
-use http_body_util::BodyExt;
-use serde_json::{Value, json};
-use tower::ServiceExt;
-
-const PASSWORD: &str = "correct horse battery";
-
-struct TestApp {
-    state: AppState,
-    pool: SqlitePool,
-    router: Router,
-}
-
-impl TestApp {
-    async fn new() -> Self {
-        let pool = store::open_in_memory().await.unwrap();
-        let config = Config::with_data_dir(std::env::temp_dir());
-        let state = AppState::build(config, pool.clone()).await.unwrap();
-        let router = http::router(state.clone());
-        Self { state, pool, router }
-    }
-
-    fn with_router(mut self, router: Router) -> Self {
-        self.router = router;
-        self
-    }
-
-    async fn send(&self, request: Request<Body>) -> Response {
-        self.router.clone().oneshot(request).await.unwrap()
-    }
-
-    async fn get(&self, path: &str, cookie: Option<&str>) -> Response {
-        let mut builder = Request::get(path);
-        if let Some(cookie) = cookie {
-            builder = builder.header(header::COOKIE, cookie);
-        }
-        self.send(builder.body(Body::empty()).unwrap()).await
-    }
-
-    async fn post(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
-        let mut builder = Request::post(path)
-            .header(header::CONTENT_TYPE, "application/json")
-            .header("x-csrf", "1");
-        if let Some(cookie) = cookie {
-            builder = builder.header(header::COOKIE, cookie);
-        }
-        self.send(builder.body(Body::from(body.to_string())).unwrap())
-            .await
-    }
-
-    /// Runs first-run setup and returns the owner's session cookie (`name=value`).
-    async fn setup_owner(&self) -> String {
-        let response = self
-            .post(
-                "/api/v1/setup",
-                json!({ "username": "owner", "password": PASSWORD }),
-                None,
-            )
-            .await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-        session_cookie(&response)
-    }
-
-    async fn create_member(&self, username: &str) {
-        UserRepo::new(self.pool.clone())
-            .insert(&NewUser {
-                username: Username::parse(username).unwrap(),
-                password_hash: password::hash(PASSWORD).unwrap(),
-                role: GlobalRole::Member,
-                must_change_password: false,
-            })
-            .await
-            .unwrap();
-    }
-
-    async fn login(&self, username: &str) -> String {
-        let response = self
-            .post(
-                "/api/v1/auth/login",
-                json!({ "username": username, "password": PASSWORD }),
-                None,
-            )
-            .await;
-        assert_eq!(response.status(), StatusCode::OK);
-        session_cookie(&response)
-    }
-}
-
-fn session_cookie(response: &Response) -> String {
-    let set_cookie = response
-        .headers()
-        .get(header::SET_COOKIE)
-        .expect("Set-Cookie")
-        .to_str()
-        .unwrap();
-    set_cookie.split(';').next().unwrap().to_owned()
-}
-
-async fn json_body(response: Response) -> Value {
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-async fn text_body(response: Response) -> String {
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    String::from_utf8(bytes.to_vec()).unwrap()
-}
+use serde_json::json;
 
 #[tokio::test]
 async fn health_and_meta_are_public() {
@@ -176,10 +68,8 @@ async fn first_run_setup_signs_the_owner_in_once() {
 async fn setup_requires_the_token_when_exposed_to_the_network() {
     let mut app = TestApp::new().await;
     app.state.setup_gate = SetupGate::with_token("let-me-in");
-    let app = TestApp {
-        router: http::router(app.state.clone()),
-        ..app
-    };
+    let router = http::router(app.state.clone());
+    let app = app.with_router(router);
 
     let status = json_body(app.get("/api/v1/setup/status", None).await).await;
     assert_eq!(status["token_required"], true);
@@ -290,6 +180,13 @@ async fn password_change_is_enforced_after_a_reset() {
         .await;
     let cookie = session_cookie(&login);
     assert_eq!(json_body(login).await["user"]["must_change_password"], true);
+    // Normal endpoints are refused until the password is changed.
+    let blocked = app.get("/api/v1/instances", Some(&cookie)).await;
+    assert_eq!(blocked.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        json_body(blocked).await["error"]["code"],
+        "password_change_required"
+    );
 
     let change = app
         .post(
@@ -316,15 +213,8 @@ async fn authorized_extractor_enforces_instance_grants() {
     // Sign everyone in through the real API, then swap in a router with probe routes.
     let real = TestApp::new().await;
     let owner = real.setup_owner().await;
-    real.create_member("friend").await;
+    let member_id = real.create_user("friend", GlobalRole::Member).await;
     let friend = real.login("friend").await;
-    let member_id = UserRepo::new(real.pool.clone())
-        .find_by_username("friend")
-        .await
-        .unwrap()
-        .unwrap()
-        .user
-        .id;
 
     let probes = Router::new()
         .route("/instances/{instance_id}/files", get(read_files))
@@ -406,6 +296,10 @@ async fn web_ui_is_served_and_templated() {
     );
     assert_eq!(
         app.get("/api/v1/nope", None).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.get("/../Cargo.toml", None).await.status(),
         StatusCode::NOT_FOUND
     );
 

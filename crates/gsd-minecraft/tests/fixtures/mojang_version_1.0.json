@@ -1,0 +1,12 @@
+{
+ "id": "1.0",
+ "type": "release",
+ "releaseTime": "2011-11-17T22:00:00+00:00",
+ "downloads": {
+  "client": {
+   "sha1": "b679fea27f2284836202e9365e13a82552092e5d",
+   "size": 2362837,
+   "url": "https://launcher.mojang.com/v1/objects/b679fea27f2284836202e9365e13a82552092e5d/client.jar"
+  }
+ }
+}

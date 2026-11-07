@@ -38,6 +38,11 @@ pub enum Command {
         #[arg(value_enum)]
         field: BrandField,
     },
+    /// Test the per-server sandbox on this host; exits non-zero if an enforced check fails.
+    IsolationCheck,
+    /// Internal: one sandboxed probe action (used by `isolation-check`).
+    #[command(hide = true)]
+    IsolationProbe { action: String, target: String },
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -60,6 +65,8 @@ pub enum CliError {
     Auth(#[from] AuthError),
     #[error("health check failed: {0}")]
     Unhealthy(String),
+    #[error("isolation check failed: {0}")]
+    Isolation(String),
 }
 
 /// Logging filter from `<PREFIX>_LOG` (same syntax as `RUST_LOG`), defaulting to `info`.
@@ -78,8 +85,41 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
         Command::ResetPassword { username } => reset_password(&load_config(&cli.config)?, &username).await?,
         Command::Healthcheck => healthcheck(&load_config(&cli.config)?).await?,
         Command::Brand { field } => println!("{}", brand_value(field)),
+        Command::IsolationCheck => isolation_check().await?,
+        Command::IsolationProbe { action, target } => {
+            std::process::exit(gsd_core::supervisor::sandbox::check::probe_main(&action, &target))
+        }
     }
     Ok(())
+}
+
+/// Prints a pass/fail table of the sandbox checks.
+async fn isolation_check() -> Result<(), CliError> {
+    let fail = |error: std::io::Error| CliError::Isolation(error.to_string());
+    let probe = std::env::current_exe().map_err(fail)?;
+    let scratch = tempfile::tempdir().map_err(fail)?;
+    let support = gsd_core::supervisor::SandboxSupport::detect();
+    let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), support)
+        .await
+        .map_err(fail)?;
+
+    println!(
+        "Isolation level: {:?} (Landlock ABI: {:?})",
+        report.level, report.support.landlock_abi
+    );
+    for check in &report.checks {
+        let mark = match (check.enforced, check.passed) {
+            (true, true) => "PASS",
+            (true, false) => "FAIL",
+            (false, _) => "n/a ",
+        };
+        println!("  [{mark}] {}: {}", check.name, check.detail);
+    }
+    if report.ok() {
+        Ok(())
+    } else {
+        Err(CliError::Isolation("an enforced check failed".into()))
+    }
 }
 
 fn load_config(overrides: &ConfigOverrides) -> Result<Config, ConfigError> {

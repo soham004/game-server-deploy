@@ -12,6 +12,7 @@ pub mod error;
 pub mod headers;
 pub mod routes;
 pub mod session;
+pub mod ws;
 
 use axum::{Router, middleware};
 use tower_http::{compression::CompressionLayer, trace::TraceLayer};
@@ -25,6 +26,11 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::setup::routes())
         .merge(routes::auth::routes())
         .merge(routes::me::routes())
+        .merge(routes::catalog::routes())
+        .merge(routes::instances::routes())
+        .merge(routes::jobs::routes())
+        .merge(routes::java::routes())
+        .merge(ws::routes())
         .fallback(routes::not_found)
         .layer(middleware::from_fn(csrf::require_csrf_header));
 

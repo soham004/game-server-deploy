@@ -1,29 +1,39 @@
 //! Server startup and graceful shutdown.
 
-use std::{net::SocketAddr, path::Path, time::Duration};
+use std::{
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use gsd_core::{
-    auth::{AuthError, AuthService},
+    auth::AuthService,
     store::{self, StoreError},
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 
-use crate::{config::Config, http, state::AppState};
+use crate::{
+    config::Config,
+    http,
+    state::{AppState, BuildError},
+};
 
 const HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(60 * 60);
+/// How long running game servers get to stop when the app shuts down.
+const SERVER_STOP_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServeError {
     #[error("could not prepare data directory {path}")]
     DataDir {
-        path: std::path::PathBuf,
+        path: PathBuf,
         #[source]
         source: std::io::Error,
     },
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error(transparent)]
-    Auth(#[from] AuthError),
+    Build(#[from] BuildError),
     #[error("could not listen on {addr}")]
     Bind {
         addr: SocketAddr,
@@ -34,9 +44,10 @@ pub enum ServeError {
     Serve(#[source] std::io::Error),
 }
 
-/// Opens storage, builds the app, serves HTTP until Ctrl+C / SIGTERM, then shuts down cleanly.
+/// Opens storage, builds the app, serves HTTP until Ctrl+C / SIGTERM, then shuts down cleanly:
+/// close live connections, finish HTTP requests, stop game servers gracefully, close the database.
 pub async fn run(config: Config) -> Result<(), ServeError> {
-    prepare_data_dir(&config.data_dir)?;
+    prepare_data_dir(&config)?;
     let pool = store::open(&config.database_path()).await?;
     let state = AppState::build(config, pool.clone()).await?;
 
@@ -47,28 +58,55 @@ pub async fn run(config: Config) -> Result<(), ServeError> {
     announce(&state, &listener);
 
     let housekeeping = spawn_housekeeping(state.auth.clone());
+    state.instances.start_auto_start_instances().await;
+
+    let shutdown = state.shutdown.clone();
+    let instances = state.instances.clone();
     let app = http::router(state).into_make_service_with_connect_info::<SocketAddr>();
     let served = axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal().await;
+            shutdown.cancel();
+        })
         .await;
 
+    tracing::info!("stopping game servers");
+    instances.stop_all(SERVER_STOP_TIMEOUT).await;
     housekeeping.abort();
     pool.close().await;
     tracing::info!("shut down cleanly");
     served.map_err(ServeError::Serve)
 }
 
-/// Creates the data directory, readable only by the app (it holds secrets and backups).
-fn prepare_data_dir(path: &Path) -> Result<(), ServeError> {
-    let map_err = |source| ServeError::DataDir {
-        path: path.to_owned(),
-        source,
-    };
-    std::fs::create_dir_all(path).map_err(map_err)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).map_err(map_err)?;
+/// Creates the data directory tree with the permissions the sandbox relies on:
+/// the data dir and `instances/` are traversable but not listable by other users (0711);
+/// Java runtimes are world-readable (0755); everything else stays private.
+fn prepare_data_dir(config: &Config) -> Result<(), ServeError> {
+    let runtimes_parent = config
+        .runtimes_dir()
+        .parent()
+        .map_or_else(|| config.runtimes_dir(), Path::to_path_buf);
+    let dirs = [
+        (config.data_dir.clone(), 0o711),
+        (config.instances_dir(), 0o711),
+        (runtimes_parent, 0o755),
+        (config.runtimes_dir(), 0o755),
+        (config.trash_dir(), 0o700),
+        (config.data_dir.join("cache"), 0o700),
+    ];
+    for (path, mode) in dirs {
+        let map_err = |source| ServeError::DataDir {
+            path: path.clone(),
+            source,
+        };
+        std::fs::create_dir_all(&path).map_err(map_err)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).map_err(map_err)?;
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
     }
     Ok(())
 }
@@ -77,8 +115,10 @@ fn announce(state: &AppState, listener: &TcpListener) {
     let address = listener
         .local_addr()
         .map_or_else(|_| state.config.bind.to_string(), |a| a.to_string());
+    let support = state.instances.supervisors().support();
     tracing::info!(
         data_dir = %state.config.data_dir.display(),
+        isolation = ?support.level(),
         "{} {} is listening on http://{address}",
         gsd_brand::NAME,
         gsd_brand::VERSION

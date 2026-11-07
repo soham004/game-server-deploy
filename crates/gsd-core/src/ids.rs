@@ -51,6 +51,10 @@ ulid_id!(
     /// Identifies a server instance.
     InstanceId
 );
+ulid_id!(
+    /// Identifies a background job.
+    JobId
+);
 
 #[cfg(test)]
 mod tests {

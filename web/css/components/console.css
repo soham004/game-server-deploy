@@ -1,0 +1,75 @@
+/* Server console. */
+.c-console {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-console__viewport {
+  position: relative;
+  height: min(60vh, 36rem);
+  overflow-y: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-console-bg);
+  color: var(--color-console-text);
+}
+
+.c-console__lines {
+  margin: 0;
+  padding: var(--space-3);
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.c-console__line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.c-console__line.is-warn {
+  color: var(--color-console-warn);
+}
+
+.c-console__line.is-error,
+.c-console__line.is-stderr {
+  color: var(--color-console-error);
+}
+
+.c-console__line.is-input {
+  color: var(--color-console-input);
+}
+
+.c-console__line.is-system {
+  color: var(--color-console-muted);
+  font-style: italic;
+}
+
+.c-console__time {
+  opacity: 0.7;
+}
+
+.c-console__jump {
+  position: sticky;
+  bottom: var(--space-3);
+  left: 100%;
+  margin-right: var(--space-3);
+  box-shadow: var(--shadow-md);
+}
+
+.c-console__form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-console__prompt {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.c-console__input {
+  flex: 1;
+  font-family: var(--font-mono);
+}

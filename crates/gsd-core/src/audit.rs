@@ -19,6 +19,15 @@ pub mod actions {
     pub const LOGOUT: &str = "auth.logout";
     pub const PASSWORD_CHANGED: &str = "auth.password_changed";
     pub const PASSWORD_RESET: &str = "auth.password_reset";
+    pub const INSTANCE_CREATED: &str = "instance.created";
+    pub const INSTANCE_DELETED: &str = "instance.deleted";
+    pub const INSTANCE_REINSTALLED: &str = "instance.reinstalled";
+    pub const INSTANCE_STARTED: &str = "instance.started";
+    pub const INSTANCE_STOPPED: &str = "instance.stopped";
+    pub const INSTANCE_RESTARTED: &str = "instance.restarted";
+    pub const INSTANCE_KILLED: &str = "instance.killed";
+    pub const CONSOLE_COMMAND: &str = "console.command";
+    pub const JAVA_INSTALLED: &str = "java.install_requested";
 }
 
 /// One event to record.
@@ -44,6 +53,16 @@ impl AuditEntry {
         Self {
             user_id: None,
             instance_id: None,
+            action,
+            details: Value::Null,
+        }
+    }
+
+    /// An action by a user on one instance.
+    pub fn on_instance(user_id: UserId, instance_id: InstanceId, action: &'static str) -> Self {
+        Self {
+            user_id: Some(user_id),
+            instance_id: Some(instance_id),
             action,
             details: Value::Null,
         }

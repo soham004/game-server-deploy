@@ -65,6 +65,14 @@
   --color-focus: #2f6fde;
   --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
   --shadow-md: 0 4px 16px rgb(16 24 40 / 0.10);
+
+  /* Console (dark in both themes, like a terminal) */
+  --color-console-bg: #0d1014;
+  --color-console-text: #d7dde5;
+  --color-console-muted: #9aa2b1;
+  --color-console-warn: #e8c071;
+  --color-console-error: #ff8a80;
+  --color-console-input: #8fc7ff;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -1,17 +1,32 @@
 name: CI
 
+# Tests on every push and pull request. On pushes to main and on version tags (v1.2.3), also
+# publishes a multi-arch image (linux/amd64 + linux/arm64) to GitHub Container Registry:
+#   ghcr.io/<owner>/<repo>:latest | :main | :sha-<short> | :1.2.3 | :1.2
+# The image carries the org.opencontainers.image.source label, which links the package to this
+# repository so it shows in the repo's "Packages" sidebar.
+
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   linux:
-    name: Linux (fmt, clippy, test, branding)
-    runs-on: ubuntu-latest
+    name: Linux (fmt, clippy, test, sandbox)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -22,6 +37,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: bash scripts/check-branding.sh
+      - name: Sandbox self-test (as root, so separate users are exercised too)
+        # The probe runs as a separate user, which can't traverse the runner's home directory,
+        # so run the binary from a system location.
+        run: |
+          cargo build -p gsd-app --locked
+          sudo install -m 0755 target/debug/gsd /usr/local/bin/gsd-ci
+          sudo /usr/local/bin/gsd-ci isolation-check
 
   windows:
     name: Windows (build, unit tests)
@@ -32,9 +54,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
 
-  docker:
-    name: Docker image (linux/amd64)
-    runs-on: ubuntu-latest
+  docker-test:
+    name: Docker image (build, health, sandbox)
+    runs-on: ubuntu-24.04
     needs: linux
     steps:
       - uses: actions/checkout@v4
@@ -42,11 +64,10 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
           load: true
           tags: app:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,scope=amd64,mode=max
       - name: Container starts and reports healthy
         run: |
           docker run -d --name app-ci app:ci
@@ -57,3 +78,108 @@ jobs:
           done
           docker logs app-ci
           docker exec app-ci /usr/local/lib/app/entrypoint.sh healthcheck
+      - name: Sandbox self-test inside the container (production capabilities)
+        run: |
+          docker run --rm \
+            --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add KILL \
+            app:ci isolation-check
+
+  publish:
+    name: Publish ${{ matrix.platform }}
+    if: github.event_name != 'pull_request'
+    needs: [linux, windows, docker-test]
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            arch: amd64
+          # Native arm64 runner (free for public repositories). For a private repository on a
+          # plan without arm64 runners, switch this to ubuntu-24.04 + docker/setup-qemu-action.
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image name (GHCR needs lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          labels: |
+            org.opencontainers.image.description=Self-hosted game server manager (Minecraft first)
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish-manifest:
+    name: Publish multi-arch manifest
+    needs: publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+      - name: Image name (GHCR needs lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create and push the manifest list
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --annotation "index:org.opencontainers.image.description=Self-hosted game server manager (Minecraft first)" \
+            $(printf "${IMAGE}@sha256:%s " *)
+      - name: Inspect
+        run: docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"

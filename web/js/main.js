@@ -3,15 +3,21 @@
  *   1. first-run setup pending  → /setup.html
  *   2. not signed in            → /login.html?next=…
  *   3. must change password     → /login.html?change=1
- *   4. otherwise show the shell and start the router.
+ *   4. otherwise show the shell, connect the live stream and start the router.
  */
 import { api, ApiError } from './core/api.js';
 import { $ } from './core/dom.js';
+import { setNavigator } from './core/navigation.js';
 import { createRouter } from './core/router.js';
 import { session } from './core/session.js';
+import { live } from './core/ws.js';
+import { mountJobTray } from './components/job-tray.js';
 
+// Order matters: "/servers/new" must match before "/servers/:id".
 const routes = [
   { path: '/', view: () => import('./views/dashboard.js') },
+  { path: '/servers/new', view: () => import('./views/instance-create.js') },
+  { path: '/servers/:id', view: () => import('./views/instance.js') },
 ];
 
 async function boot() {
@@ -25,6 +31,8 @@ async function boot() {
   if (!me) return;
   session.setMe(me);
   showShell(me);
+  live.start();
+  mountJobTray($('[data-job-tray]'));
 
   const router = createRouter({
     root: $('#view'),
@@ -32,6 +40,7 @@ async function boot() {
     notFound: () => import('./views/not-found.js'),
     onNavigate: highlightNav,
   });
+  setNavigator(router.navigate);
   await router.start();
 }
 
@@ -71,7 +80,8 @@ async function logout() {
 
 function highlightNav(pathname) {
   for (const link of document.querySelectorAll('[data-nav]')) {
-    const active = link.dataset.nav === pathname;
+    const target = link.dataset.nav;
+    const active = target === '/' ? pathname === '/' || pathname.startsWith('/servers') : pathname.startsWith(target);
     link.classList.toggle('is-active', active);
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');

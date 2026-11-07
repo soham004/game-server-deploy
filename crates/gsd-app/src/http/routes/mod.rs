@@ -1,6 +1,10 @@
 //! API route groups, one module per feature. Each exposes `routes() -> Router<AppState>`.
 
 pub mod auth;
+pub mod catalog;
+pub mod instances;
+pub mod java;
+pub mod jobs;
 pub mod me;
 pub mod setup;
 pub mod system;

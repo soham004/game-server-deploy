@@ -106,3 +106,31 @@ RCON and management ports are internal (loopback) and allocated outside this ran
 
 **D-023: Only owners and admins create instances in v1** · accepted
 Members manage only the instances they are granted. Member quotas (instance count, RAM, disk) are a possible later feature.
+
+**D-025: M1 implementation choices and lessons from real runs** · accepted · 2026-11-07
+- **Game seam**: the core's `GameAdapter` trait covers only what the supervisor needs (parse a line, detect signals,
+  diagnose, stop command). Instance *creation* is game-specific and lives in `gsd-minecraft::service`, which registers
+  instances through the core registry. The `[server]` table in `instance.toml` is opaque to the core.
+- **Supervisor** = pure state machine (`supervisor/state.rs`) + one actor task per instance. Readers forward lines; the waiter
+  reports the exit only after the pipes drain, so the last output always precedes "exited". Clean exit nobody requested
+  (someone typed `stop` in the console) counts as a stop, not a crash.
+- **Data dir permissions**: `data/` and `instances/` are `0711` (traversable, not listable) so sandbox users can reach
+  their own folder; `runtimes/` is `0755`; each instance root is root-owned `0711`, with `server/ home/ tmp/` owned by the
+  instance UID (`0700`). `instance.toml` stays out of the writable set.
+- **Lesson 1 (real Paper run)**: `/etc/resolv.conf` is a symlink out of `/etc` on WSL (`/mnt/wsl/…`) and with
+  systemd-resolved (`/run/systemd/resolve/…`). Landlock checks resolved paths, so DNS failed inside the sandbox. Fix: allow
+  the canonical targets of a short list of `/etc` files (`LINKED_CONFIG_FILES`); regression test
+  `name_resolution_config_stays_readable`; new diagnostic `network_unreachable`.
+- **Lesson 2 (real Paper run)**: Paper's JLine console prefixes lines with `> ` when stdout isn't a TTY, so "Done" wasn't
+  detected. Fix: Minecraft instances get `-Dterminal.jline=false -Dterminal.ansi=true` (`DEFAULT_JVM_ARGS`), and the parser
+  strips prompt residue; regression test with the exact captured line.
+- **Fabric** server launcher jars are built on demand by Fabric meta and have no published checksum (downloaded over HTTPS
+  without hash verification; noted in code). Everything else is hash-verified.
+- **Tests**: fixtures recorded from the live APIs (`crates/gsd-minecraft/tests/fixtures`), wiremock for upstreams, a shell
+  script as fake server/fake `java`, real Landlock tests that skip when the kernel lacks it.
+- **CI/GHCR**: multi-arch image built on native amd64 + arm64 runners, pushed by digest and merged into one manifest with
+  `org.opencontainers.image.source`, which links the package to the repository. Publishing only after all tests pass,
+  only on pushes to `main` and `v*` tags.
+- **Verified in Docker** (2026-11-07, production capability set): `isolation-check` reports **Strong** (Landlock ABI 7,
+  separate UID): other servers' files unreadable, writes outside its folder blocked, other servers' admin ports
+  unreachable. The container becomes healthy and `docker stop` exits 0.

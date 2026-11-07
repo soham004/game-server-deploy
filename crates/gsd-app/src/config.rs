@@ -118,6 +118,31 @@ impl Config {
         self.data_dir.join(format!("{}.sqlite", gsd_brand::SLUG))
     }
 
+    /// One folder per instance (see `gsd_core::instances::layout`).
+    pub fn instances_dir(&self) -> PathBuf {
+        self.data_dir.join("instances")
+    }
+
+    /// Deleted instances, kept until purged.
+    pub fn trash_dir(&self) -> PathBuf {
+        self.data_dir.join("trash")
+    }
+
+    /// Managed Java runtimes (readable by every sandbox user).
+    pub fn runtimes_dir(&self) -> PathBuf {
+        self.data_dir.join("runtimes").join("java")
+    }
+
+    /// Shared, content-addressed download cache (server jars).
+    pub fn download_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("cache").join("downloads")
+    }
+
+    /// Cached catalog responses (offline fallback).
+    pub fn catalog_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("cache").join("meta")
+    }
+
     fn apply_file(&mut self, file: FileConfig) -> Result<(), ConfigError> {
         if let Some(bind) = file.bind {
             self.bind = bind;

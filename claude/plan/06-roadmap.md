@@ -24,17 +24,26 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       (bound to `0.0.0.0` in the container), setup works only with the token, and `docker stop` shuts down cleanly (exit 0).
 - [ ] Login rate limiting (moved to M6, as planned).
 
-## M1: First server runs, isolated (Vanilla, Paper, Fabric)
-- [ ] Mojang manifest provider + `McVersion` ordering; Paper Fill v3; Fabric meta.
-- [ ] Java detection + Temurin download (job) into `<data>/runtimes`.
-- [ ] Jobs runner + tray UI.
-- [ ] Instance create job (sandboxed install): download → verify → EULA from consent → `instance.toml`; port allocation from
-      the configured game port range; sandbox UID allocation + chown.
-- [ ] `ProcessBackend::Native` + **Linux sandbox** (UID/GID, Landlock fs, rlimits; Landlock net and cgroups when available) +
-      isolation level badge + "isolation check" self-test.
-- [ ] Supervisor actor: start, graceful stop, kill, state machine, ring buffer, auto-restart + crash-loop guard.
-- [ ] Console view, dashboard cards, version picker UI. Permission-aware UI (hide or disable actions).
-- [ ] Diagnostics v1: wrong Java, port in use, EULA, out of memory, sandbox denials (Landlock `EACCES` hints).
+## M1: First server runs, isolated (Vanilla, Paper, Fabric) — done 2026-11-07
+- [x] Catalog: Mojang manifest (sorted by release time, not id), Paper Fill v3 (stable builds, URLs from responses), Fabric
+      meta (launcher jar). Memory + disk cache with stale-on-error fallback. Fixtures recorded from the live APIs.
+- [x] Java detection (managed dir, `JAVA_HOME`, `PATH`, platform dirs; `release` file or `-XshowSettings`) + Temurin download
+      job (sha256-verified, unpacked world-readable for sandbox users).
+- [x] Jobs runner (progress, log, cancel, per-instance lock, panic capture, bounded history) + header task tray.
+- [x] Instance create: synchronous validation against the catalog → registry allocates slug/port/UID → install job (Java,
+      jar via content-addressed cache, `eula.txt` from consent, seeded `server.properties`, chown) → `installed_at`.
+      Retryable install. Delete moves the folder to `trash/`.
+- [x] Linux sandbox: per-instance UID/GID (when root), Landlock fs + net (ABI ≥ 4), rlimits, `no_new_privs`. `isolation-check`
+      CLI + `POST /system/isolation-check` + isolation level in `/system`. **cgroups not yet** (see M2).
+- [x] Supervisor actor: pure state machine (start/stop/restart/kill, stop timeout → kill, crash backoff 5/15/45/120 s,
+      crash-loop guard), ordered output (exit reported after pipes drain), console history, players, diagnostics.
+- [x] WebSocket stream (`instances`, `jobs`, `console:<id>` topics; per-event permission checks; session re-validation).
+- [x] UI: live dashboard cards, Prism-style version picker, instance page (lifecycle buttons by permission, console with
+      history and follow-tail, overview with connect address/players/problems), job tray.
+- [x] Diagnostics: port in use, EULA, wrong Java (names the version), OOM, overload, missing dependency, client-only mod,
+      mixin failure, network/DNS unreachable, crash loop.
+- [x] Verified with a **real Paper 26.3 server** under Landlock in WSL2 (see decisions D-025).
+- [ ] cgroup v2 memory/pids limits (when writable), moved to M2.
 
 ## M2: All loaders + configuration
 - [ ] Forge, NeoForge (installer jobs + args-file launch), Quilt (installer CLI), Purpur.

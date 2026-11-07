@@ -1,13 +1,22 @@
-//! Shared application state handed to every request handler.
+//! Shared application state handed to every request handler, and how it is wired together.
 
-use std::{fmt, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use gsd_core::{
     audit::AuditLog,
     auth::{AuthError, AuthService},
+    events::EventBus,
+    game::GameAdapter,
+    instances::{AllocationPolicy, InstanceRegistry, InstanceService, registry::RegistryError},
+    java::JavaRuntimes,
+    jobs::JobRunner,
+    net::http_client,
     random::random_token,
     store::SqlitePool,
+    supervisor::{SandboxSupport, Supervisors},
 };
+use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftService};
+use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
 
@@ -18,18 +27,102 @@ pub struct AppState {
     pub auth: AuthService,
     pub audit: AuditLog,
     pub setup_gate: SetupGate,
+    pub events: EventBus,
+    pub jobs: JobRunner,
+    pub java: JavaRuntimes,
+    pub instances: InstanceService,
+    pub minecraft: MinecraftService,
+    /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
+    pub shutdown: CancellationToken,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildError {
+    #[error(transparent)]
+    Auth(#[from] AuthError),
+    #[error(transparent)]
+    Registry(#[from] RegistryError),
+    #[error("could not create the HTTP client")]
+    Http(#[from] reqwest::Error),
+}
+
+/// Overrides for tests (mock upstream APIs, no port probing, no sandbox).
+#[derive(Debug, Clone, Default)]
+pub struct BuildOptions {
+    pub endpoints: Option<Endpoints>,
+    pub adoptium_api: Option<String>,
+    pub sandbox: Option<SandboxSupport>,
+    pub probe_ports: Option<bool>,
 }
 
 impl AppState {
+    pub async fn build(config: Config, pool: SqlitePool) -> Result<Self, BuildError> {
+        Self::build_with(config, pool, BuildOptions::default()).await
+    }
+
     /// Wires the services together. Also decides whether first-run setup needs a token.
-    pub async fn build(config: Config, pool: SqlitePool) -> Result<Self, AuthError> {
+    pub async fn build_with(
+        config: Config,
+        pool: SqlitePool,
+        options: BuildOptions,
+    ) -> Result<Self, BuildError> {
         let auth = AuthService::new(pool.clone(), config.session_ttl);
         let setup_gate = SetupGate::for_startup(&config, &auth).await?;
+        let events = EventBus::new();
+        let jobs = JobRunner::new(events.clone());
+        let client = http_client()?;
+
+        let java = match options.adoptium_api {
+            Some(api) => JavaRuntimes::with_api(config.runtimes_dir(), client.clone(), api, false),
+            None => JavaRuntimes::new(config.runtimes_dir(), client.clone()),
+        };
+        let policy = AllocationPolicy {
+            game_ports: config.game_ports,
+            sandbox_uids: AllocationPolicy::DEFAULT_SANDBOX_UIDS,
+            probe_ports: options.probe_ports.unwrap_or(true),
+        };
+        let (registry, problems) =
+            InstanceRegistry::load(config.instances_dir(), config.trash_dir(), policy, events.clone())?;
+        for problem in problems {
+            tracing::error!(path = %problem.path.display(), error = %problem.error, "skipping an instance that could not be loaded");
+        }
+
+        let support = options.sandbox.unwrap_or_else(SandboxSupport::detect);
+        let supervisors = Supervisors::new(events.clone(), support);
+        let mut adapters: HashMap<String, Arc<dyn GameAdapter>> = HashMap::new();
+        adapters.insert(GAME_ID.to_owned(), Arc::new(MinecraftAdapter));
+        let instances = InstanceService::new(
+            registry.clone(),
+            supervisors,
+            java.clone(),
+            jobs.clone(),
+            adapters,
+        );
+
+        let catalog = Catalog::new(
+            client,
+            options.endpoints.unwrap_or_default(),
+            config.catalog_cache_dir(),
+        );
+        let minecraft = MinecraftService::new(
+            catalog,
+            registry,
+            java.clone(),
+            jobs.clone(),
+            config.download_cache_dir(),
+        );
+
         Ok(Self {
             config: Arc::new(config),
             auth,
             audit: AuditLog::new(pool),
             setup_gate,
+            events,
+            jobs,
+            java,
+            instances,
+            minecraft,
+            shutdown: CancellationToken::new(),
         })
     }
 }
