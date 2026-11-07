@@ -442,6 +442,8 @@ impl Actor {
     }
 
     async fn on_line(&mut self, source: LineSource, raw: String) {
+        // Server output is too noisy for the default log; `<PREFIX>_LOG=…,gsd_core::supervisor=debug` shows it.
+        tracing::debug!(instance = %self.instance_id, ?source, "{raw}");
         let parsed = self.adapter.parse_line(&raw);
         let line = self.record_line(LogLine {
             seq: 0,
@@ -517,7 +519,14 @@ impl Actor {
         result.map_err(|error| SupervisorError::Write(error.to_string()))
     }
 
+    /// A lifecycle message: shown in the console and written to the app log.
     fn system_line(&mut self, level: LogLevel, text: String) {
+        let instance = self.instance_id;
+        match level {
+            LogLevel::Error | LogLevel::Fatal => tracing::error!(%instance, "{text}"),
+            LogLevel::Warn => tracing::warn!(%instance, "{text}"),
+            _ => tracing::info!(%instance, "{text}"),
+        }
         self.record_line(LogLine {
             seq: 0,
             received_at: Utc::now(),
@@ -546,6 +555,13 @@ impl Actor {
         if self.diagnostics.iter().any(|known| known.code == diagnostic.code) {
             return;
         }
+        tracing::warn!(
+            instance = %self.instance_id,
+            problem = diagnostic.code,
+            "{}: {}",
+            diagnostic.title,
+            diagnostic.detail
+        );
         self.diagnostics.push(diagnostic.clone());
         self.events
             .publish(Some(self.instance_id), EventKind::Diagnostic(diagnostic));

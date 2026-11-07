@@ -13,7 +13,7 @@ use gsd_core::{
     net::http_client,
     random::random_token,
     store::SqlitePool,
-    supervisor::{SandboxSupport, Supervisors},
+    supervisor::{SandboxSupport, Supervisors, sandbox::check},
 };
 use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftService};
 use tokio_util::sync::CancellationToken;
@@ -51,7 +51,10 @@ pub enum BuildError {
 pub struct BuildOptions {
     pub endpoints: Option<Endpoints>,
     pub adoptium_api: Option<String>,
+    /// Skips host detection and the data-dir sandbox check.
     pub sandbox: Option<SandboxSupport>,
+    /// With `sandbox`: pretend the data-dir check found this problem.
+    pub sandbox_problem: Option<String>,
     pub probe_ports: Option<bool>,
 }
 
@@ -87,8 +90,13 @@ impl AppState {
             tracing::error!(path = %problem.path.display(), error = %problem.error, "skipping an instance that could not be loaded");
         }
 
-        let support = options.sandbox.unwrap_or_else(SandboxSupport::detect);
-        let supervisors = Supervisors::new(events.clone(), support);
+        let (support, sandbox_problem) = if let Some(support) = options.sandbox {
+            (support, options.sandbox_problem)
+        } else {
+            let support = SandboxSupport::detect();
+            (support, check_sandbox_in_data_dir(&config, support).await)
+        };
+        let supervisors = Supervisors::new(events.clone(), support, sandbox_problem);
         let mut adapters: HashMap<String, Arc<dyn GameAdapter>> = HashMap::new();
         adapters.insert(GAME_ID.to_owned(), Arc::new(MinecraftAdapter));
         let instances = InstanceService::new(
@@ -124,6 +132,32 @@ impl AppState {
             minecraft,
             shutdown: CancellationToken::new(),
         })
+    }
+}
+
+/// Proves a sandboxed server could use its folder in the data directory. Returns why not, if not.
+///
+/// Without this, a data directory on WSL's Windows drives fails much later and cryptically: the
+/// server process can't open its own jar and crash-loops.
+async fn check_sandbox_in_data_dir(config: &Config, support: SandboxSupport) -> Option<String> {
+    let result = async {
+        let probe = std::env::current_exe()?;
+        check::own_folder_usable(&probe, &config.sandbox_check_dir(), support).await
+    }
+    .await;
+    match result {
+        Ok(true) => None,
+        Ok(false) => Some(format!(
+            "Servers can't start: the sandbox can't enforce its rules on the filesystem holding the data \
+             folder ({}). This happens on WSL's Windows drives (/mnt/c, /mnt/e, …) and on some network \
+             and FUSE mounts. Move the data folder to a Linux filesystem, for example `--data-dir ~/{}-data`.",
+            config.data_dir.display(),
+            gsd_brand::SLUG
+        )),
+        Err(error) => {
+            tracing::warn!(%error, "could not test the sandbox in the data folder");
+            None
+        }
     }
 }
 

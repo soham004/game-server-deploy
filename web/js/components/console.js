@@ -9,6 +9,7 @@
  * Lines come from the REST snapshot plus the `console:<id>` live topic; sequence numbers
  * de-duplicate the overlap. The view follows new output unless the user scrolled up.
  */
+import { ansiToNodes } from '../core/ansi.js';
 import { api } from '../core/api.js';
 import { h } from '../core/dom.js';
 import { clockTime } from '../core/format.js';
@@ -144,12 +145,11 @@ function lineElement(line) {
   const classes = ['c-console__line', `is-${line.source}`];
   if (line.level === 'warn') classes.push('is-warn');
   if (line.level === 'error' || line.level === 'fatal') classes.push('is-error');
-  const text = line.source === 'stdout' || line.source === 'stderr' ? line.raw : line.text;
+  // Server output keeps its colours (ANSI codes); our own lines are plain text.
+  const fromServer = line.source === 'stdout' || line.source === 'stderr';
   return h('li', { class: classes.join(' ') },
-    line.source === 'system' || line.source === 'input'
-      ? h('span', { class: 'c-console__time' }, clockTime(line.received_at), ' ')
-      : null,
-    text,
+    fromServer ? null : h('span', { class: 'c-console__time' }, clockTime(line.received_at), ' '),
+    fromServer ? ansiToNodes(line.raw) : line.text,
   );
 }
 

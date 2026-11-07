@@ -35,15 +35,19 @@ pub struct Supervisors {
 struct Inner {
     events: EventBus,
     support: SandboxSupport,
+    /// Why servers can't be sandboxed here, if the startup check found a problem.
+    sandbox_problem: Option<String>,
     handles: Mutex<HashMap<InstanceId, SupervisorHandle>>,
 }
 
 impl Supervisors {
-    pub fn new(events: EventBus, support: SandboxSupport) -> Self {
+    /// `sandbox_problem`: set when the sandbox can't work on this host, which blocks every start.
+    pub fn new(events: EventBus, support: SandboxSupport, sandbox_problem: Option<String>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 events,
                 support,
+                sandbox_problem,
                 handles: Mutex::new(HashMap::new()),
             }),
         }
@@ -51,6 +55,10 @@ impl Supervisors {
 
     pub fn support(&self) -> SandboxSupport {
         self.inner.support
+    }
+
+    pub fn sandbox_problem(&self) -> Option<&str> {
+        self.inner.sandbox_problem.as_deref()
     }
 
     /// The instance's supervisor, starting one if needed.
@@ -203,7 +211,7 @@ done
 
     fn setup(auto_restart: bool) -> (Supervisors, SupervisorHandle, EventBus) {
         let events = EventBus::new();
-        let supervisors = Supervisors::new(events.clone(), SandboxSupport::none());
+        let supervisors = Supervisors::new(events.clone(), SandboxSupport::none(), None);
         let handle =
             supervisors.get_or_spawn(InstanceId::generate(), Arc::new(FakeGame), policy(auto_restart));
         (supervisors, handle, events)

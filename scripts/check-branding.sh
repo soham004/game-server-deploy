@@ -15,11 +15,21 @@ if [[ -z "$name" || -z "$port" ]]; then
   exit 2
 fi
 
-matches=$(grep -rnI \
-  --exclude-dir={target,.git,claude,deploy,gsd-brand,node_modules} \
-  --exclude=Cargo.lock \
-  --exclude=check-branding.sh \
-  -e "$name" -e "\b$port\b" . || true)
+excluded='^(claude|deploy|crates/gsd-brand)/|^Cargo\.lock$|^scripts/check-branding\.sh$'
+patterns=(-e "$name" -e "\b$port\b")
+
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  # Only files git would commit: skips build output and local runtime data (e.g. ./data).
+  matches=$(git ls-files -z --cached --others --exclude-standard \
+    | grep -zvE "$excluded" \
+    | xargs -0 -r grep -nI "${patterns[@]}" -- 2>/dev/null || true)
+else
+  matches=$(grep -rnI \
+    --exclude-dir={target,.git,claude,deploy,gsd-brand,node_modules,data} \
+    --exclude=Cargo.lock \
+    --exclude=check-branding.sh \
+    "${patterns[@]}" . || true)
+fi
 
 if [[ -n "$matches" ]]; then
   echo "Hard-coded branding found. Use gsd_brand::{NAME, DEFAULT_PORT} (or {{APP_NAME}} in HTML) instead:" >&2

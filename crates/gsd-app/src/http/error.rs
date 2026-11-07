@@ -114,6 +114,9 @@ impl From<InstanceError> for ApiError {
             InstanceError::JavaMissing { .. } => conflict("java_missing"),
             InstanceError::StillRunning => conflict("instance_running"),
             InstanceError::NotInstalled => conflict("not_installed"),
+            InstanceError::SandboxUnusable(_) => {
+                Self::new(StatusCode::SERVICE_UNAVAILABLE, "sandbox_unusable", message)
+            }
             InstanceError::Supervisor(error) => error.into(),
             InstanceError::Registry(error) => error.into(),
             InstanceError::UnknownGame(_) => Self::internal(&error),

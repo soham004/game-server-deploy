@@ -1,0 +1,24 @@
+/* Banner: a page-level notice (job progress, host problems). */
+
+.c-banner {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+
+.c-banner.is-info {
+  border-left-color: var(--color-focus);
+}
+
+.c-banner.is-error {
+  border-left-color: var(--color-danger);
+}
+
+.c-banner__title {
+  display: block;
+  margin-bottom: var(--space-1);
+}

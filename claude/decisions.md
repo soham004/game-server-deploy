@@ -134,3 +134,30 @@ Members manage only the instances they are granted. Member quotas (instance coun
 - **Verified in Docker** (2026-11-07, production capability set): `isolation-check` reports **Strong** (Landlock ABI 7,
   separate UID): other servers' files unreadable, writes outside its folder blocked, other servers' admin ports
   unreachable. The container becomes healthy and `docker stop` exits 0.
+
+**D-026: Refuse to start servers when the sandbox can't work in the data folder; log lifecycle events** · accepted · 2026-11-07
+- **Found by the user**: with `--data-dir ./data` in the repo on `/mnt/e` (WSL's 9p Windows drive), a Paper server
+  crash-looped with only `Error: Unable to access jarfile server.jar`. Landlock identifies files by inode, and 9p hands out a
+  fresh inode per lookup, so the rule granting the server its own folder never matched. The isolation check passed because
+  it ran in `/tmp` (ext4). Reproduced: same check, scratch on `/mnt/e` → "Can write its own folder" fails.
+- **Decision**: at startup, run one sandboxed probe in `<data>/sandbox-check/` (0711). If it fails, refuse every start/restart
+  with `503 sandbox_unusable` and an actionable message (move the data folder to a Linux filesystem), log it at startup,
+  expose it as `sandbox_problem` in `GET /system`, and show a dashboard banner. Rejected: silently dropping Landlock's
+  filesystem rules on such filesystems, because per-server isolation is a v1 requirement (D-016) and the user wouldn't know
+  it was off. An explicit opt-out can be added later if someone needs network storage.
+- `isolation-check` (CLI and API) now runs in the data dir, because that filesystem and its parents' permissions are what
+  servers get. This also fixed the API check, which used the private `cache/` dir that sandbox users can't traverse when running
+  as root. CI runs the root check with `--data-dir /srv/gsd-ci` (root's home isn't traversable by sandbox users either).
+- **Logging**: supervisor lifecycle lines (starting, exited, crashed/restarting, crash loop, spawn failure) are also written to
+  the app log with the instance id; detected problems are logged at `warn`, and finished/failed jobs at `info`/`warn`. Game output
+  is logged at `debug` (`GSD_LOG=info,gsd_core::supervisor=debug`), off by default because it is high volume.
+
+**D-027: Render ANSI colours in the web console** · accepted · 2026-11-07
+- **Found by the user**: Paper output showed invisible characters around coloured text (`ESC[92m…ESC[0m`, e.g. the seed).
+  The console displays each server line's `raw` text, which keeps the colour codes (the parsed `text` already strips them).
+- **Decision**: keep `-Dterminal.ansi=true` (D-025) and render the codes in the browser (`web/js/core/ansi.js`): SGR
+  attributes plus 16-colour (theme tokens `--ansi-0…15`, tuned for the dark console), 256-colour and 24-bit colours. Every
+  other escape or control sequence is dropped. Rejected: stripping server-side, because the colours carry meaning
+  (highlighted values, warnings) and Prism Launcher users expect them.
+- First frontend unit tests: `tests/web/ansi.test.mjs` (Node's built-in runner, no npm dependencies); CI runs them and
+  `node --check` on every module.

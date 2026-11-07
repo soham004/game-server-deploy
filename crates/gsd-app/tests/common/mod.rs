@@ -47,6 +47,15 @@ pub struct TestApp {
 
 impl TestApp {
     pub async fn new() -> Self {
+        Self::build(None).await
+    }
+
+    /// An app whose startup check found that the sandbox can't work in its data folder.
+    pub async fn with_sandbox_problem(problem: &str) -> Self {
+        Self::build(Some(problem.to_owned())).await
+    }
+
+    async fn build(sandbox_problem: Option<String>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let upstream = mock_upstream().await;
         let pool = store::open_in_memory().await.unwrap();
@@ -62,6 +71,7 @@ impl TestApp {
             }),
             adoptium_api: Some(upstream.uri()),
             sandbox: Some(SandboxSupport::none()),
+            sandbox_problem,
             probe_ports: Some(false),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();

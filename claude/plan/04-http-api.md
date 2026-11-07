@@ -25,7 +25,7 @@ Conventions:
 | GET/DELETE | `/me/sessions` · `/users/{id}/sessions` | list and revoke sessions |
 | GET | `/instances/{id}/isolation` · POST `/isolation/check` | achieved isolation level + self-test |
 | GET/PATCH | `/settings` | app settings (CurseForge key write-only) |
-| GET | `/system` | host info: OS, CPUs, RAM, disk free, app version, LAN/public IP |
+| GET | `/system` | host info: OS, CPUs, RAM, disk free, app version, LAN/public IP, isolation level, `sandbox_problem` (D-026) |
 
 ### Catalog (version pickers)
 | GET | `/catalog/minecraft/versions?types=release,snapshot` | from the Mojang manifest |

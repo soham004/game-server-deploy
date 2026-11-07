@@ -8,6 +8,7 @@ import { live } from '../core/ws.js';
 export async function mount(root) {
   const canCreate = session.canGlobal('instances.create');
   const grid = h('div', { class: 'c-server-grid' });
+  const hostProblem = h('div', { class: 'c-banner is-error', role: 'alert', hidden: true });
   let instances = [];
 
   root.append(
@@ -15,8 +16,19 @@ export async function mount(root) {
       h('h1', { class: 'l-page-header__title' }, 'Servers'),
       canCreate ? h('a', { class: 'c-button c-button--primary', href: '/servers/new' }, 'New server') : null,
     ),
+    hostProblem,
     grid,
   );
+
+  // A host-level problem (e.g. the sandbox can't work in the data folder) blocks every server.
+  api.get('/system').then((system) => {
+    if (!system.sandbox_problem) return;
+    hostProblem.replaceChildren(
+      h('strong', { class: 'c-banner__title' }, 'Servers can’t start on this host'),
+      h('p', null, system.sandbox_problem),
+    );
+    hostProblem.hidden = false;
+  }).catch(() => {});
 
   function render() {
     if (instances.length === 0) {

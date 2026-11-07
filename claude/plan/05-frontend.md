@@ -28,7 +28,8 @@ web/
 │  │  ├─ router.js            # History API router: path patterns → view modules (lazy import())
 │  │  ├─ store.js             # tiny observable store (subscribe/select/set), no magic
 │  │  ├─ dom.js               # h()/html helpers, safe text insertion (never innerHTML with server data)
-│  │  └─ format.js            # bytes, durations, relative time, MC colour codes → spans
+│  │  ├─ ansi.js              # ANSI colour codes in server output → spans (theme tokens --ansi-0…15)
+│  │  └─ format.js            # bytes, durations, relative time
 │  ├─ components/             # Custom Elements (Web Components), light DOM (so global CSS applies)
 │  │  ├─ gsd-console.js       # virtualised log view + input + autocomplete popup
 │  │  ├─ gsd-version-picker.js# two-pane MC × loader picker
@@ -48,7 +49,10 @@ web/
 - **Data flow**: REST for initial state → store; WS events patch the store; views re-render the affected parts.
   Keep it explicit: no virtual DOM. Components expose `update(data)` methods.
 - **Security**: server-derived strings always go through `textContent` or `dom.text()`. Console lines with colour codes are
-  parsed into spans built with `textContent`.
+  parsed into spans built with text nodes (`core/ansi.js`); 256/24-bit colours are set through CSSOM (`el.style.color`),
+  which the strict CSP allows, never through `style` attributes.
+- **Tests**: pure modules get unit tests in `tests/web/*.test.mjs`, run with `node --test tests/web/` (no dependencies;
+  a minimal DOM stand-in where needed). Kept outside `web/` so they aren't embedded in the binary.
 - **Progressive enhancement**: links are real `<a href>`; forms are real `<form>`s, enhanced with JS.
 - **Accessibility**: keyboard navigation everywhere, visible focus, ARIA for tabs, dialogs and live regions (console
   uses `aria-live="off"` with a "screen reader: announce new lines" toggle), contrast checked in both themes.

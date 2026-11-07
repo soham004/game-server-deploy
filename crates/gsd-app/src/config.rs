@@ -138,6 +138,11 @@ impl Config {
         self.data_dir.join("cache").join("downloads")
     }
 
+    /// Scratch space for sandbox self-tests (on the same filesystem as the instances).
+    pub fn sandbox_check_dir(&self) -> PathBuf {
+        self.data_dir.join("sandbox-check")
+    }
+
     /// Cached catalog responses (offline fallback).
     pub fn catalog_cache_dir(&self) -> PathBuf {
         self.data_dir.join("cache").join("meta")

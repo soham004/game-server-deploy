@@ -37,13 +37,20 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
       - run: bash scripts/check-branding.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Frontend (syntax check + unit tests, no dependencies)
+        run: |
+          find web/js -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --test tests/web/
       - name: Sandbox self-test (as root, so separate users are exercised too)
-        # The probe runs as a separate user, which can't traverse the runner's home directory,
-        # so run the binary from a system location.
+        # The probe runs as a separate user, which can't traverse the runner's or root's home
+        # directory, so the binary and the data dir (where the check runs) live in system locations.
         run: |
           cargo build -p gsd-app --locked
           sudo install -m 0755 target/debug/gsd /usr/local/bin/gsd-ci
-          sudo /usr/local/bin/gsd-ci isolation-check
+          sudo /usr/local/bin/gsd-ci --data-dir /srv/gsd-ci isolation-check
 
   windows:
     name: Windows (build, unit tests)

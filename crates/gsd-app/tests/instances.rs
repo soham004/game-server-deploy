@@ -458,5 +458,37 @@ async fn system_reports_isolation_support() {
         system["isolation_level"], "none",
         "tests run with the sandbox disabled"
     );
+    assert!(system["sandbox_problem"].is_null());
     assert_eq!(system["game_ports"], "41000-41009");
+}
+
+/// Regression: with the data folder on WSL's Windows drive (9p), Landlock blocked the server
+/// from its own jar and it crash-looped with only "Unable to access jarfile". The startup check
+/// now refuses starts with an explanation instead.
+#[tokio::test]
+async fn servers_do_not_start_when_the_sandbox_cannot_work_in_the_data_folder() {
+    const PROBLEM: &str = "Servers can't start: move the data folder to a Linux filesystem.";
+    let app = TestApp::with_sandbox_problem(PROBLEM).await;
+    let cookie = app.setup_owner().await;
+    // Installing doesn't run sandboxed code, so it still works.
+    let id = create_installed(&app, &cookie, "vanilla").await;
+
+    for action in ["start", "restart"] {
+        let response = app
+            .post(
+                &format!("/api/v1/instances/{id}/{action}"),
+                json!({}),
+                Some(&cookie),
+            )
+            .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{action}");
+        let error = &json_body(response).await["error"];
+        assert_eq!(error["code"], "sandbox_unusable");
+        assert_eq!(error["message"], PROBLEM);
+    }
+
+    let instance = json_body(app.get(&format!("/api/v1/instances/{id}"), Some(&cookie)).await).await;
+    assert_eq!(instance["state"]["status"], "stopped", "{instance}");
+    let system = json_body(app.get("/api/v1/system", Some(&cookie)).await).await;
+    assert_eq!(system["sandbox_problem"], PROBLEM);
 }

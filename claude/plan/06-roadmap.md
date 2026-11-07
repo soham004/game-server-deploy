@@ -34,7 +34,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       jar via content-addressed cache, `eula.txt` from consent, seeded `server.properties`, chown) → `installed_at`.
       Retryable install. Delete moves the folder to `trash/`.
 - [x] Linux sandbox: per-instance UID/GID (when root), Landlock fs + net (ABI ≥ 4), rlimits, `no_new_privs`. `isolation-check`
-      CLI + `POST /system/isolation-check` + isolation level in `/system`. **cgroups not yet** (see M2).
+      CLI + `POST /system/isolation-check` + isolation level in `/system`; startup check that the sandbox works in the data dir (D-026). **cgroups not yet** (see M2).
 - [x] Supervisor actor: pure state machine (start/stop/restart/kill, stop timeout → kill, crash backoff 5/15/45/120 s,
       crash-loop guard), ordered output (exit reported after pipes drain), console history, players, diagnostics.
 - [x] WebSocket stream (`instances`, `jobs`, `console:<id>` topics; per-event permission checks; session re-validation).

@@ -73,3 +73,43 @@
   flex: 1;
   font-family: var(--font-mono);
 }
+
+/* ANSI colours in server output (see js/core/ansi.js). */
+.ansi-fg-0 { color: var(--ansi-0); }
+.ansi-fg-1 { color: var(--ansi-1); }
+.ansi-fg-2 { color: var(--ansi-2); }
+.ansi-fg-3 { color: var(--ansi-3); }
+.ansi-fg-4 { color: var(--ansi-4); }
+.ansi-fg-5 { color: var(--ansi-5); }
+.ansi-fg-6 { color: var(--ansi-6); }
+.ansi-fg-7 { color: var(--ansi-7); }
+.ansi-fg-8 { color: var(--ansi-8); }
+.ansi-fg-9 { color: var(--ansi-9); }
+.ansi-fg-10 { color: var(--ansi-10); }
+.ansi-fg-11 { color: var(--ansi-11); }
+.ansi-fg-12 { color: var(--ansi-12); }
+.ansi-fg-13 { color: var(--ansi-13); }
+.ansi-fg-14 { color: var(--ansi-14); }
+.ansi-fg-15 { color: var(--ansi-15); }
+.ansi-bg-0 { background-color: var(--ansi-0); }
+.ansi-bg-1 { background-color: var(--ansi-1); }
+.ansi-bg-2 { background-color: var(--ansi-2); }
+.ansi-bg-3 { background-color: var(--ansi-3); }
+.ansi-bg-4 { background-color: var(--ansi-4); }
+.ansi-bg-5 { background-color: var(--ansi-5); }
+.ansi-bg-6 { background-color: var(--ansi-6); }
+.ansi-bg-7 { background-color: var(--ansi-7); }
+.ansi-bg-8 { background-color: var(--ansi-8); }
+.ansi-bg-9 { background-color: var(--ansi-9); }
+.ansi-bg-10 { background-color: var(--ansi-10); }
+.ansi-bg-11 { background-color: var(--ansi-11); }
+.ansi-bg-12 { background-color: var(--ansi-12); }
+.ansi-bg-13 { background-color: var(--ansi-13); }
+.ansi-bg-14 { background-color: var(--ansi-14); }
+.ansi-bg-15 { background-color: var(--ansi-15); }
+.ansi-bold { font-weight: 700; }
+.ansi-dim { opacity: 0.7; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+.ansi-strike { text-decoration: line-through; }
+.ansi-underline.ansi-strike { text-decoration: underline line-through; }

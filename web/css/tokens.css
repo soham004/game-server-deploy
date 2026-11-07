@@ -73,6 +73,25 @@
   --color-console-warn: #e8c071;
   --color-console-error: #ff8a80;
   --color-console-input: #8fc7ff;
+
+  /* The 16 ANSI terminal colours servers print, tuned for the (always dark) console background.
+     0–7 normal, 8–15 bright. "Black" is lifted so it stays visible. */
+  --ansi-0: #4b5263;
+  --ansi-1: #e06c75;
+  --ansi-2: #98c379;
+  --ansi-3: #d7ba7d;
+  --ansi-4: #61afef;
+  --ansi-5: #c678dd;
+  --ansi-6: #56b6c2;
+  --ansi-7: #c8ccd4;
+  --ansi-8: #7f848e;
+  --ansi-9: #ff7b86;
+  --ansi-10: #b5e890;
+  --ansi-11: #f0d58a;
+  --ansi-12: #82c4ff;
+  --ansi-13: #e09cf5;
+  --ansi-14: #7fd8e3;
+  --ansi-15: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {

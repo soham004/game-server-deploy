@@ -33,6 +33,9 @@ pub enum InstanceError {
     StillRunning,
     #[error("the server files are not installed yet")]
     NotInstalled,
+    /// The startup check found that the sandbox can't work here (the text says why and how to fix it).
+    #[error("{0}")]
+    SandboxUnusable(String),
     #[error(transparent)]
     Supervisor(#[from] SupervisorError),
     #[error(transparent)]
@@ -180,6 +183,9 @@ impl InstanceService {
         }
         if instance.definition.installed_at.is_none() {
             return Err(InstanceError::NotInstalled);
+        }
+        if let Some(problem) = self.supervisors.sandbox_problem() {
+            return Err(InstanceError::SandboxUnusable(problem.to_owned()));
         }
         let adapter = self
             .adapters

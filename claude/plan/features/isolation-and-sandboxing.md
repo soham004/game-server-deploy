@@ -47,6 +47,11 @@
   report the achieved level.
 - Docker's default seccomp profile **allows** the Landlock syscalls (moby commit 2022), so this works inside the container
   without extra privileges. If Landlock is disabled at boot (`EOPNOTSUPP`), fall back to Layers 1 and 3 and show a warning badge.
+- **Filesystem compatibility (D-026):** Landlock rules don't match on filesystems that hand out a new inode per lookup
+  (WSL's 9p Windows drives, some network/FUSE mounts): a server is then blocked from its own folder. At startup the app
+  runs one sandboxed probe in `<data>/sandbox-check/`; if it can't write its own folder there, every start is refused
+  (`503 sandbox_unusable`) with an explanation, logged at startup and shown on the dashboard. `isolation-check` also runs
+  in the data dir, not `/tmp`.
 - Network (ABI ≥ 4): `bind` only on the instance's own allocated ports (game, query, rcon, management); `connect` only to 80
   and 443 (Mojang auth, mod update checks) plus per-instance extra ports the admin allow-lists (e.g. a database for a plugin,
   or a Velocity proxy). This blocks one server from reaching another's loopback RCON/MCSMP ports, in addition to their random secrets.

@@ -22,13 +22,21 @@ auto-restart on crash, diagnostics, background jobs, and multi-user roles. Plans
 
 ## Develop (Linux / WSL2)
 ```bash
-cargo run -p gsd-app -- --data-dir ./data serve
+cargo run -p gsd-app -- --data-dir ~/gsd-data serve
 ```
 Open the URL printed at startup. Debug builds read `web/` from disk, so frontend edits only need a reload.
+
+Keep the data folder on a Linux filesystem. On WSL, Windows drives (`/mnt/c`, `/mnt/e`, …) don't support the
+sandbox's file rules, so servers there can't even open their own jar. The app checks this at startup and refuses to start
+servers with an explanation. They are also much slower for world saves.
+
+Logs: lifecycle events (start, exit, crash, problems found) and failed jobs go to the terminal. To also see every line
+the game servers print, run with `GSD_LOG=info,gsd_core::supervisor=debug`.
 
 ```bash
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 bash scripts/check-branding.sh
+node --test tests/web/   # frontend unit tests (Node 22+, no npm install)
 ```
 
 ## Commands
@@ -38,7 +46,7 @@ bash scripts/check-branding.sh
 | `reset-password <user>` | Give a user a temporary password; they must change it at next sign-in |
 | `healthcheck` | Exit 0 if the local server answers (used by the Docker health check) |
 | `brand name\|slug\|port\|env-prefix` | Print a branding value |
-| `isolation-check` | Prove the per-server sandbox works on this host (run as root to include separate users) |
+| `isolation-check` | Prove the per-server sandbox works in the data folder on this host (run as root to include separate users) |
 
 Global flags: `--data-dir`, `--bind`. Environment variables use the brand prefix (`GSD_` by default):
 `GSD_DATA_DIR`, `GSD_BIND`, `GSD_TRUSTED_PROXIES`, `GSD_GAME_PORTS`, `GSD_INTERNAL_PORTS`,

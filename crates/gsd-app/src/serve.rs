@@ -93,6 +93,7 @@ fn prepare_data_dir(config: &Config) -> Result<(), ServeError> {
         (config.runtimes_dir(), 0o755),
         (config.trash_dir(), 0o700),
         (config.data_dir.join("cache"), 0o700),
+        (config.sandbox_check_dir(), 0o711),
     ];
     for (path, mode) in dirs {
         let map_err = |source| ServeError::DataDir {
@@ -123,6 +124,9 @@ fn announce(state: &AppState, listener: &TcpListener) {
         gsd_brand::NAME,
         gsd_brand::VERSION
     );
+    if let Some(problem) = state.instances.supervisors().sandbox_problem() {
+        tracing::error!("{problem}");
+    }
     if let Some(token) = state.setup_gate.token() {
         tracing::warn!(
             "first-run setup is open to the network; enter this setup token to create the owner: {token}"

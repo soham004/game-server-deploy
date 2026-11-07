@@ -57,6 +57,8 @@ struct SystemInfo {
     arch: &'static str,
     isolation: SandboxSupport,
     isolation_level: IsolationLevel,
+    /// Set when servers can't start because the sandbox can't work here (explains the fix).
+    sandbox_problem: Option<String>,
     game_ports: String,
 }
 
@@ -68,6 +70,7 @@ async fn system(State(state): State<AppState>, _actor: CurrentActor) -> Json<Sys
         arch: std::env::consts::ARCH,
         isolation: support,
         isolation_level: support.level(),
+        sandbox_problem: state.instances.supervisors().sandbox_problem().map(str::to_owned),
         game_ports: state.config.game_ports.to_string(),
     })
 }
@@ -78,10 +81,9 @@ async fn isolation_check(
     _auth: AuthorizedGlobal<perm::InstanceCreate>,
 ) -> Result<Json<IsolationReport>, ApiError> {
     let probe = std::env::current_exe().map_err(|error| ApiError::internal(&error))?;
-    let scratch_parent = state.config.data_dir.join("cache");
-    let scratch = tempfile::Builder::new()
-        .prefix("isolation-check-")
-        .tempdir_in(&scratch_parent)
+    // In the data dir, not /tmp: its filesystem and permissions are what servers actually get.
+    // (Not `cache/` either: it is private, so a sandbox user couldn't reach a scratch dir there.)
+    let scratch = gsd_core::supervisor::sandbox::check::scratch_in(&state.config.sandbox_check_dir())
         .map_err(|error| ApiError::internal(&error))?;
     let support = state.instances.supervisors().support();
     let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), support)

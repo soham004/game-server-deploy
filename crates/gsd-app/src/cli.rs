@@ -85,7 +85,7 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
         Command::ResetPassword { username } => reset_password(&load_config(&cli.config)?, &username).await?,
         Command::Healthcheck => healthcheck(&load_config(&cli.config)?).await?,
         Command::Brand { field } => println!("{}", brand_value(field)),
-        Command::IsolationCheck => isolation_check().await?,
+        Command::IsolationCheck => isolation_check(&load_config(&cli.config)?).await?,
         Command::IsolationProbe { action, target } => {
             std::process::exit(gsd_core::supervisor::sandbox::check::probe_main(&action, &target))
         }
@@ -93,11 +93,14 @@ pub async fn run(cli: Cli) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Prints a pass/fail table of the sandbox checks.
-async fn isolation_check() -> Result<(), CliError> {
+/// Prints a pass/fail table of the sandbox checks, run inside the data directory (its
+/// filesystem and parent permissions are what servers will get).
+async fn isolation_check(config: &Config) -> Result<(), CliError> {
     let fail = |error: std::io::Error| CliError::Isolation(error.to_string());
     let probe = std::env::current_exe().map_err(fail)?;
-    let scratch = tempfile::tempdir().map_err(fail)?;
+    let scratch =
+        gsd_core::supervisor::sandbox::check::scratch_in(&config.sandbox_check_dir()).map_err(fail)?;
+    println!("Testing in {}", config.data_dir.display());
     let support = gsd_core::supervisor::SandboxSupport::detect();
     let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), support)
         .await

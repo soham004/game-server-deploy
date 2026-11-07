@@ -116,7 +116,7 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
             detail: if write_own {
                 "works".into()
             } else {
-                "failed: the server could not run".into()
+                "failed: the sandbox blocks a server's own folder on this filesystem".into()
             },
         },
         CheckResult {
@@ -137,6 +137,40 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
         level: support.level(),
         checks,
     })
+}
+
+/// Creates `dir` (traversable by sandbox users) and an empty scratch directory inside it.
+///
+/// Checks should run where instances live: the data directory's filesystem and its parents'
+/// permissions decide whether the sandbox works, not `/tmp`'s.
+pub fn scratch_in(dir: &Path) -> std::io::Result<tempfile::TempDir> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o711))?;
+    }
+    tempfile::Builder::new().prefix("check-").tempdir_in(dir)
+}
+
+/// Whether a sandboxed server can use its own folder on the filesystem that holds `dir`.
+///
+/// Landlock identifies files by inode. Some filesystems hand out a fresh inode on every lookup:
+/// WSL's Windows drives (`/mnt/c`, 9p), and some network and FUSE mounts. The rule granting a
+/// server its own folder then never matches, and Java can't even open the server jar.
+/// Returns `Ok(true)` without probing when there are no filesystem rules to test.
+pub async fn own_folder_usable(probe: &Path, dir: &Path, support: SandboxSupport) -> std::io::Result<bool> {
+    if !support.filesystem {
+        return Ok(true);
+    }
+    let scratch = scratch_in(dir)?;
+    let own = scratch.path().join("own");
+    let other = scratch.path().join("other");
+    std::fs::create_dir_all(&own)?;
+    std::fs::create_dir_all(&other)?;
+    prepare_ownership(&own, &other, support)?;
+    let target = own.join("ok.txt").display().to_string();
+    Ok(probe_action(probe, &own, support, "write", &target).await)
 }
 
 fn outcome(succeeded: bool, verb: &str, blocked: &str) -> String {
@@ -245,4 +279,42 @@ pub fn probe_main(action: &str, target: &str) -> i32 {
         _ => false,
     };
     i32::from(!succeeded)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    #[tokio::test]
+    async fn without_filesystem_rules_there_is_nothing_to_test() {
+        let dir = tempfile::tempdir().unwrap();
+        // A probe that doesn't exist proves nothing was spawned.
+        let usable = own_folder_usable(
+            Path::new("/nonexistent/probe"),
+            dir.path(),
+            SandboxSupport::none(),
+        )
+        .await
+        .unwrap();
+        assert!(usable);
+    }
+
+    #[test]
+    fn scratch_dirs_live_inside_the_given_folder() {
+        let data = tempfile::tempdir().unwrap();
+        let dir = data.path().join("sandbox-check");
+        let scratch = scratch_in(&dir).unwrap();
+        assert_eq!(scratch.path().parent(), Some(dir.as_path()));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o711, "sandbox users must be able to traverse it");
+        }
+        let path = scratch.path().to_owned();
+        drop(scratch);
+        assert!(!path.exists());
+    }
 }

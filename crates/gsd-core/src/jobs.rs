@@ -324,11 +324,19 @@ impl JobRunner {
             entry.snapshot.finished_at = Some(Utc::now());
             match result {
                 Ok(()) => {
+                    tracing::info!(job = %id, title = %entry.snapshot.title, "job finished");
                     entry.snapshot.status = JobStatus::Succeeded;
                     entry.snapshot.progress = Some(1.0);
                 }
                 Err(_) if entry.cancel.is_cancelled() => entry.snapshot.status = JobStatus::Cancelled,
                 Err(failure) => {
+                    tracing::warn!(
+                        job = %id,
+                        kind = entry.snapshot.kind,
+                        title = %entry.snapshot.title,
+                        error = %failure,
+                        "job failed"
+                    );
                     entry.snapshot.status = JobStatus::Failed;
                     push_log(&mut entry.log, &format!("failed: {failure}"));
                     entry.snapshot.error = Some(failure.0);
