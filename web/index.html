@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{APP_NAME}}</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/layout.css">
+  <link rel="stylesheet" href="/css/components/button.css">
+  <link rel="stylesheet" href="/css/components/card.css">
+  <link rel="stylesheet" href="/css/components/nav.css">
+  <link rel="stylesheet" href="/css/components/toast.css">
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <p class="c-boot" data-boot>Loading…</p>
+
+  <div class="l-shell" data-shell hidden>
+    <header class="l-shell__header c-topbar">
+      <a class="c-topbar__brand" href="/">
+        <img class="c-topbar__logo" src="/img/icon.svg" alt="" width="24" height="24">
+        <span>{{APP_NAME}}</span>
+      </a>
+      <div class="c-topbar__user">
+        <span class="c-topbar__username" data-username></span>
+        <button class="c-button c-button--ghost" type="button" data-action="logout">Sign out</button>
+      </div>
+    </header>
+
+    <nav class="l-shell__nav c-nav" aria-label="Main">
+      <a class="c-nav__link" href="/" data-nav="/">Servers</a>
+    </nav>
+
+    <main class="l-shell__main" id="view" tabindex="-1"></main>
+
+    <footer class="l-shell__footer c-footer">
+      <span>{{APP_NAME}} {{APP_VERSION}}</span>
+    </footer>
+  </div>
+
+  <div class="c-toasts" data-toasts aria-live="polite"></div>
+</body>
+</html>

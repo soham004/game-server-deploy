@@ -1,0 +1,64 @@
+/* Forms: .c-form, .c-field, .c-input. */
+.c-form {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.c-form__title {
+  font-size: var(--text-lg);
+}
+
+.c-form__intro {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.c-form__error {
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.c-field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.c-field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.c-field__hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.c-input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.c-input:hover {
+  border-color: var(--color-text-muted);
+}
+
+.c-input:focus-visible {
+  border-color: var(--color-focus);
+  outline-offset: 0;
+}
+
+.c-input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.c-input--mono {
+  font-family: var(--font-mono);
+}

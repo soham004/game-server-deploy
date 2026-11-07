@@ -1,0 +1,68 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[workspace.dependencies]
+# Internal crates
+gsd-brand = { path = "crates/gsd-brand" }
+gsd-core = { path = "crates/gsd-core" }
+gsd-minecraft = { path = "crates/gsd-minecraft" }
+gsd-mods = { path = "crates/gsd-mods" }
+
+# External crates
+anyhow = "1"
+argon2 = { version = "0.6", features = ["getrandom"] }
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.23"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+getrandom = "0.4"
+hex = "0.4"
+http-body-util = "0.1"
+ipnet = { version = "2", features = ["serde"] }
+mime_guess = "2"
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "migrate", "derive", "macros"] }
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+toml = "1"
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace", "compression-gzip", "compression-br", "set-header"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+ulid = { version = "3", features = ["serde"] }
+
+[workspace.lints.rust]
+# `deny` (not `forbid`) so the Linux sandbox module can opt in for `pre_exec` later.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+# axum handlers and extractors are async and take arguments by value by design.
+unused_async = "allow"
+unused_async_trait_impl = "allow"
+needless_pass_by_value = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,12 @@
+[package]
+name = "gsd-minecraft"
+description = "Minecraft adapter: version and loader providers, installers, log parsing, properties, RCON, MCSMP, SLP."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

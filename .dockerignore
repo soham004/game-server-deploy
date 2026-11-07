@@ -1,0 +1,8 @@
+target
+data
+.git
+.github
+claude
+deploy/docker/data
+**/*.sqlite
+**/*.sqlite-*

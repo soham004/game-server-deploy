@@ -1,0 +1,110 @@
+/*
+ * Design tokens: the single source of every visual decision (colour, type, spacing, radius,
+ * shadow, motion). Components use only these variables. A redesign (e.g. with the Hallmark
+ * skill) should mostly change this file and the component stylesheets.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* Typography */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 650;
+
+  /* Spacing scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --border-width: 1px;
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layout */
+  --nav-width: 220px;
+  --topbar-height: 56px;
+  --content-max: 1200px;
+
+  /* Colour: light theme */
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-muted: #eceef2;
+  --color-border: #d8dce3;
+  --color-text: #15181e;
+  --color-text-muted: #5a6170;
+  --color-accent: #2f7d4f;
+  --color-accent-hover: #276a43;
+  --color-accent-contrast: #ffffff;
+  --color-danger: #c2362b;
+  --color-danger-contrast: #ffffff;
+  --color-warning: #b26b00;
+  --color-success: #2f7d4f;
+  --color-focus: #2f6fde;
+  --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
+  --shadow-md: 0 4px 16px rgb(16 24 40 / 0.10);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0f1115;
+    --color-surface: #171a20;
+    --color-surface-raised: #1d2128;
+    --color-surface-muted: #232831;
+    --color-border: #2e3440;
+    --color-text: #e8eaee;
+    --color-text-muted: #9aa2b1;
+    --color-accent: #4fb176;
+    --color-accent-hover: #63c389;
+    --color-accent-contrast: #0b1a11;
+    --color-danger: #ef6a5e;
+    --color-danger-contrast: #1d0b09;
+    --color-warning: #e3a23b;
+    --color-success: #4fb176;
+    --color-focus: #6b9cff;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0f1115;
+  --color-surface: #171a20;
+  --color-surface-raised: #1d2128;
+  --color-surface-muted: #232831;
+  --color-border: #2e3440;
+  --color-text: #e8eaee;
+  --color-text-muted: #9aa2b1;
+  --color-accent: #4fb176;
+  --color-accent-hover: #63c389;
+  --color-accent-contrast: #0b1a11;
+  --color-danger: #ef6a5e;
+  --color-danger-contrast: #1d0b09;
+  --color-warning: #e3a23b;
+  --color-success: #4fb176;
+  --color-focus: #6b9cff;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+}

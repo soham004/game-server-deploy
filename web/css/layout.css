@@ -1,0 +1,63 @@
+/* App shell layout: top bar, side navigation, main content, footer. */
+.l-shell {
+  display: grid;
+  grid-template-columns: var(--nav-width) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-height) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header header"
+    "nav    main"
+    "nav    footer";
+  min-height: 100vh;
+}
+
+.l-shell__header {
+  grid-area: header;
+}
+
+.l-shell__nav {
+  grid-area: nav;
+}
+
+.l-shell__main {
+  grid-area: main;
+  width: 100%;
+  max-width: var(--content-max);
+  padding: var(--space-6);
+}
+
+.l-shell__main:focus {
+  outline: none;
+}
+
+.l-shell__footer {
+  grid-area: footer;
+}
+
+.l-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.l-page-header__title {
+  font-size: var(--text-xl);
+}
+
+@media (max-width: 900px) {
+  .l-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--topbar-height) auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "header"
+      "nav"
+      "main"
+      "footer";
+  }
+
+  .l-shell__main {
+    padding: var(--space-4);
+  }
+}

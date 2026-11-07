@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up · {{APP_NAME}}</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components/button.css">
+  <link rel="stylesheet" href="/css/components/form.css">
+  <link rel="stylesheet" href="/css/components/auth.css">
+  <script type="module" src="/js/pages/setup.js"></script>
+</head>
+<body class="l-auth">
+  <main class="c-auth">
+    <header class="c-auth__header">
+      <img class="c-auth__logo" src="/img/icon.svg" alt="" width="40" height="40">
+      <h1 class="c-auth__title">Welcome to {{APP_NAME}}</h1>
+      <p class="c-auth__subtitle">Create the owner account. The owner can manage everything, including other users.</p>
+    </header>
+
+    <form class="c-form" data-form="setup" novalidate>
+      <div class="c-field" data-token-field hidden>
+        <label class="c-field__label" for="setup-token">Setup token</label>
+        <input class="c-input c-input--mono" id="setup-token" name="setup_token" autocomplete="off" spellcheck="false">
+        <p class="c-field__hint">This server is reachable from the network, so it printed a one-time setup token in its log. Paste it here.</p>
+      </div>
+      <div class="c-field">
+        <label class="c-field__label" for="setup-username">Username</label>
+        <input class="c-input" id="setup-username" name="username" autocomplete="username" minlength="3" maxlength="32" required autofocus>
+        <p class="c-field__hint">3–32 characters: letters, digits, _ . -</p>
+      </div>
+      <div class="c-field">
+        <label class="c-field__label" for="setup-password">Password</label>
+        <input class="c-input" id="setup-password" name="password" type="password" autocomplete="new-password" minlength="10" required>
+        <p class="c-field__hint">At least 10 characters. A few random words work well.</p>
+      </div>
+      <div class="c-field">
+        <label class="c-field__label" for="setup-password-confirm">Confirm password</label>
+        <input class="c-input" id="setup-password-confirm" name="password_confirm" type="password" autocomplete="new-password" required>
+      </div>
+      <p class="c-form__error" data-form-error role="alert" hidden></p>
+      <button class="c-button c-button--primary c-button--block" type="submit">Create owner account</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# Example single-host deployment (app only). Run from this directory:
+#
+#   docker compose up -d --build
+#
+# Notes
+# - Example file: the web port below must match the image's default port (`<binary> brand port`)
+#   or the <PREFIX>_BIND you set. The env prefix is GSD_ for the default branding.
+# - The web UI is published on loopback only. For remote access put nginx in front
+#   (see claude/plan/07-deployment-and-branding.md; an nginx example ships in milestone M6).
+# - Game ports must match GSD_GAME_PORTS; TCP for players, UDP for the optional query protocol.
+# - Capabilities: the app runs each game server as its own UID, which needs SETUID/SETGID and file
+#   ownership capabilities. Everything else is dropped.
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, KILL]
+    environment:
+      GSD_GAME_PORTS: "25565-25584"
+      GSD_LOG: "info"
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8737:8737"
+      - "25565-25584:25565-25584/tcp"
+      - "25565-25584:25565-25584/udp"

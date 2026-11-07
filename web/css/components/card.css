@@ -1,0 +1,32 @@
+/* Cards and empty states. */
+.c-card {
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.c-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+}
+
+.c-empty__title {
+  font-size: var(--text-lg);
+}
+
+.c-empty__text {
+  max-width: 32rem;
+  color: var(--color-text-muted);
+}
+
+.c-boot {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · {{APP_NAME}}</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components/button.css">
+  <link rel="stylesheet" href="/css/components/form.css">
+  <link rel="stylesheet" href="/css/components/auth.css">
+  <script type="module" src="/js/pages/login.js"></script>
+</head>
+<body class="l-auth">
+  <main class="c-auth">
+    <header class="c-auth__header">
+      <img class="c-auth__logo" src="/img/icon.svg" alt="" width="40" height="40">
+      <h1 class="c-auth__title">{{APP_NAME}}</h1>
+    </header>
+
+    <form class="c-form" data-form="login" novalidate>
+      <h2 class="c-form__title">Sign in</h2>
+      <div class="c-field">
+        <label class="c-field__label" for="login-username">Username</label>
+        <input class="c-input" id="login-username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="c-field">
+        <label class="c-field__label" for="login-password">Password</label>
+        <input class="c-input" id="login-password" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <p class="c-form__error" data-form-error role="alert" hidden></p>
+      <button class="c-button c-button--primary c-button--block" type="submit">Sign in</button>
+    </form>
+
+    <form class="c-form" data-form="change-password" novalidate hidden>
+      <h2 class="c-form__title">Choose a new password</h2>
+      <p class="c-form__intro">Your password was reset. Pick a new one to continue.</p>
+      <div class="c-field">
+        <label class="c-field__label" for="change-current">Current (temporary) password</label>
+        <input class="c-input" id="change-current" name="current_password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="c-field">
+        <label class="c-field__label" for="change-new">New password</label>
+        <input class="c-input" id="change-new" name="new_password" type="password" autocomplete="new-password" minlength="10" required>
+        <p class="c-field__hint">At least 10 characters. A few random words work well.</p>
+      </div>
+      <p class="c-form__error" data-form-error role="alert" hidden></p>
+      <button class="c-button c-button--primary c-button--block" type="submit">Save and continue</button>
+    </form>
+  </main>
+</body>
+</html>

@@ -1,0 +1,44 @@
+[package]
+name = "gsd-app"
+description = "The application binary: configuration, wiring, HTTP API and static web UI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# The binary name is the one Cargo-imposed branding exception (see claude/plan/07-deployment-and-branding.md);
+# the Docker build installs it under the configured slug.
+[[bin]]
+name = "gsd"
+path = "src/main.rs"
+
+[dependencies]
+gsd-brand.workspace = true
+gsd-core.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+clap.workspace = true
+directories.workspace = true
+ipnet.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+http-body-util.workspace = true
+tempfile.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true
