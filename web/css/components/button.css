@@ -54,3 +54,14 @@
 .c-button--block {
   width: 100%;
 }
+
+/* A quiet destructive action (e.g. Delete in a table row). */
+.c-button--danger-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-danger);
+}
+
+.c-button--danger-ghost:hover {
+  background: var(--color-surface-muted);
+}

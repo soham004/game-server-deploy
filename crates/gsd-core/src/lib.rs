@@ -13,6 +13,7 @@
 pub mod audit;
 pub mod auth;
 pub mod events;
+pub mod files;
 pub mod game;
 pub mod ids;
 pub mod instances;

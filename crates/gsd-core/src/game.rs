@@ -75,7 +75,8 @@ pub enum GameSignal {
 /// A recognised problem with a human explanation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Diagnostic {
-    /// Stable code the UI can attach actions to, e.g. `"port_in_use"`.
+    /// Stable code the UI can attach actions to, e.g. `"port_bind_failed"`. One diagnostic per
+    /// code: a later one with the same code replaces it (a more specific explanation).
     pub code: &'static str,
     pub severity: Severity,
     pub title: String,

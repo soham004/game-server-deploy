@@ -7,6 +7,7 @@
 use std::{path::Path, time::Duration};
 
 use futures_util::StreamExt;
+use md5::Md5;
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use tokio::io::AsyncWriteExt;
@@ -24,6 +25,8 @@ pub fn http_client() -> Result<reqwest::Client, reqwest::Error> {
 /// The checksum a downloaded file must match.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpectedHash {
+    /// Only where the source publishes nothing stronger (Purpur). Detects corruption, not tampering.
+    Md5(String),
     Sha1(String),
     Sha256(String),
     Sha512(String),
@@ -124,6 +127,7 @@ pub async fn download_verified(
 }
 
 enum Hasher {
+    Md5(Md5),
     Sha1(Sha1),
     Sha256(Sha256),
     Sha512(Sha512),
@@ -133,6 +137,7 @@ enum Hasher {
 impl Hasher {
     fn for_expected(expected: &ExpectedHash) -> Self {
         match expected {
+            ExpectedHash::Md5(_) => Self::Md5(Md5::new()),
             ExpectedHash::Sha1(_) => Self::Sha1(Sha1::new()),
             ExpectedHash::Sha256(_) => Self::Sha256(Sha256::new()),
             ExpectedHash::Sha512(_) => Self::Sha512(Sha512::new()),
@@ -142,6 +147,7 @@ impl Hasher {
 
     fn update(&mut self, bytes: &[u8]) {
         match self {
+            Self::Md5(h) => h.update(bytes),
             Self::Sha1(h) => h.update(bytes),
             Self::Sha256(h) => h.update(bytes),
             Self::Sha512(h) => h.update(bytes),
@@ -151,6 +157,7 @@ impl Hasher {
 
     fn verify(self, expected: &ExpectedHash, url: &str) -> Result<(), DownloadError> {
         let (actual, expected) = match (self, expected) {
+            (Self::Md5(h), ExpectedHash::Md5(e)) => (hex::encode(h.finalize()), e),
             (Self::Sha1(h), ExpectedHash::Sha1(e)) => (hex::encode(h.finalize()), e),
             (Self::Sha256(h), ExpectedHash::Sha256(e)) => (hex::encode(h.finalize()), e),
             (Self::Sha512(h), ExpectedHash::Sha512(e)) => (hex::encode(h.finalize()), e),
@@ -242,6 +249,51 @@ mod tests {
         assert_eq!(std::fs::read(&destination).unwrap(), BODY);
         assert_eq!(seen.load(Ordering::SeqCst), BODY.len() as u64);
         assert_eq!(sha256_file(&destination).await.unwrap(), sha256_hex(BODY));
+    }
+
+    #[tokio::test]
+    async fn every_hash_kind_is_verified() {
+        let server = server_with_file().await;
+        let dir = tempfile::tempdir().unwrap();
+        let url = format!("{}/file.jar", server.uri());
+        let cases = [
+            ExpectedHash::Md5(hex::encode(Md5::digest(BODY))),
+            ExpectedHash::Sha1(hex::encode(Sha1::digest(BODY))),
+            ExpectedHash::Sha256(sha256_hex(BODY)),
+            ExpectedHash::Sha512(hex::encode(Sha512::digest(BODY)).to_uppercase()),
+        ];
+        for (index, good) in cases.into_iter().enumerate() {
+            let destination = dir.path().join(format!("ok-{index}.jar"));
+            let result = download_verified(
+                &http_client().unwrap(),
+                &url,
+                &destination,
+                &good,
+                &CancellationToken::new(),
+                &|_, _| {},
+            )
+            .await;
+            assert!(result.is_ok(), "{good:?}: {result:?}");
+
+            let wrong = match good {
+                ExpectedHash::Md5(_) => ExpectedHash::Md5("0".repeat(32)),
+                ExpectedHash::Sha1(_) => ExpectedHash::Sha1("0".repeat(40)),
+                ExpectedHash::Sha256(_) => ExpectedHash::Sha256("0".repeat(64)),
+                ExpectedHash::Sha512(_) | ExpectedHash::None => ExpectedHash::Sha512("0".repeat(128)),
+            };
+            let bad = dir.path().join(format!("bad-{index}.jar"));
+            let result = download_verified(
+                &http_client().unwrap(),
+                &url,
+                &bad,
+                &wrong,
+                &CancellationToken::new(),
+                &|_, _| {},
+            )
+            .await;
+            assert!(matches!(result, Err(DownloadError::Checksum { .. })), "{wrong:?}");
+            assert!(!bad.exists());
+        }
     }
 
     #[tokio::test]

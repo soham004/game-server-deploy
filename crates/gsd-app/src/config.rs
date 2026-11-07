@@ -138,6 +138,11 @@ impl Config {
         self.data_dir.join("cache").join("downloads")
     }
 
+    /// Server folders waiting to be imported (an admin copies them here).
+    pub fn imports_dir(&self) -> PathBuf {
+        self.data_dir.join("imports")
+    }
+
     /// Scratch space for sandbox self-tests (on the same filesystem as the instances).
     pub fn sandbox_check_dir(&self) -> PathBuf {
         self.data_dir.join("sandbox-check")

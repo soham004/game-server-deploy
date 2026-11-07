@@ -161,3 +161,142 @@ Members manage only the instances they are granted. Member quotas (instance coun
   (highlighted values, warnings) and Prism Launcher users expect them.
 - First frontend unit tests: `tests/web/ansi.test.mjs` (Node's built-in runner, no npm dependencies); CI runs them and
   `node --check` on every module.
+
+**D-028: M2 loaders (Purpur, Quilt, Forge, NeoForge): installers run sandboxed; lessons from real runs** · accepted · 2026-11-07
+- **APIs verified live** (fixtures recorded 2026-11-07): Purpur v2 (`/v2/purpur/{mc}/{build}` gives `md5` + `result`; MD5 is
+  the only checksum, so `ExpectedHash::Md5` exists), Quilt meta v3 (loader list per game version is **unsorted**: a semver-like
+  `catalog::version_order` sorts it), Quilt/Forge/NeoForge Maven `.sha1` side files (all installers are hash-verified),
+  Forge `maven-metadata.json` (`"26.3": ["26.3-66.1.0", …]`) + `promotions_slim.json` (★ = recommended, else latest),
+  NeoForge's version list (`26.3.0.101` → MC `26.3`, `26.1.2.126` → `26.1.2`, `21.1.77` → `1.21.1`; 1.20.1 not offered).
+  Forge is offered from MC 1.7.10 (older builds have no server installer).
+- **Install = data**: `install::plan` turns a loader into steps (download, run installer, remove leftovers) + a launch plan;
+  one executor runs them. Downloads go through the shared cache keyed by checksum.
+- **Installers are untrusted code** and run like servers: `launch::installer_process` builds `java -jar <installer>` in the
+  instance's sandbox (own UID, Landlock fs, web ports only, no listening); `supervisor::process::run_to_completion` streams
+  their output to the job log, honours cancel, 30-minute timeout. `HostSandbox` (support + startup problem) is shared by the
+  supervisors and the installer, so an unusable sandbox fails installs too.
+- **Forge/NeoForge launch** is read from the `run.sh` their installer writes (`[exec] java @user_jvm_args.txt @libraries/…/unix_args.txt`),
+  path-checked to stay inside the server dir; `run.sh`/`run.bat` are then deleted. Legacy Forge (≤1.16) falls back to its jar.
+  Static inspection of the 26.3 installers confirmed the flags (`--installServer`; NeoForge `--install-server`).
+- **Real runs (WSL, Landlock ABI 7)**: all four loaders installed and ran. Two bugs found and fixed:
+  1. Forge and NeoForge ship `-Djava.net.preferIPv6Addresses=system` in `unix_args.txt`; under the sandbox every JVM with that
+     flag fails to bind (`bind(..) failed with error(-22): Invalid argument`; reproduced with Purpur too, IPv6 is enabled on the
+     host). Our flags come before the args files, so the install step removes that one flag (logged). Root cause in the
+     Landlock/Netty interaction not isolated.
+  2. Minecraft exits with code **0** after "Failed to initialize server", which the supervisor counted as a normal stop. Now a
+     clean exit **before ready** is a failed start (crash); typing the stop command in the console (`Input::StopTyped`) keeps
+     it a stop.
+- **Diagnostics**: one diagnostic per code, a later one with the same code replaces it. Bind failures share
+  `port_bind_failed`: the generic "FAILED TO BIND" line is replaced by the cause on the next line (-98 in use, -22 the IPv6
+  flag, -13 not allowed by the sandbox). Before, every bind failure said "Port already in use".
+- The NeoForge console shows a harmless `kqueue … Only supported on OSX/BSD` stack trace (Netty probing; not sandbox-related).
+- Instance DTO carries `software` ("NeoForge 26.3"): the loader names live only in `LoaderKind` (the UI's copy had drifted).
+
+**D-029: `server.properties` editor** · accepted · 2026-11-07
+- `properties::format` is a round-trip parser following `java.util.Properties` (separators, continuations, escapes, `\uXXXX`
+  incl. surrogate pairs, per-line endings). Unchanged lines render byte for byte; edits rewrite only their line, keep the
+  original separator, escape on write (non-ASCII as `\u`). Tested with a generated round-trip property test.
+- `schema/server_properties.json`: every key of the file a **real 26.3 server generated** (fixture `server_26.3.properties`;
+  62 keys), with real defaults. Notable: `white-list=true` and `difficulty=easy` by default; `pvp` is gone (a game rule now);
+  `management-server-*` keys exist. A test fails if the real file has a key the schema lacks or a different default.
+- Edits carry the file's revision (SHA-256); a changed file → `409 file_changed`. Validation per key → `422 invalid_properties`
+  with `details: [{key, message}]` (new `ApiError::with_details`). App-managed keys (`server-port`, `query.port`, `rcon.port`,
+  `management-server-port`) can't change: the sandbox only lets a server bind its own port. Writes are atomic and handed to
+  the instance user. Viewers (`instance.view` without `properties.write`) get secrets blanked.
+- RCON and the management protocol can't work yet inside the sandbox (their ports aren't allowed); the schema says so. M5.
+
+**D-030: Browser end-to-end tests; auth forms never submit natively** · accepted · 2026-11-07
+- `tests/e2e/cdp.mjs`: a dependency-free Chrome DevTools Protocol client (Node's built-in WebSocket) driving headless
+  Chrome/Edge. `tests/e2e/ui.e2e.mjs` signs in, starts a **real** server from the UI, checks the console has colours and no
+  control characters, runs `list`, edits properties (form, invalid value, raw view), stops the server; screenshots on failure.
+  Skipped unless `E2E_URL` is set (it needs a running app with an installed server).
+- It found a real bug: clicking "Sign in" before the page script attached its handler submitted the form natively as a GET,
+  putting the password in the URL. Server-rendered forms now use `method="post"` and start with a disabled submit button that
+  `core/forms.js` enables; a static test (`tests/web/pages.test.mjs`) keeps it that way.
+- Screenshots showed toasts covering the bottom-right controls (console Send, properties Save); toasts moved top-right.
+
+**D-031: File manager: containment through `cap-std`** · accepted · 2026-11-07
+- The app runs as root in Docker and the game server (another UID, possibly compromised) controls the files it browses, so a
+  lexical `..` check is not enough: the server can swap a folder for a symlink between check and use. Every operation
+  (`gsd-core/files/root.rs`) goes through a `cap_std::fs::Dir` on the server dir, which resolves paths beneath it and
+  refuses symlinks out of it race-free (`openat2` + `RESOLVE_BENEATH`). `SafeRelPath` (`files/path.rs`) is a first lexical
+  guard (`..`, NUL, `\`, over-long names; Windows reserved names on Windows). Tests plant symlinks to an outside "secret" and
+  check every operation refuses.
+- Ownership: files the app creates are `chownat(parent_fd, name, AT_SYMLINK_NOFOLLOW)`ed to the instance UID (single
+  component, never following links). Not exercised by the test suite (it runs unprivileged); covered by the Docker run.
+- Delete moves to `<instance>/trash/<timestamp>-<name>` (root-owned, outside the server's reach); emptying is a later feature.
+- Text editing: ≤ 5 MiB, NUL/invalid UTF-8 = binary; saves need the opened revision (SHA-256) → `409 file_changed`; a save
+  without a revision only creates new files. Writes are atomic (temp sibling + rename).
+- Uploads stream (raw request body, `PUT …/files/upload?path=&overwrite=`) into a hidden temp file, renamed when complete;
+  4 GiB cap; nothing partial is left behind. Downloads: always `attachment` + `application/octet-stream` (a hostile HTML
+  file can't run on our origin); folders stream as a zip built on the fly; binary responses skip transfer compression.
+- Archives: extract `.zip`/`.tar`/`.tar.gz`/`.tgz`; every entry name through `SafeRelPath` (zip slip), links/devices
+  skipped, size and entry caps counted on bytes actually written (zip bombs; `ExtractLimits`); compress a selection to zip.
+- UI: Files tab (breadcrumbs, table, upload with progress + drag and drop, rename/copy/delete/extract/compress, a
+  textarea editor with Ctrl+S). CodeMirror is deferred: the textarea is enough to edit configs; revisit with the Hallmark pass.
+- Browser test findings: the editor rendered two lines tall (stylesheet order let `.c-input`'s min-height win; selectors are
+  now scoped); toasts piled up over toolbars (now at most three, repeats replace each other, gaps are click-through).
+  On the development machine Chrome returns an empty **204 for any `.zip` response**, even from a plain Python server
+  (security software filtering browser downloads, most likely); curl gets the files intact. Zip downloads are covered by the
+  API tests instead.
+
+**D-032: Instance settings, clone and import** · accepted · 2026-11-07
+- Settings (`instances/settings.rs`): `SettingsChange::apply` validates everything before changing anything (name, memory
+  512 MB–64 GB with min ≤ max, crash limit, stop timeout, JVM args). Extra JVM args must be options (`-…`), and may not
+  contain `-Xmx`/`-Xms` (the memory fields own them), `-jar`/`-cp` (the launch is ours) or
+  `-Djava.net.preferIPv6Addresses=system` (D-028). A specific Java runtime must exist, be at least the required major, and
+  be managed unless the user holds `runtimes.custom`. Minecraft's console flags (`DEFAULT_JVM_ARGS`) are kept out of the
+  form and always re-added, so users can't break the console by deleting them. Changes apply on the next start.
+- Clone (`gsd-minecraft/service/clone.rs`): new instance (own id, port, UID, folders), copy of the files through `cap-std`
+  without following links (`files::copy_server_dir`), logs and crash reports never copied, worlds (`level-name` + nether/end)
+  only on request, `server.properties` pointed at the new port, `auto_start` off. The source must be stopped.
+- Import (`gsd-minecraft/import/` + `service/import.rs`): only folders in `<data>/imports/` (an admin copies them in;
+  arbitrary host paths would let any admin read the whole disk). Detection: NeoForge/Forge by their library folders
+  (exact versions), Quilt/Fabric by launcher jars, Purpur/Paper by config files, else a server jar; the Minecraft version
+  from `version.json` inside the jar. The user confirms; the folder is copied (original kept), Forge/NeoForge launch from
+  `run.sh` (IPv6 flag stripped), others from the chosen jar; consent → `eula.txt`; own port; ownership.
+- Browser tests cover changing settings, cloning without worlds, and importing a **real vanilla 26.3 folder** that then runs
+  in the sandbox. They found: checkboxes styled as text inputs, and the console flags shown (and deletable) in the form.
+
+**D-033: User management** · accepted · 2026-11-07
+- Owners only (`users.manage`): `GET/POST /users`, `PATCH/DELETE /users/{id}`, `POST …/reset-password`, `POST …/sign-out`,
+  `GET …/grants`, `PUT/DELETE …/grants/{instance}` (`gsd-core/auth/service/accounts.rs`, `gsd-app/http/routes/users.rs`).
+- New accounts and resets get a random **temporary password, returned once** and never stored in plain text; the user must
+  choose a new one at first sign-in. Owners never type someone else's password, so there is nothing to leak in chat logs.
+- Rules: no one changes, disables or deletes their own account here (the account page is for that); the app always keeps
+  at least one active owner (demote, disable and delete are refused with `last_owner`). Disabling, a reset and "sign out"
+  end every session of that user at once; deleting removes their sessions and grants (foreign keys cascade).
+- Grants: a preset (viewer, moderator, operator, manager) or `custom` with a permission list; the instance must exist.
+  Grants only matter for members: owners and admins see every server.
+- Every change is audited (`user.created/updated/deleted/signed_out`, `auth.password_reset`, `grant.changed`).
+- UI: Users page (owner nav link only), table with role/status/sessions and actions, add form showing the temporary
+  password once with Copy, a per-member access panel. Browser test: the owner adds a member and gives one server; in a
+  second browser the member is made to change the password, then sees exactly that server and no Users link; the owner
+  deletes the member. The screenshot showed full-width selects stacking in the access panel (fixed).
+
+**D-034: Hard resource limits with cgroup v2** · accepted · 2026-11-07
+- `gsd-core/supervisor/sandbox/cgroup.rs`. The app uses **its own control group** (`/proc/self/cgroup`) and only when it
+  is clearly its own: writable, `memory` + `pids` delegated, not the real root, and holding no processes but the app (plus
+  a container init such as tini, accepted only in a private cgroup namespace). It **never moves another process**: on a
+  host, `init.scope` or a login session is refused, so running the binary from a root shell can't drag systemd around.
+- Layout: `<own>/app/` (the app moves itself here: v2 forbids processes next to child groups that use controllers),
+  `<own>/instances/<instance id>/` per server. Limits: `memory.max` = heap + max(heap/2, 1 GiB) (a 1 GB heap measured
+  ~1.6 GB `memory.current` right after start, page cache included); `memory.swap.max` = 0 (a swapping server is
+  unplayable and slows the host; a clean stop with an explanation is better); `memory.oom.group` = 1 (stop the whole
+  server, not one of its processes); `pids.max` = 2048 (processes + threads). Not per-instance settings yet; no `cpu.weight`.
+- Joining: the app opens `cgroup.procs` and the child writes `0` to it in `pre_exec`, first, before rlimits and Landlock.
+  It runs after std's setuid; the kernel checks the opener's credentials (Linux ≥ 5.16, and stable kernels that took the backport).
+  A startup probe proves this on the host (as the probe UID when root); on failure limits turn off with the reason
+  instead of every server start failing.
+- Preparing a group kills processes an earlier run left in it (`cgroup.kill`), so leftovers can't eat a new run's budget.
+  Installers therefore don't use the server's group (they could kill a running server).
+- After an exit, a new `oom_kill` in `memory.events` → console line + `memory_limit` diagnostic ("used all of its N MB
+  memory limit…"); before this a kernel kill showed only "signal 9".
+- Reporting: `GET /system` → `hard_limits`, `hard_limits_problem`; startup log line; isolation check "Runs under a hard
+  memory limit" (the CLI `isolation-check` marks it n/a: only the running app has the right group). Deleting an instance
+  removes its group.
+- Tests: rules on a fake tree (11); real kernel as root (group, user, limits; OOM kill detected; fork cap; leftovers
+  killed; supervisor diagnostic). End to end: the app as `systemd-run -p Delegate=yes` started a real vanilla 26.3
+  server as uid 20000 in `instances/<id>` with the expected limits and a passing isolation check; the Docker image
+  (root, compose capabilities) reports limits off ("Read-only file system") and every file the app writes into an
+  instance (install, upload, folder, extract, clone, import) belongs to that instance's UID.

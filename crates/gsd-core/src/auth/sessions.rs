@@ -3,6 +3,8 @@
 //! The browser holds a random 256-bit token in an `HttpOnly` cookie; the database only stores
 //! its SHA-256, so a leaked database cannot be used to hijack sessions.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -116,6 +118,19 @@ impl SessionRepo {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Unexpired sessions per user.
+    pub async fn count_active_by_user(&self, now: DateTime<Utc>) -> Result<HashMap<UserId, i64>, RepoError> {
+        let rows: Vec<(String, i64)> =
+            sqlx::query_as("SELECT user_id, COUNT(*) FROM sessions WHERE expires_at > ? GROUP BY user_id")
+                .bind(now)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, count)| id.parse().ok().map(|id| (id, count)))
+            .collect())
     }
 
     pub async fn delete_for_user(&self, user_id: UserId) -> Result<(), RepoError> {

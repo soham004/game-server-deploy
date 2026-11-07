@@ -7,10 +7,12 @@ manager, starting with Minecraft: Java Edition ("Prism Launcher for servers").
 Linux-first Docker image, multi-user RBAC in v1, per-server isolation, mods and plugins equally, user-supplied CurseForge key,
 nginx for TLS, browser-only, build-time branding.
 
-**M0 (skeleton) and M1 (first server runs, isolated) are implemented** (2026-11-07): 172 tests pass, clippy (pedantic,
-`-D warnings`) is clean, and a real Paper 26.3 server was created, started, commanded and stopped through the API inside the
-Landlock sandbox. Open M1 item: cgroup limits (moved to M2). Next step: M2 in `plan/06-roadmap.md`. Implementation log:
-`decisions.md` D-024 (M0) and D-025 (M1, including lessons from the real runs).
+**M0, M1 and M2 are implemented** (2026-11-07): all seven loaders (each verified with a real 26.3 install and start in
+the sandbox), `server.properties` editor, file manager, instance settings, clone, import, user management, and cgroup v2
+hard limits. Checks: 337 Rust tests (5 of them need root and run as root in CI), clippy (pedantic, `-D warnings`) clean,
+12 frontend unit tests, 9 browser end-to-end scenarios (`tests/e2e/`, headless Chrome/Edge, no dependencies), plus
+manual end-to-end runs under systemd (`Delegate=yes`) and in the Docker image as root. Next step: M3 (backups,
+scheduler) in `plan/06-roadmap.md`. Implementation log: `decisions.md` D-024 (M0), D-025/D-026 (M1), D-027 … D-034 (M2).
 
 CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.
 

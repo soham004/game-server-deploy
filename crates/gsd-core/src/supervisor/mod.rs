@@ -20,7 +20,7 @@ use std::{
 
 pub use actor::{CONSOLE_HISTORY, Snapshot, SupervisorError, SupervisorHandle};
 pub use process::ProcessSpec;
-pub use sandbox::{IsolationLevel, SandboxSpec, SandboxSupport};
+pub use sandbox::{HostSandbox, IsolationLevel, SandboxSpec, SandboxSupport, SandboxUnusable};
 pub use state::{CommandError, ExitInfo, RestartPolicy, ServerState};
 
 use crate::{events::EventBus, game::GameAdapter, ids::InstanceId};
@@ -34,31 +34,24 @@ pub struct Supervisors {
 #[derive(Debug)]
 struct Inner {
     events: EventBus,
-    support: SandboxSupport,
-    /// Why servers can't be sandboxed here, if the startup check found a problem.
-    sandbox_problem: Option<String>,
+    host: HostSandbox,
     handles: Mutex<HashMap<InstanceId, SupervisorHandle>>,
 }
 
 impl Supervisors {
-    /// `sandbox_problem`: set when the sandbox can't work on this host, which blocks every start.
-    pub fn new(events: EventBus, support: SandboxSupport, sandbox_problem: Option<String>) -> Self {
+    pub fn new(events: EventBus, host: HostSandbox) -> Self {
         Self {
             inner: Arc::new(Inner {
                 events,
-                support,
-                sandbox_problem,
+                host,
                 handles: Mutex::new(HashMap::new()),
             }),
         }
     }
 
-    pub fn support(&self) -> SandboxSupport {
-        self.inner.support
-    }
-
-    pub fn sandbox_problem(&self) -> Option<&str> {
-        self.inner.sandbox_problem.as_deref()
+    /// What the sandbox can do here; a problem blocks every start.
+    pub fn host(&self) -> &HostSandbox {
+        &self.inner.host
     }
 
     /// The instance's supervisor, starting one if needed.
@@ -72,7 +65,13 @@ impl Supervisors {
         handles
             .entry(id)
             .or_insert_with(|| {
-                SupervisorHandle::spawn(id, adapter, self.inner.events.clone(), self.inner.support, policy)
+                SupervisorHandle::spawn(
+                    id,
+                    adapter,
+                    self.inner.events.clone(),
+                    self.inner.host.clone(),
+                    policy,
+                )
             })
             .clone()
     }
@@ -158,10 +157,15 @@ mod tests {
         }
 
         fn diagnose(&self, line: &LogLine) -> Option<Diagnostic> {
-            (line.text == "BIND FAIL").then(|| Diagnostic {
-                code: "port_in_use",
+            let title = match line.text.as_str() {
+                "BIND FAIL" => "Couldn't open the port",
+                "BIND CAUSE in use" => "Port in use",
+                _ => return None,
+            };
+            Some(Diagnostic {
+                code: "port_bind_failed",
                 severity: Severity::Error,
-                title: "Port in use".into(),
+                title: title.into(),
                 detail: String::new(),
             })
         }
@@ -175,7 +179,8 @@ mod tests {
     /// "stop", crashes on "crash", ignores "stop" when started with `IGNORE_STOP=1`.
     const FAKE_SERVER: &str = r#"
 echo "booting"
-echo "READY"
+if [ "$EXIT_BEFORE_READY" = "1" ]; then echo "Failed to initialize server"; exit 0; fi
+if [ "$NO_READY" != "1" ]; then echo "READY"; fi
 while IFS= read -r line; do
   case "$line" in
     stop)  if [ "$IGNORE_STOP" = "1" ]; then echo "ignoring stop"; else echo "stopping"; exit 0; fi ;;
@@ -183,6 +188,8 @@ while IFS= read -r line; do
     join*) echo "JOIN ${line#join }" ;;
     leave*) echo "LEAVE ${line#leave }" ;;
     bindfail) echo "BIND FAIL" ;;
+    bindcause) echo "BIND CAUSE in use" ;;
+    hog) head -c 400000000 /dev/zero | tail -c 300000000 > /dev/null ;;
     *) echo "echo: $line" ;;
   esac
 done
@@ -211,7 +218,7 @@ done
 
     fn setup(auto_restart: bool) -> (Supervisors, SupervisorHandle, EventBus) {
         let events = EventBus::new();
-        let supervisors = Supervisors::new(events.clone(), SandboxSupport::none(), None);
+        let supervisors = Supervisors::new(events.clone(), HostSandbox::disabled());
         let handle =
             supervisors.get_or_spawn(InstanceId::generate(), Arc::new(FakeGame), policy(auto_restart));
         (supervisors, handle, events)
@@ -335,6 +342,75 @@ done
         }
         assert!(saw_join);
         handle.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_later_explanation_replaces_a_diagnostic_with_the_same_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_supervisors, handle, events) = setup(true);
+        let mut receiver = events.subscribe();
+        handle.start(spec(dir.path(), &[]), policy(true)).await.unwrap();
+        handle
+            .wait_for(WAIT, |s| matches!(s, ServerState::Running { .. }))
+            .await;
+        for command in ["bindfail", "bindcause", "bindcause"] {
+            handle.send_line(command, None).await.unwrap();
+        }
+        assert!(console_contains(&handle, "BIND CAUSE").await);
+        let snapshot = handle.snapshot().await.unwrap();
+        let titles: Vec<&str> = snapshot.diagnostics.iter().map(|d| d.title.as_str()).collect();
+        assert_eq!(titles, ["Port in use"], "the cause replaced the symptom");
+
+        let mut published = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            if let EventKind::Diagnostic(diagnostic) = event.kind {
+                published.push(diagnostic.title);
+            }
+        }
+        assert_eq!(
+            published,
+            ["Couldn't open the port", "Port in use"],
+            "no repeat event"
+        );
+        handle.kill().await.unwrap();
+    }
+
+    /// Regression (real Forge run): Minecraft exits with code 0 after "Failed to initialize
+    /// server". Before ready, that is a crash, not a stop.
+    #[tokio::test]
+    async fn a_clean_exit_before_ready_counts_as_a_crash() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_supervisors, handle, _) = setup(false);
+        handle
+            .start(spec(dir.path(), &[("EXIT_BEFORE_READY", "1")]), policy(false))
+            .await
+            .unwrap();
+        assert!(
+            handle
+                .wait_for(WAIT, |s| matches!(s, ServerState::Crashed { .. }))
+                .await,
+            "{:?}",
+            handle.state()
+        );
+    }
+
+    #[tokio::test]
+    async fn typing_stop_before_ready_is_still_a_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_supervisors, handle, _) = setup(true);
+        handle
+            .start(spec(dir.path(), &[("NO_READY", "1")]), policy(true))
+            .await
+            .unwrap();
+        assert!(console_contains(&handle, "booting").await);
+        handle.send_line("stop", None).await.unwrap();
+        assert!(
+            handle
+                .wait_for(WAIT, |s| matches!(s, ServerState::Stopped { .. }))
+                .await,
+            "{:?}",
+            handle.state()
+        );
     }
 
     #[tokio::test]
@@ -475,11 +551,8 @@ done
             "i=0; while [ $i -lt 2500 ]; do echo line $i; i=$((i+1)); done".into(),
         ];
         handle.start(flood, policy(false)).await.unwrap();
-        assert!(
-            handle
-                .wait_for(WAIT, |s| matches!(s, ServerState::Stopped { .. }))
-                .await
-        );
+        // It never prints READY, so its exit counts as a failed start; only the history matters here.
+        assert!(handle.wait_for(WAIT, |s| !s.is_active()).await);
         let snapshot = handle.snapshot().await.unwrap();
         assert_eq!(snapshot.console.len(), CONSOLE_HISTORY);
         assert!(
@@ -490,5 +563,57 @@ done
                 .text
                 .starts_with("Server process exited")
         );
+    }
+
+    /// Needs root and cgroup v2 (skipped otherwise): the kernel stops a server that outgrows its
+    /// memory ceiling, and the console and problems say so instead of only "signal 9".
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn explains_when_the_memory_ceiling_stopped_the_server() {
+        use sandbox::{
+            CgroupLimits, CgroupRequest, ResourceLimits, cgroup::tests::kernel::RealTree,
+            system_read_only_paths, system_read_write_paths,
+        };
+
+        let Some(real) = RealTree::new() else { return };
+        let dir = tempfile::tempdir().unwrap();
+        let supervisors = Supervisors::new(EventBus::new(), real.host().clone());
+        let handle = supervisors.get_or_spawn(InstanceId::generate(), Arc::new(FakeGame), policy(false));
+        let mut process = spec(dir.path(), &[]);
+        let mut read_write = system_read_write_paths();
+        read_write.push(dir.path().to_owned());
+        process.sandbox = Some(SandboxSpec {
+            user: None,
+            read_write,
+            read_only: system_read_only_paths(),
+            bind_tcp: vec![],
+            connect_tcp: vec![],
+            limits: ResourceLimits::default(),
+            cgroup: Some(CgroupRequest {
+                name: "server".into(),
+                limits: CgroupLimits {
+                    memory_max: 48 * 1024 * 1024,
+                    tasks_max: 100,
+                },
+            }),
+        });
+
+        handle.start(process, policy(false)).await.unwrap();
+        assert!(
+            handle
+                .wait_for(WAIT, |s| matches!(s, ServerState::Running { .. }))
+                .await
+        );
+        handle.send_line("hog", None).await.unwrap();
+        assert!(
+            handle.wait_for(WAIT, |s| !s.is_active()).await,
+            "{:?}",
+            handle.state()
+        );
+
+        assert!(console_contains(&handle, "used all of its 48 MB memory limit").await);
+        let snapshot = handle.snapshot().await.unwrap();
+        let codes: Vec<&str> = snapshot.diagnostics.iter().map(|d| d.code).collect();
+        assert!(codes.contains(&"memory_limit"), "{codes:?}");
     }
 }

@@ -15,7 +15,13 @@ pub mod session;
 pub mod ws;
 
 use axum::{Router, middleware};
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
+use tower_http::{
+    compression::{
+        CompressionLayer,
+        predicate::{DefaultPredicate, NotForContentType, Predicate},
+    },
+    trace::TraceLayer,
+};
 
 use crate::{assets, state::AppState};
 
@@ -28,6 +34,11 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::me::routes())
         .merge(routes::catalog::routes())
         .merge(routes::instances::routes())
+        .merge(routes::properties::routes())
+        .merge(routes::files::routes())
+        .merge(routes::settings::routes())
+        .merge(routes::imports::routes())
+        .merge(routes::users::routes())
         .merge(routes::jobs::routes())
         .merge(routes::java::routes())
         .merge(ws::routes())
@@ -38,7 +49,11 @@ pub fn router(state: AppState) -> Router {
         .nest("/api/v1", api)
         .fallback(assets::serve)
         .layer(middleware::from_fn(headers::add_security_headers))
-        .layer(CompressionLayer::new())
+        // WHY: downloads (`application/octet-stream`) go out as they are: jars and archives don't
+        // compress further, and an unencoded file keeps its Content-Length (download progress).
+        .layer(CompressionLayer::new().compress_when(
+            DefaultPredicate::new().and(NotForContentType::const_new("application/octet-stream")),
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -60,12 +60,20 @@
 
 ### Layer 3: resource limits
 - Memory: the JVM heap via `-Xmx` (always) **plus** a hard cap when cgroups are available.
-- **cgroups v2**: Docker mounts `/sys/fs/cgroup` read-only by default, so we **cannot rely on them in a container**. The
-  `CgroupManager` probes at startup:
-  - host install under systemd with `Delegate=yes` in our unit file → create `gsd.slice/instance-<slug>` with `memory.max`
-    (Xmx + overhead, default ×1.4), `pids.max` (default 2048), `cpu.weight` (relative priority);
-  - container with a writable cgroup (userns-remap, or the documented opt-in compose override) → same;
-  - otherwise → disabled; we rely on Xmx + rlimits, and the UI says "memory hard limit unavailable".
+- **cgroups v2** (built, D-034; `supervisor/sandbox/cgroup.rs`). At startup `CgroupTree::detect` looks at the app's own
+  group (`/proc/self/cgroup`) and uses it only if it is clearly the app's: writable, `memory` and `pids` delegated, and no
+  processes in it but the app (plus a container init such as tini, only in a private cgroup namespace). It never moves
+  anyone else's processes. Layout: `<own>/app/` (the app moves here; v2 forbids processes next to child groups),
+  `<own>/instances/<instance id>/` with `memory.max` = heap + max(heap/2, 1 GiB), `memory.swap.max` = 0,
+  `memory.oom.group` = 1, `pids.max` = 2048. Not per-instance settings yet; `cpu.weight` is not used.
+  - host install under systemd with `Delegate=yes` in our unit file → on (verified with `systemd-run -p Delegate=yes`);
+  - Docker: `/sys/fs/cgroup` is read-only by default → off, with the reason in `GET /system` and the startup log;
+  - a shared group (a shell, a desktop session, `init.scope`) → off.
+  A sandboxed probe proves at startup that a child joins its group after dropping root (the kernel checks the opener's
+  credentials on `cgroup.procs`, Linux ≥ 5.16 or backports); if not, limits turn off instead of every start failing.
+  The child joins in `pre_exec` by writing `0` to a `cgroup.procs` fd the app opened. After an exit, a new `oom_kill` in
+  `memory.events` becomes the `memory_limit` diagnostic. Installers don't use the server's group (preparing it kills
+  leftovers).
 - rlimits for every child: `RLIMIT_NOFILE` (default 8192), `RLIMIT_NPROC` (per UID, so it only limits that instance's
   threads; default 4096; JVMs are thread-heavy), `RLIMIT_CORE=0`.
 

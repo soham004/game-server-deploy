@@ -4,9 +4,11 @@ A self-hosted game server manager with a Rust backend and a plain HTML/CSS/JS we
 Minecraft: Java Edition ("Prism Launcher for servers"). The product name, slug and default port are
 build-time settings (see `crates/gsd-brand`).
 
-**Status:** milestones M0 + M1. Create Vanilla, Paper and Fabric servers from a version picker, run them
-sandboxed (own user, Landlock filesystem and network rules, resource limits), with a live console,
-auto-restart on crash, diagnostics, background jobs, and multi-user roles. Plans and research live in
+**Status:** milestones M0 to M2. Create Vanilla, Paper, Purpur, Fabric, Quilt, Forge and NeoForge servers from a
+version picker, or import an existing server folder; run them sandboxed (own user, Landlock filesystem and network
+rules, resource limits, and a hard memory ceiling with cgroup v2 where the host delegates it), with a live console,
+auto-restart on crash and diagnostics. Edit `server.properties` visually, manage files, change settings, clone
+servers, and manage users with per-server access. Plans and research live in
 [`claude/`](claude/README.md).
 
 ## Layout
@@ -14,7 +16,7 @@ auto-restart on crash, diagnostics, background jobs, and multi-user roles. Plans
 |---|---|
 | `crates/gsd-brand` | The single declaration of name, slug and default port |
 | `crates/gsd-core` | Game-agnostic services: store, auth/RBAC, audit, jobs, Java runtimes, instances, sandboxed supervisor |
-| `crates/gsd-minecraft` | Minecraft adapter: version catalog (Mojang/Paper/Fabric), installer, log parsing, diagnostics |
+| `crates/gsd-minecraft` | Minecraft adapter: version catalog and installers for every loader, import, clone, `server.properties`, log parsing, diagnostics |
 | `crates/gsd-mods` | Modrinth / CurseForge / Hangar (from M4) |
 | `crates/gsd-app` | The binary: config, CLI, HTTP API, embedded web UI |
 | `web/` | Frontend: plain HTML, CSS (design tokens in `css/tokens.css`) and ES modules |
@@ -60,3 +62,14 @@ docker compose -f deploy/docker/compose.yaml up -d --build
 
 Published images (built by CI on pushes to `main` and `v*` tags, for linux/amd64 and linux/arm64):
 `ghcr.io/<owner>/<repo>:latest`, `:main`, `:<version>`, `:sha-<commit>`.
+
+## Hard memory limits (cgroup v2)
+Every server's heap is capped by `-Xmx`. A hard ceiling for the whole server process (heap plus Java's own memory, no
+swap) and a cap on processes and threads need a control group the app may manage:
+
+- **systemd**: run the app as a service with `Delegate=yes` in its unit. The app moves itself into
+  `app/` inside its group and gives each server `instances/<id>/`.
+- **Docker**: the default compose setup mounts the cgroup filesystem read-only, so hard limits are off. Servers still run.
+
+The startup log, `GET /api/v1/system` (`hard_limits`, `hard_limits_problem`) and the isolation check say which applies
+and why. When a server outgrows its ceiling, the console and its problems list say so.

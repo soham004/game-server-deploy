@@ -2,12 +2,17 @@
 
 pub mod auth;
 pub mod catalog;
+pub mod files;
+pub mod imports;
 pub mod instances;
 pub mod java;
 pub mod jobs;
 pub mod me;
+pub mod properties;
+pub mod settings;
 pub mod setup;
 pub mod system;
+pub mod users;
 
 use axum::{
     Json,

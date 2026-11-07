@@ -1,4 +1,4 @@
-//! `PaperMC` Fill v3 API (the v2 API was shut down on 2026-07-01).
+//! Paper, via the `PaperMC` Fill v3 API (the v2 API was shut down on 2026-07-01).
 //!
 //! Rules from `PaperMC`: send a User-Agent, prefer `STABLE` builds, and always use the download
 //! URL from the response rather than building one.
@@ -6,87 +6,106 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use gsd_core::net::ExpectedHash;
 use serde::Deserialize;
 
-use super::LoaderVersion;
+use super::{Artifact, CatalogError, Fetcher, LoaderVersion, model::mark_recommended};
+use crate::loader::LoaderKind;
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Project {
+struct Project {
     /// Version group → versions, newest first.
     versions: HashMap<String, Vec<String>>,
 }
 
-impl Project {
-    pub(super) fn all_versions(self) -> Vec<String> {
-        self.versions.into_values().flatten().collect()
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct Build {
+    id: u32,
+    time: DateTime<Utc>,
+    channel: String,
+    downloads: HashMap<String, Download>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct PaperBuild {
-    pub id: u32,
-    pub time: DateTime<Utc>,
-    pub channel: String,
-    pub downloads: HashMap<String, PaperDownload>,
+struct Download {
+    url: String,
+    checksums: Checksums,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct PaperDownload {
-    pub name: String,
-    pub url: String,
-    pub checksums: PaperChecksums,
-    pub size: u64,
+struct Checksums {
+    sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct PaperChecksums {
-    pub sha256: String,
-}
-
-impl PaperBuild {
-    pub fn is_stable(&self) -> bool {
+impl Build {
+    fn is_stable(&self) -> bool {
         self.channel.eq_ignore_ascii_case("STABLE")
     }
-
-    /// The server jar (`server:default`).
-    pub fn server_download(&self) -> Option<&PaperDownload> {
-        self.downloads.get("server:default")
-    }
 }
 
-/// Newest build first.
-pub(super) fn sorted(mut builds: Vec<PaperBuild>) -> Vec<PaperBuild> {
-    builds.sort_by_key(|build| std::cmp::Reverse(build.id));
-    builds
+pub(super) async fn supports(fetcher: &Fetcher, base: &str, mc_version: &str) -> Result<bool, CatalogError> {
+    let project: Project = fetcher.json(&format!("{base}/v3/projects/paper")).await?;
+    Ok(project.versions.values().flatten().any(|v| v == mc_version))
 }
 
-/// The newest stable build, or the newest build if none is stable.
-pub fn pick_build(builds: &[PaperBuild]) -> Option<&PaperBuild> {
-    builds
+/// Builds, newest first; the newest stable one is recommended.
+pub(super) async fn versions(
+    fetcher: &Fetcher,
+    base: &str,
+    mc_version: &str,
+) -> Result<Vec<LoaderVersion>, CatalogError> {
+    Ok(to_loader_versions(&builds(fetcher, base, mc_version).await?))
+}
+
+/// The server jar of one build, with its SHA-256.
+pub(super) async fn artifact(
+    fetcher: &Fetcher,
+    base: &str,
+    mc_version: &str,
+    build_id: &str,
+) -> Result<Artifact, CatalogError> {
+    let builds = builds(fetcher, base, mc_version).await?;
+    let download = builds
         .iter()
-        .find(|build| build.is_stable())
-        .or_else(|| builds.first())
+        .find(|build| build.id.to_string() == build_id)
+        .and_then(|build| build.downloads.get("server:default"))
+        .ok_or_else(|| CatalogError::UnknownLoaderVersion {
+            loader: LoaderKind::Paper,
+            mc_version: mc_version.into(),
+            version: build_id.into(),
+        })?;
+    Ok(Artifact {
+        url: download.url.clone(),
+        hash: ExpectedHash::Sha256(download.checksums.sha256.clone()),
+    })
 }
 
-pub(super) fn to_loader_versions(builds: &[PaperBuild]) -> Vec<LoaderVersion> {
-    let recommended = pick_build(builds).map(|build| build.id);
-    builds
+async fn builds(fetcher: &Fetcher, base: &str, mc_version: &str) -> Result<Vec<Build>, CatalogError> {
+    let url = format!("{base}/v3/projects/paper/versions/{mc_version}/builds");
+    let mut builds: Vec<Build> = fetcher.json(&url).await?;
+    builds.sort_by_key(|build| std::cmp::Reverse(build.id));
+    Ok(builds)
+}
+
+fn to_loader_versions(builds: &[Build]) -> Vec<LoaderVersion> {
+    let versions = builds
         .iter()
         .map(|build| LoaderVersion {
             id: build.id.to_string(),
             released: Some(build.time),
             stable: build.is_stable(),
-            recommended: Some(build.id) == recommended,
+            recommended: false,
         })
-        .collect()
+        .collect();
+    mark_recommended(versions, None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn build(id: u32, channel: &str) -> PaperBuild {
-        PaperBuild {
+    fn build(id: u32, channel: &str) -> Build {
+        Build {
             id,
             time: Utc::now(),
             channel: channel.into(),
@@ -95,19 +114,18 @@ mod tests {
     }
 
     #[test]
-    fn prefers_newest_stable_then_newest() {
-        let builds = sorted(vec![build(10, "STABLE"), build(12, "ALPHA"), build(11, "STABLE")]);
-        assert_eq!(pick_build(&builds).unwrap().id, 11);
-        let experimental_only = sorted(vec![build(1, "ALPHA"), build(2, "BETA")]);
-        assert_eq!(pick_build(&experimental_only).unwrap().id, 2);
-        assert!(pick_build(&[]).is_none());
+    fn recommends_the_newest_stable_build() {
+        let builds = [build(12, "ALPHA"), build(11, "STABLE"), build(10, "STABLE")];
+        let versions = to_loader_versions(&builds);
+        assert_eq!(versions.iter().find(|v| v.recommended).unwrap().id, "11");
+        assert!(!versions[0].stable);
     }
 
     #[test]
-    fn parses_the_fixture() {
-        let builds: Vec<PaperBuild> =
-            serde_json::from_value(crate::catalog::tests::fixture("paper_builds_26.3.json")).unwrap();
-        let download = builds[0].server_download().unwrap();
+    fn parses_the_recorded_builds() {
+        let builds: Vec<Build> =
+            serde_json::from_value(crate::test_support::fixture("paper_builds_26.3.json")).unwrap();
+        let download = &builds[0].downloads["server:default"];
         assert!(download.url.starts_with("https://fill-data.papermc.io/"));
         assert_eq!(download.checksums.sha256.len(), 64);
     }

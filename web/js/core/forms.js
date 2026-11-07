@@ -4,10 +4,15 @@
  *   onSubmit(form, async (values) => { await api.post('/thing', values); });
  *
  * If the handler throws, its message is shown in the form's `[data-form-error]` element.
+ *
+ * Forms in the HTML pages ship with `method="post"` and a disabled submit button, which this
+ * enables once the handler is attached: a click before the script loaded must never submit the
+ * form natively (a GET would put the password in the URL).
  */
 
 /** Calls `handler(values)` on submit, where `values` is a plain object of the form fields. */
 export function onSubmit(form, handler) {
+  for (const button of form.querySelectorAll('[type="submit"]')) button.disabled = false;
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     // Read values before disabling the controls: disabled fields are left out of FormData.

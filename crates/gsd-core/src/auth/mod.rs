@@ -18,6 +18,6 @@ pub mod users;
 pub use actor::Actor;
 pub use error::AuthError;
 pub use permissions::{GlobalPermission, GlobalRole, Grant, Permission, PermissionSet};
-pub use service::{AuthService, ClientInfo, LoginOutcome};
+pub use service::{AccountChange, AuthService, ClientInfo, LoginOutcome, UserSummary};
 pub use username::Username;
 pub use users::User;

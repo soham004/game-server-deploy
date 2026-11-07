@@ -1,0 +1,176 @@
+/* File manager (components/file-browser.js). */
+
+.c-files {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-files__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.c-files__crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.c-files__crumb {
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--color-focus);
+  cursor: pointer;
+}
+
+.c-files__crumb:hover {
+  background: var(--color-surface-muted);
+}
+
+.c-files__sep {
+  color: var(--color-text-muted);
+}
+
+.c-files__selection,
+.c-files__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+
+.c-files__drop {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-x: auto;
+}
+
+.c-files__drop.is-dragging {
+  outline: 2px dashed var(--color-focus);
+  outline-offset: -4px;
+}
+
+.c-files__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.c-files__table th,
+.c-files__table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.c-files__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.c-files__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.c-files__table tbody tr:hover {
+  background: var(--color-surface-muted);
+}
+
+.c-files__check {
+  width: 2rem;
+}
+
+.c-files__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.c-files__name {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.c-files__name:hover {
+  text-decoration: underline;
+}
+
+.c-files__row.is-live .c-files__name::after {
+  content: " (managed by the server)";
+  color: var(--color-text-muted);
+}
+
+.c-files__actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.c-files__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.c-files__row-actions .c-button {
+  padding-block: var(--space-1);
+  font-size: var(--text-xs);
+}
+
+.c-editor {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-editor__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.c-editor__title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+
+.c-editor .c-editor__text {
+  width: 100%;
+  min-height: 28rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  resize: vertical;
+  tab-size: 4;
+}
+
+@media (max-width: 720px) {
+  .c-files__table th:nth-child(4),
+  .c-files__table td:nth-child(4) {
+    display: none;
+  }
+}

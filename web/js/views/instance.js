@@ -1,5 +1,6 @@
 /**
- * One server: header with state and lifecycle buttons, then tabs (Console, Overview).
+ * One server: header with state and lifecycle buttons, then tabs (Console, Overview, Properties,
+ * Files, Settings).
  * Live updates come from the "instances" and "jobs" topics.
  */
 import { api } from '../core/api.js';
@@ -10,6 +11,9 @@ import { session } from '../core/session.js';
 import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
 import { createConsole } from '../components/console.js';
+import { createFileBrowser } from '../components/file-browser.js';
+import { createInstanceSettings } from '../components/instance-settings.js';
+import { createPropertiesEditor } from '../components/properties-editor.js';
 
 export async function mount(root, { id }) {
   let instance;
@@ -36,10 +40,19 @@ export async function mount(root, { id }) {
   const overview = h('div', { class: 'c-overview' });
 
   const terminal = can('console.read') ? createConsole({ instanceId: id, canWrite: can('console.write') }) : null;
+  const isMinecraft = instance.game === 'minecraft';
+  const properties = isMinecraft
+    ? createPropertiesEditor({ instanceId: id, onRestart: () => lifecycle('restart') })
+    : null;
+  const files = can('files.read') ? createFileBrowser({ instanceId: id, canWrite: can('files.write') }) : null;
+  const settings = createInstanceSettings({ instanceId: id, onSaved: () => refresh(), onRestart: () => lifecycle('restart') });
   const tabs = createTabs([
     { id: 'console', label: 'Console', panel: terminal ? terminal.element : h('p', null, 'You cannot view this console.') },
     { id: 'overview', label: 'Overview', panel: overview },
-  ]);
+    properties ? { id: 'properties', label: 'Properties', panel: properties.element, onFirstOpen: properties.load } : null,
+    files ? { id: 'files', label: 'Files', panel: files.element, onFirstOpen: files.load } : null,
+    { id: 'settings', label: 'Settings', panel: settings.element, onFirstOpen: settings.load },
+  ].filter(Boolean));
 
   root.append(
     h('header', { class: 'l-page-header' },
@@ -52,7 +65,7 @@ export async function mount(root, { id }) {
 
   function render() {
     title.textContent = instance.name;
-    software.textContent = softwareLabel(instance.server);
+    software.textContent = softwareLabel(instance);
     pill.textContent = stateLabel(instance);
     pill.className = `c-pill is-${stateKey(instance)}`;
     renderActions();
@@ -75,6 +88,9 @@ export async function mount(root, { id }) {
     if (can('instance.update') && !instance.installed && !instance.busy) {
       buttons.push(actionButton('Retry install', 'install', 'c-button--primary'));
     }
+    if (session.canGlobal('instances.create') && instance.installed && !active && !instance.busy) {
+      buttons.push(h('button', { class: 'c-button c-button--ghost', type: 'button', onClick: cloneServer }, 'Clone'));
+    }
     if (session.canGlobal('instances.delete') && !active && !instance.busy) {
       buttons.push(h('button', { class: 'c-button c-button--ghost', type: 'button', onClick: confirmDelete }, 'Delete'));
     }
@@ -88,15 +104,34 @@ export async function mount(root, { id }) {
       onClick: async (event) => {
         if (confirmText && !window.confirm(confirmText)) return;
         event.currentTarget.disabled = true;
-        try {
-          await api.post(`/instances/${id}/${action}`);
-        } catch (error) {
-          toast(error.message, { kind: 'error' });
-        } finally {
-          await refresh();
-        }
+        await lifecycle(action);
       },
     }, label);
+  }
+
+  /** start / stop / restart / kill / install, then refresh. */
+  async function lifecycle(action) {
+    try {
+      await api.post(`/instances/${id}/${action}`);
+    } catch (error) {
+      toast(error.message, { kind: 'error' });
+    } finally {
+      await refresh();
+    }
+  }
+
+  /** A copy with its own port and user; worlds only if wanted. */
+  async function cloneServer() {
+    const name = window.prompt('Name of the copy', `${instance.name} (copy)`);
+    if (!name) return;
+    const includeWorlds = window.confirm('Copy the worlds too? (OK: yes. Cancel: the copy starts with a new world.)');
+    try {
+      const created = await api.post(`/instances/${id}/clone`, { name, include_worlds: includeWorlds });
+      toast(`Copying to ${created.instance.name}…`, { kind: 'info' });
+      navigate(`/servers/${created.instance.id}`);
+    } catch (error) {
+      toast(error.message, { kind: 'error' });
+    }
   }
 
   async function confirmDelete() {
@@ -120,7 +155,7 @@ export async function mount(root, { id }) {
     overview.replaceChildren(
       h('dl', { class: 'c-details' },
         detail('Connect address', h('code', null, address)),
-        detail('Software', softwareLabel(instance.server) + (instance.server.loader_version ? ` (${instance.server.loader_version})` : '')),
+        detail('Software', softwareLabel(instance) + (instance.server.loader_version ? ` (${instance.server.loader_version})` : '')),
         detail('Java', `Java ${instance.java_major}`),
         detail('Memory', memoryLabel(instance.max_memory_mb)),
         detail('Created', shortDate(instance.created_at)),
@@ -179,7 +214,8 @@ export async function mount(root, { id }) {
       instance.state = event.data;
       render();
     } else if (event.type === 'diagnostic') {
-      diagnostics.push(event.data);
+      // One per code: a later, more specific explanation replaces the earlier one.
+      diagnostics = [...diagnostics.filter((d) => d.code !== event.data.code), event.data];
       renderOverview();
       toast(event.data.title, { kind: 'error' });
     } else {
@@ -208,9 +244,14 @@ function detail(term, description) {
   return h('div', { class: 'c-details__row' }, h('dt', null, term), h('dd', null, description));
 }
 
+/**
+ * Tabs: `[{ id, label, panel, onFirstOpen? }]`. `onFirstOpen` runs the first time a tab is shown
+ * (so heavy tabs load their data only when needed).
+ */
 function createTabs(tabs) {
   const tablist = h('div', { class: 'c-tabs__list', role: 'tablist' });
   const panels = h('div', { class: 'c-tabs__panels' });
+  const opened = new Set();
   const select = (selectedId) => {
     for (const button of tablist.children) {
       const active = button.dataset.tab === selectedId;
@@ -219,6 +260,10 @@ function createTabs(tabs) {
       button.classList.toggle('is-active', active);
     }
     for (const panel of panels.children) panel.hidden = panel.dataset.tab !== selectedId;
+    if (!opened.has(selectedId)) {
+      opened.add(selectedId);
+      tabs.find((tab) => tab.id === selectedId)?.onFirstOpen?.();
+    }
   };
   for (const tab of tabs) {
     tablist.append(h('button', {

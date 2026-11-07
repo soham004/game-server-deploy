@@ -17,7 +17,9 @@ import { mountJobTray } from './components/job-tray.js';
 const routes = [
   { path: '/', view: () => import('./views/dashboard.js') },
   { path: '/servers/new', view: () => import('./views/instance-create.js') },
+  { path: '/servers/import', view: () => import('./views/instance-import.js') },
   { path: '/servers/:id', view: () => import('./views/instance.js') },
+  { path: '/users', view: () => import('./views/users.js') },
 ];
 
 async function boot() {
@@ -65,6 +67,8 @@ async function loadCurrentUser() {
 
 function showShell(me) {
   $('[data-username]').textContent = me.user.username;
+  // Links to pages only some roles may use.
+  for (const link of document.querySelectorAll('[data-requires]')) link.hidden = !session.canGlobal(link.dataset.requires);
   $('[data-action="logout"]').addEventListener('click', logout);
   $('[data-boot]').hidden = true;
   $('[data-shell]').hidden = false;

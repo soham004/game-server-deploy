@@ -58,7 +58,31 @@ async fn catalog_endpoints_feed_the_version_picker() {
             .await,
     )
     .await;
-    assert_eq!(loaders.as_array().unwrap().len(), 3);
+    let summary: Vec<String> = loaders
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| {
+            format!(
+                "{}:{}:{}",
+                l["name"].as_str().unwrap(),
+                l["content"].as_str().unwrap(),
+                l["available"]
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            "Vanilla:none:true",
+            "Paper:plugins:true",
+            "Purpur:plugins:true",
+            "Fabric:mods:true",
+            "Quilt:mods:true",
+            "Forge:mods:true",
+            "NeoForge:mods:true",
+        ]
+    );
 
     let fabric = json_body(
         app.get(
@@ -69,6 +93,29 @@ async fn catalog_endpoints_feed_the_version_picker() {
     )
     .await;
     assert_eq!(fabric[0]["recommended"], true);
+    let forge = json_body(
+        app.get(
+            "/api/v1/catalog/minecraft/loaders/forge/versions?mc=26.3",
+            Some(&cookie),
+        )
+        .await,
+    )
+    .await;
+    let starred: Vec<&Value> = forge
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|v| v["recommended"] == true)
+        .collect();
+    assert_eq!(starred.len(), 1);
+    assert_eq!(starred[0]["id"], "66.1.0");
+    let bad_loader = app
+        .get(
+            "/api/v1/catalog/minecraft/loaders/spigot/versions?mc=26.3",
+            Some(&cookie),
+        )
+        .await;
+    assert!(bad_loader.status().is_client_error());
 
     let unknown = app
         .get("/api/v1/catalog/minecraft/loaders?mc=9.9", Some(&cookie))
@@ -285,6 +332,67 @@ async fn paper_and_fabric_install_too() {
     .await;
     assert_eq!(fabric["server"]["loader_version"], "0.20.1");
     assert_ne!(paper["port"], fabric["port"], "each instance gets its own port");
+}
+
+/// The whole path for an installer-based loader: create → installer job → args-files launch →
+/// running server with a console → stop.
+#[tokio::test]
+async fn forge_servers_install_start_and_stop_through_the_api() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let id = create_installed(&app, &cookie, "forge").await;
+
+    let instance = json_body(app.get(&format!("/api/v1/instances/{id}"), Some(&cookie)).await).await;
+    assert_eq!(instance["server"]["loader"], "forge");
+    assert_eq!(instance["server"]["loader_version"], "66.1.0");
+
+    start_running(&app, &id, &cookie).await;
+    let console = wait_for_console(&app, &id, &cookie, |snapshot| {
+        has_line(snapshot, |line| {
+            line["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("Launched with:"))
+        })
+    })
+    .await;
+    let launched = console["console"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|line| line["text"].as_str().filter(|t| t.starts_with("Launched with:")))
+        .unwrap()
+        .to_owned();
+    assert!(
+        launched.ends_with(
+            "@user_jvm_args.txt @libraries/net/minecraftforge/forge/26.3-66.1.0/unix_args.txt nogui"
+        ),
+        "{launched}"
+    );
+    assert!(
+        launched.contains("-Xmx2048M"),
+        "our memory settings come first: {launched}"
+    );
+
+    let stopped = app
+        .post(&format!("/api/v1/instances/{id}/stop"), json!({}), Some(&cookie))
+        .await;
+    assert_eq!(stopped.status(), StatusCode::ACCEPTED);
+    app.wait_for_state(&id, &cookie, "stopped").await;
+}
+
+#[tokio::test]
+async fn every_other_loader_installs_through_the_api() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    for (loader, version) in [
+        ("purpur", "2657"),
+        ("quilt", "0.30.2"),
+        ("neoforge", "26.3.0.101"),
+    ] {
+        let id = create_installed(&app, &cookie, loader).await;
+        let instance = json_body(app.get(&format!("/api/v1/instances/{id}"), Some(&cookie)).await).await;
+        assert_eq!(instance["server"]["loader_version"], version, "{loader}");
+    }
 }
 
 #[tokio::test]

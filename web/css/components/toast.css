@@ -1,15 +1,18 @@
-/* Toast notifications (bottom-right stack). */
+/* Toast notifications (top-right stack, below the header: the bottom is where pages keep their
+   primary controls, like the console input and the properties Save bar). */
 .c-toasts {
   position: fixed;
   right: var(--space-4);
-  bottom: var(--space-4);
+  top: calc(var(--space-8) + var(--space-2));
   z-index: 100;
+  pointer-events: none; /* only the toasts themselves take clicks */
   display: grid;
   gap: var(--space-2);
   width: min(24rem, calc(100vw - 2 * var(--space-4)));
 }
 
 .c-toast {
+  pointer-events: auto;
   padding: var(--space-3) var(--space-4);
   border: var(--border-width) solid var(--color-border);
   border-left-width: 4px;
@@ -29,4 +32,18 @@
 
 .c-toast--info {
   border-left-color: var(--color-focus);
+}
+
+.c-toast:has(.c-toast__action) {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.c-toast__message {
+  flex: 1;
+}
+
+.c-toast__action {
+  flex-shrink: 0;
 }

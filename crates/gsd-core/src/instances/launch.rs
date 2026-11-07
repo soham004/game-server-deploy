@@ -10,7 +10,10 @@ use crate::{
     java::JavaRuntime,
     supervisor::{
         ProcessSpec, RestartPolicy, SandboxSpec,
-        sandbox::{DEFAULT_CONNECT_PORTS, ResourceLimits, system_read_only_paths, system_read_write_paths},
+        sandbox::{
+            CgroupLimits, CgroupRequest, DEFAULT_CONNECT_PORTS, ResourceLimits, system_read_only_paths,
+            system_read_write_paths,
+        },
     },
 };
 
@@ -49,15 +52,7 @@ pub fn build_process(
     if java_settings.preset == JvmPreset::Aikar {
         args.extend(AIKAR_FLAGS.iter().map(|flag| (*flag).to_owned()));
     }
-    args.extend([
-        // No hsperfdata files in /tmp (also keeps the sandbox's filesystem view minimal).
-        "-XX:-UsePerfData".to_owned(),
-        "-Dfile.encoding=UTF-8".to_owned(),
-        "-Dstdout.encoding=UTF-8".to_owned(),
-        "-Dstderr.encoding=UTF-8".to_owned(),
-        format!("-Djava.io.tmpdir={}", layout.tmp_dir().display()),
-        format!("-Duser.home={}", layout.home_dir().display()),
-    ]);
+    args.extend(common_jvm_args(layout));
     args.extend(java_settings.extra_jvm_args.iter().cloned());
 
     match &definition.launch {
@@ -75,22 +70,72 @@ pub fn build_process(
         }
     }
 
-    let env = vec![
+    ProcessSpec {
+        program: java.executable.clone(),
+        args,
+        cwd: layout.server_dir(),
+        env: environment(layout, java),
+        sandbox: Some(sandbox_for(definition, layout, java)),
+    }
+}
+
+/// Heap for loader installers (they patch and remap the game jar, which needs more than the
+/// JVM's default on small hosts).
+const INSTALLER_HEAP: &str = "-Xmx1G";
+
+/// `java -jar <jar> <args>` for a loader installer, in the server directory and in the same
+/// sandbox as the server, except that it may not listen on any port. Installers are downloaded
+/// code, so they get no more access than the server itself.
+pub fn installer_process(
+    definition: &InstanceDefinition,
+    layout: &InstanceLayout,
+    java: &JavaRuntime,
+    jar: &str,
+    installer_args: &[String],
+) -> ProcessSpec {
+    let mut args = vec![INSTALLER_HEAP.to_owned(), "-Djava.awt.headless=true".to_owned()];
+    args.extend(common_jvm_args(layout));
+    args.extend(["-jar".to_owned(), jar.to_owned()]);
+    args.extend(installer_args.iter().cloned());
+
+    let mut sandbox = sandbox_for(definition, layout, java);
+    sandbox.bind_tcp.clear();
+    // Not the server's control group: preparing it kills whatever runs there. The installer's
+    // heap is capped by INSTALLER_HEAP and it only runs briefly.
+    sandbox.cgroup = None;
+    ProcessSpec {
+        program: java.executable.clone(),
+        args,
+        cwd: layout.server_dir(),
+        env: environment(layout, java),
+        sandbox: Some(sandbox),
+    }
+}
+
+/// JVM flags every process of the instance gets: UTF-8 everywhere, and temp/home inside the
+/// instance's own (writable) directories.
+fn common_jvm_args(layout: &InstanceLayout) -> [String; 6] {
+    [
+        // No hsperfdata files in /tmp (also keeps the sandbox's filesystem view minimal).
+        "-XX:-UsePerfData".to_owned(),
+        "-Dfile.encoding=UTF-8".to_owned(),
+        "-Dstdout.encoding=UTF-8".to_owned(),
+        "-Dstderr.encoding=UTF-8".to_owned(),
+        format!("-Djava.io.tmpdir={}", layout.tmp_dir().display()),
+        format!("-Duser.home={}", layout.home_dir().display()),
+    ]
+}
+
+/// The complete environment (nothing is inherited from the app).
+fn environment(layout: &InstanceLayout, java: &JavaRuntime) -> Vec<(String, String)> {
+    vec![
         ("PATH".to_owned(), "/usr/local/bin:/usr/bin:/bin".to_owned()),
         ("HOME".to_owned(), layout.home_dir().display().to_string()),
         ("TMPDIR".to_owned(), layout.tmp_dir().display().to_string()),
         ("JAVA_HOME".to_owned(), java.home.display().to_string()),
         ("LANG".to_owned(), "C.UTF-8".to_owned()),
         ("TERM".to_owned(), "dumb".to_owned()),
-    ];
-
-    ProcessSpec {
-        program: java.executable.clone(),
-        args,
-        cwd: layout.server_dir(),
-        env,
-        sandbox: Some(sandbox_for(definition, layout, java)),
-    }
+    ]
 }
 
 fn sandbox_for(definition: &InstanceDefinition, layout: &InstanceLayout, java: &JavaRuntime) -> SandboxSpec {
@@ -105,6 +150,10 @@ fn sandbox_for(definition: &InstanceDefinition, layout: &InstanceLayout, java: &
         bind_tcp: vec![definition.ports.game],
         connect_tcp: DEFAULT_CONNECT_PORTS.to_vec(),
         limits: ResourceLimits::default(),
+        cgroup: Some(CgroupRequest {
+            name: definition.id.to_string(),
+            limits: CgroupLimits::for_heap(definition.java.max_memory_mb),
+        }),
     }
 }
 
@@ -157,6 +206,11 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "HOME" && v.ends_with("/home"))
         );
+
+        // Hard caps follow the heap: 4096 MB heap + half again for the JVM itself.
+        let cgroup = process.sandbox.unwrap().cgroup.unwrap();
+        assert_eq!(cgroup.name, definition.id.to_string());
+        assert_eq!(cgroup.limits.memory_max_mb(), 6144);
     }
 
     #[test]
@@ -191,6 +245,40 @@ mod tests {
         assert!(sandbox.read_only.contains(&java().home));
         assert_eq!(sandbox.bind_tcp, vec![definition.ports.game]);
         assert!(sandbox.connect_tcp.contains(&443));
+    }
+
+    #[test]
+    fn installers_run_in_the_server_sandbox_without_listening() {
+        let definition = sample();
+        let layout = InstanceLayout::new(PathBuf::from("/data/instances/survival"));
+        let args = vec!["--installServer".to_owned()];
+        let process = installer_process(&definition, &layout, &java(), "forge-installer.jar", &args);
+
+        assert_eq!(process.program, java().executable);
+        assert_eq!(process.cwd, layout.server_dir());
+        assert!(process.args.ends_with(&[
+            "-jar".into(),
+            "forge-installer.jar".into(),
+            "--installServer".into()
+        ]));
+        assert!(process.args.contains(&"-Djava.awt.headless=true".to_owned()));
+        assert!(
+            !process.args.iter().any(|a| a.starts_with("-Xms")),
+            "not the server's memory settings"
+        );
+
+        let sandbox = process.sandbox.unwrap();
+        let server_sandbox = build_process(&definition, &layout, &java()).sandbox.unwrap();
+        assert_eq!(sandbox.user, server_sandbox.user);
+        assert_eq!(sandbox.read_write, server_sandbox.read_write);
+        assert_eq!(sandbox.read_only, server_sandbox.read_only);
+        assert_eq!(sandbox.connect_tcp, server_sandbox.connect_tcp, "may download");
+        assert!(sandbox.bind_tcp.is_empty(), "may not listen");
+        assert!(
+            sandbox.cgroup.is_none(),
+            "must not share (and reset) the server's control group"
+        );
+        assert!(process.env.iter().any(|(k, _)| k == "JAVA_HOME"));
     }
 
     #[test]

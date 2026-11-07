@@ -60,6 +60,17 @@ impl GrantRepo {
             .collect()
     }
 
+    /// The grants of one user, as stored (preset or custom).
+    pub async fn list_for_user(&self, user_id: UserId) -> Result<Vec<(InstanceId, Grant)>, RepoError> {
+        let rows: Vec<GrantRow> = sqlx::query_as(
+            "SELECT instance_id, preset, permissions_json FROM instance_grants WHERE user_id = ?",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(GrantRow::into_entry).collect()
+    }
+
     /// Creates or replaces the grant of `user_id` on `instance_id`.
     pub async fn set(&self, user_id: UserId, instance_id: InstanceId, grant: Grant) -> Result<(), RepoError> {
         let permissions_json = match grant {

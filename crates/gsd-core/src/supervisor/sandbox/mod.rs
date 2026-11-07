@@ -6,11 +6,17 @@
 //!    Java directories, nothing else.
 //! 3. **Landlock network rules** (kernel ABI ≥ 4): bind only its own ports, connect only to
 //!    web ports (Mojang authentication), so it can't reach other servers' admin ports.
-//! 4. **Resource limits**: open files; processes per user when it has its own user.
+//! 4. **Resource limits**: open files; processes per user when it has its own user; a hard
+//!    memory and task ceiling through cgroup v2 when the app's control group is delegated to it.
 
+pub mod cgroup;
 pub mod check;
+mod host;
 #[cfg(target_os = "linux")]
 mod linux;
+
+pub use cgroup::{CgroupLimits, CgroupRequest};
+pub use host::{HostSandbox, SandboxUnusable};
 
 use std::path::PathBuf;
 
@@ -28,6 +34,8 @@ pub struct SandboxSpec {
     pub bind_tcp: Vec<u16>,
     pub connect_tcp: Vec<u16>,
     pub limits: ResourceLimits,
+    /// Hard caps; applied only where the host allows control groups.
+    pub cgroup: Option<CgroupRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,19 +179,21 @@ impl SandboxSupport {
     }
 }
 
-/// Configures `command` to run inside the sandbox, as far as `support` allows.
+/// Configures `command` to run inside the sandbox, as far as `support` allows, and to join
+/// `cgroup` (if any) before it starts.
 pub(crate) fn apply(
     command: &mut tokio::process::Command,
     spec: &SandboxSpec,
     support: &SandboxSupport,
+    cgroup: Option<&cgroup::CgroupSlot>,
 ) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        linux::apply(command, spec, support)
+        linux::apply(command, spec, support, cgroup)
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (command, spec, support);
+        let _ = (command, spec, support, cgroup);
         Ok(())
     }
 }

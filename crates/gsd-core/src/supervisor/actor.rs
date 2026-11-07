@@ -24,7 +24,7 @@ use tokio::{
 
 use super::{
     process::{self, ProcessSpec},
-    sandbox::SandboxSupport,
+    sandbox::{HostSandbox, cgroup::CgroupSlot},
     state::{CommandError, Effect, ExitInfo, Input, Machine, RestartPolicy, ServerState},
 };
 use crate::{
@@ -114,7 +114,7 @@ impl SupervisorHandle {
         instance_id: InstanceId,
         adapter: Arc<dyn GameAdapter>,
         events: EventBus,
-        support: SandboxSupport,
+        host: HostSandbox,
         policy: RestartPolicy,
     ) -> Self {
         let (commands, receiver) = mpsc::channel(64);
@@ -124,7 +124,8 @@ impl SupervisorHandle {
             instance_id,
             adapter,
             events,
-            support,
+            host,
+            cgroup: None,
             machine: Machine::new(policy),
             state_tx,
             spec: None,
@@ -207,7 +208,9 @@ struct Actor {
     instance_id: InstanceId,
     adapter: Arc<dyn GameAdapter>,
     events: EventBus,
-    support: SandboxSupport,
+    host: HostSandbox,
+    /// The running process's control group (hard limits), if the host has them.
+    cgroup: Option<CgroupSlot>,
     machine: Machine,
     state_tx: watch::Sender<ServerState>,
     spec: Option<ProcessSpec>,
@@ -361,7 +364,7 @@ impl Actor {
             self.system_line(LogLevel::Error, "No launch configuration is available.".into());
             return Input::SpawnFailed;
         };
-        let spawned = match process::spawn(&spec, &self.support) {
+        let spawned = match process::spawn(&spec, &self.host) {
             Ok(spawned) => spawned,
             Err(error) => {
                 self.system_line(
@@ -376,6 +379,7 @@ impl Actor {
         self.players.clear();
         self.diagnostics.clear();
         self.stdin = Some(spawned.stdin);
+        self.cgroup = spawned.cgroup;
         let (kill_tx, kill_rx) = oneshot::channel();
         self.kill_tx = Some(kill_tx);
 
@@ -435,6 +439,11 @@ impl Actor {
                     LogLevel::Warn
                 };
                 self.system_line(level, format!("Server process exited ({how})."));
+                if let Some(cgroup) = self.cgroup.take()
+                    && cgroup.memory_limit_hit()
+                {
+                    self.report_memory_limit(&cgroup);
+                }
                 let _ = self.input(Input::Exited(exit)).await;
             }
             _ => {} // from an earlier process
@@ -490,6 +499,9 @@ impl Actor {
             ));
         }
         self.write_stdin(command).await?;
+        if command == self.adapter.stop_command() {
+            let _ = self.input(Input::StopTyped).await;
+        }
         let echo = match author {
             Some(author) => format!("[{author}] > {command}"),
             None => format!("> {command}"),
@@ -551,9 +563,35 @@ impl Actor {
         line
     }
 
+    /// One diagnostic per code: a repeat is ignored, a different explanation with the same code
+    /// (the cause, logged after the symptom) replaces the earlier one.
+    /// The kernel killed the server for exceeding its hard memory ceiling. Without this the
+    /// console would only show "signal 9", with no hint at the cause.
+    fn report_memory_limit(&mut self, cgroup: &CgroupSlot) {
+        let limit = cgroup.limits().memory_max_mb();
+        let message =
+            format!("The server used all of its {limit} MB memory limit and the system stopped it.");
+        self.system_line(LogLevel::Error, message.clone());
+        self.add_diagnostic(Diagnostic {
+            code: "memory_limit",
+            severity: Severity::Error,
+            title: "Out of memory".into(),
+            detail: format!(
+                "{message} The limit is the maximum memory from Settings plus room for Java itself. \
+                 Give the server more memory, or look for a mod or plugin that uses too much."
+            ),
+        });
+    }
+
     fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
-        if self.diagnostics.iter().any(|known| known.code == diagnostic.code) {
-            return;
+        match self
+            .diagnostics
+            .iter_mut()
+            .find(|known| known.code == diagnostic.code)
+        {
+            Some(known) if known.title == diagnostic.title && known.detail == diagnostic.detail => return,
+            Some(known) => *known = diagnostic.clone(),
+            None => self.diagnostics.push(diagnostic.clone()),
         }
         tracing::warn!(
             instance = %self.instance_id,
@@ -562,7 +600,6 @@ impl Actor {
             diagnostic.title,
             diagnostic.detail
         );
-        self.diagnostics.push(diagnostic.clone());
         self.events
             .publish(Some(self.instance_id), EventKind::Diagnostic(diagnostic));
     }

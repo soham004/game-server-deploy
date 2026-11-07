@@ -12,12 +12,14 @@ export class ApiError extends Error {
    * @param {number} status HTTP status (0 when the server could not be reached)
    * @param {string} code   stable machine-readable error code
    * @param {string} message human-readable message, safe to show
+   * @param {unknown} [details] extra machine-readable data (e.g. which fields were invalid)
    */
-  constructor(status, code, message) {
+  constructor(status, code, message, details = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -50,6 +52,7 @@ async function request(method, path, body) {
       response.status,
       error.code ?? 'http_error',
       error.message ?? `Request failed (HTTP ${response.status}).`,
+      error.details ?? null,
     );
   }
   return data;

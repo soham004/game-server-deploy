@@ -2,8 +2,9 @@
 //!
 //! `create` validates the request against the catalog *synchronously* (so typos fail at once),
 //! registers the instance, then installs it in a background job: Java (if missing), the server
-//! jar, `eula.txt`, `server.properties`, ownership for the sandbox user. The instance can't be
-//! started until the job marks it installed; a failed install can be retried.
+//! files (see `install`), ownership for the sandbox user, and the launch the install produced.
+//! The instance can't be started until the job marks it installed; a failed install can be
+//! retried.
 
 use std::path::PathBuf;
 
@@ -17,23 +18,40 @@ use gsd_core::{
     },
     java::JavaRuntimes,
     jobs::{JobError, JobFailure, JobRunner, JobSpec},
+    supervisor::HostSandbox,
 };
 
 use crate::{
     adapter::GAME_ID,
     catalog::{Catalog, CatalogError},
-    install::{self, InstallTarget, launch_jar},
+    install::{self, InstallTarget, SERVER_JAR},
     loader::LoaderKind,
     settings::{MinecraftServer, SettingsError},
 };
 
-pub const MIN_MEMORY_MB: u32 = 512;
-pub const MAX_MEMORY_MB: u32 = 64 * 1024;
-const MAX_NAME_LEN: usize = 64;
+use gsd_core::instances::settings::{MAX_MEMORY_MB, MAX_NAME_CHARS as MAX_NAME_LEN, MIN_MEMORY_MB};
 
 /// JVM flags every Minecraft server gets: a plain console instead of `JLine`'s interactive prompt
 /// (which garbles piped output), while keeping colour codes.
 pub const DEFAULT_JVM_ARGS: [&str; 2] = ["-Dterminal.jline=false", "-Dterminal.ansi=true"];
+
+/// The JVM arguments a user added: everything except [`DEFAULT_JVM_ARGS`] (which the console
+/// needs, so the settings form neither shows nor can remove them).
+pub fn user_jvm_args(all: &[String]) -> Vec<String> {
+    all.iter()
+        .filter(|arg| !DEFAULT_JVM_ARGS.contains(&arg.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// [`DEFAULT_JVM_ARGS`] followed by the user's arguments (without repeating a default).
+pub fn with_default_jvm_args(user: &[String]) -> Vec<String> {
+    DEFAULT_JVM_ARGS
+        .iter()
+        .map(|arg| (*arg).to_owned())
+        .chain(user_jvm_args(user))
+        .collect()
+}
 
 /// A request to create a server.
 #[derive(Debug, Clone)]
@@ -66,6 +84,10 @@ pub enum CreateError {
         mc_version: String,
         version: String,
     },
+    #[error("the server to copy has not finished installing")]
+    SourceNotInstalled,
+    #[error("there is no folder {0:?} in the imports folder")]
+    ImportNotFound(String),
     #[error("Instance is not a Minecraft server")]
     NotMinecraft(#[from] SettingsError),
     #[error(transparent)]
@@ -80,6 +102,18 @@ impl From<CatalogError> for CreateError {
     fn from(error: CatalogError) -> Self {
         match error {
             CatalogError::UnknownVersion(version) => Self::UnknownVersion(version),
+            CatalogError::LoaderUnavailable { loader, mc_version } => {
+                Self::LoaderUnavailable { loader, mc_version }
+            }
+            CatalogError::UnknownLoaderVersion {
+                loader,
+                mc_version,
+                version,
+            } => Self::UnknownLoaderVersion {
+                loader,
+                mc_version,
+                version,
+            },
             other => Self::Catalog(other),
         }
     }
@@ -91,7 +125,18 @@ pub struct MinecraftService {
     registry: InstanceRegistry,
     java: JavaRuntimes,
     jobs: JobRunner,
-    download_cache: PathBuf,
+    /// Loader installers run sandboxed, like servers.
+    host: HostSandbox,
+    paths: MinecraftPaths,
+}
+
+/// Where the service keeps shared files.
+#[derive(Debug, Clone)]
+pub struct MinecraftPaths {
+    /// Shared download cache (`<data>/cache/downloads`).
+    pub download_cache: PathBuf,
+    /// Folders waiting to be imported (`<data>/imports`).
+    pub imports: PathBuf,
 }
 
 impl MinecraftService {
@@ -100,14 +145,16 @@ impl MinecraftService {
         registry: InstanceRegistry,
         java: JavaRuntimes,
         jobs: JobRunner,
-        download_cache: PathBuf,
+        host: HostSandbox,
+        paths: MinecraftPaths,
     ) -> Self {
         Self {
             catalog,
             registry,
             java,
             jobs,
-            download_cache,
+            host,
+            paths,
         }
     }
 
@@ -117,16 +164,7 @@ impl MinecraftService {
 
     /// Validates, registers the instance and starts its install job.
     pub async fn create(&self, request: CreateRequest) -> Result<(Instance, JobId), CreateError> {
-        let name = request.name.trim();
-        if !request.eula_accepted {
-            return Err(CreateError::EulaRequired);
-        }
-        if name.is_empty() || name.chars().count() > MAX_NAME_LEN {
-            return Err(CreateError::InvalidName);
-        }
-        if !(MIN_MEMORY_MB..=MAX_MEMORY_MB).contains(&request.max_memory_mb) {
-            return Err(CreateError::InvalidMemory);
-        }
+        let name = validate_basics(&request.name, request.max_memory_mb, request.eula_accepted)?;
 
         let detail = self.catalog.version_detail(&request.mc_version).await?;
         if request.loader == LoaderKind::Vanilla {
@@ -144,8 +182,10 @@ impl MinecraftService {
             name: name.to_owned(),
             game: GAME_ID.to_owned(),
             server: server.to_table()?,
+            // Provisional: the install job records the real launch (Forge's comes from the files
+            // its installer writes). The instance can't start before that anyway.
             launch: LaunchSpec::Jar {
-                jar: launch_jar(request.loader).to_owned(),
+                jar: SERVER_JAR.to_owned(),
                 args: vec!["nogui".to_owned()],
             },
             java: JavaSettings {
@@ -180,19 +220,20 @@ impl MinecraftService {
             job.log(format!("Using Java {} at {}", java.version, java.home.display()));
 
             let target = InstallTarget {
+                instance: &instance,
                 server: &server,
-                server_dir: &instance.layout.server_dir(),
-                cache_dir: &service.download_cache,
-                port: instance.definition.ports.game,
-                motd: &instance.definition.name,
+                java: &java,
+                host: &service.host,
+                cache_dir: &service.paths.download_cache,
             };
-            install::install(&service.catalog, &target, &job).await?;
+            let launch = install::install(&service.catalog, &target, &job).await?;
 
             job.step("Setting file ownership");
             instance.layout.assign_ownership(instance.definition.sandbox)?;
             service
                 .registry
                 .update(instance.id(), |definition| {
+                    definition.launch = launch;
                     definition.installed_at = Some(Utc::now());
                 })
                 .await
@@ -238,256 +279,26 @@ impl MinecraftService {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use gsd_core::{events::EventBus, instances::AllocationPolicy, jobs::JobStatus, net::http_client};
-
-    use super::*;
-    use crate::catalog::tests::{FAKE_JAR, catalog_for, mock_upstream};
-
-    struct Fixture {
-        service: MinecraftService,
-        registry: InstanceRegistry,
-        jobs: JobRunner,
-        _server: wiremock::MockServer,
-        _dir: tempfile::TempDir,
+/// The checks every new server passes: consent to the EULA, a name, a sensible memory size.
+/// Returns the trimmed name.
+fn validate_basics(name: &str, max_memory_mb: u32, eula_accepted: bool) -> Result<&str, CreateError> {
+    if !eula_accepted {
+        return Err(CreateError::EulaRequired);
     }
-
-    /// A service wired to the mock upstream, with a fake Java 25 already "installed".
-    async fn fixture() -> Fixture {
-        let server = mock_upstream().await;
-        let dir = tempfile::tempdir().unwrap();
-        let java_home = dir.path().join("runtimes/temurin-25-x64");
-        std::fs::create_dir_all(java_home.join("bin")).unwrap();
-        std::fs::write(java_home.join("bin/java"), "").unwrap();
-        std::fs::write(java_home.join("release"), "JAVA_VERSION=\"25.0.1\"").unwrap();
-
-        let events = EventBus::new();
-        let policy = AllocationPolicy {
-            game_ports: "25565-25570".parse().unwrap(),
-            sandbox_uids: 20000..=20010,
-            probe_ports: false,
-        };
-        let (registry, _) = InstanceRegistry::load(
-            dir.path().join("instances"),
-            dir.path().join("trash"),
-            policy,
-            events.clone(),
-        )
-        .unwrap();
-        let jobs = JobRunner::new(events);
-        let java = JavaRuntimes::with_api(
-            dir.path().join("runtimes"),
-            http_client().unwrap(),
-            server.uri(),
-            false,
-        );
-        let service = MinecraftService::new(
-            catalog_for(&server, &dir.path().join("cache/meta")),
-            registry.clone(),
-            java,
-            jobs.clone(),
-            dir.path().join("cache/downloads"),
-        );
-        Fixture {
-            service,
-            registry,
-            jobs,
-            _server: server,
-            _dir: dir,
-        }
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > MAX_NAME_LEN {
+        return Err(CreateError::InvalidName);
     }
-
-    fn request(loader: LoaderKind) -> CreateRequest {
-        CreateRequest {
-            name: format!("My {loader} server"),
-            mc_version: "26.3".into(),
-            loader,
-            loader_version: None,
-            max_memory_mb: 2048,
-            eula_accepted: true,
-        }
+    if !(MIN_MEMORY_MB..=MAX_MEMORY_MB).contains(&max_memory_mb) {
+        return Err(CreateError::InvalidMemory);
     }
-
-    async fn create_and_wait(fixture: &Fixture, request: CreateRequest) -> Instance {
-        let (instance, job) = fixture.service.create(request).await.unwrap();
-        let finished = fixture.jobs.wait(job).await.unwrap();
-        assert_eq!(
-            finished.status,
-            JobStatus::Succeeded,
-            "{:?} {:?}",
-            finished.error,
-            fixture.jobs.log(job)
-        );
-        fixture.registry.get(instance.id()).await.unwrap()
-    }
-
-    #[tokio::test]
-    async fn installs_a_vanilla_server() {
-        let fixture = fixture().await;
-        let instance = create_and_wait(&fixture, request(LoaderKind::Vanilla)).await;
-        let server_dir = instance.layout.server_dir();
-
-        assert_eq!(std::fs::read(server_dir.join("server.jar")).unwrap(), FAKE_JAR);
-        assert!(
-            std::fs::read_to_string(server_dir.join("eula.txt"))
-                .unwrap()
-                .contains("eula=true")
-        );
-        let properties = std::fs::read_to_string(server_dir.join("server.properties")).unwrap();
-        assert!(properties.contains(&format!("server-port={}", instance.definition.ports.game)));
-        assert!(instance.definition.installed_at.is_some());
-        assert_eq!(instance.definition.java.major, 25);
-        assert_eq!(instance.definition.java.min_memory_mb, 1024);
-        assert!(
-            instance
-                .definition
-                .java
-                .extra_jvm_args
-                .contains(&"-Dterminal.jline=false".to_owned())
-        );
-
-        let settings = MinecraftServer::from_table(&instance.definition.server).unwrap();
-        assert_eq!(
-            (
-                settings.mc_version.as_str(),
-                settings.loader,
-                settings.loader_version
-            ),
-            ("26.3", LoaderKind::Vanilla, None)
-        );
-    }
-
-    #[tokio::test]
-    async fn installs_paper_with_the_recommended_build() {
-        let fixture = fixture().await;
-        let instance = create_and_wait(&fixture, request(LoaderKind::Paper)).await;
-        let settings = MinecraftServer::from_table(&instance.definition.server).unwrap();
-        let recommended = fixture
-            .service
-            .catalog()
-            .loader_versions(LoaderKind::Paper, "26.3")
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|v| v.recommended)
-            .unwrap();
-        assert_eq!(settings.loader_version, Some(recommended.id));
-        assert!(instance.layout.server_dir().join("server.jar").is_file());
-    }
-
-    #[tokio::test]
-    async fn installs_fabric_with_its_launcher_jar() {
-        let fixture = fixture().await;
-        let instance = create_and_wait(&fixture, request(LoaderKind::Fabric)).await;
-        assert!(
-            instance
-                .layout
-                .server_dir()
-                .join("fabric-server-launch.jar")
-                .is_file()
-        );
-        assert!(
-            matches!(&instance.definition.launch, LaunchSpec::Jar { jar, .. } if jar == "fabric-server-launch.jar")
-        );
-    }
-
-    #[tokio::test]
-    async fn the_download_cache_is_reused() {
-        let fixture = fixture().await;
-        create_and_wait(&fixture, request(LoaderKind::Vanilla)).await;
-        let second = create_and_wait(&fixture, request(LoaderKind::Vanilla)).await;
-        let jobs = fixture.jobs.list();
-        let log = fixture.jobs.log(jobs[0].id).unwrap();
-        assert!(log.iter().any(|line| line.contains("Using cached")), "{log:?}");
-        assert!(second.layout.server_dir().join("server.jar").is_file());
-    }
-
-    #[tokio::test]
-    async fn rejects_invalid_requests_before_creating_anything() {
-        type Expectation = fn(&CreateError) -> bool;
-        let fixture = fixture().await;
-        let cases: Vec<(CreateRequest, Expectation)> = vec![
-            (
-                CreateRequest {
-                    eula_accepted: false,
-                    ..request(LoaderKind::Vanilla)
-                },
-                |e| matches!(e, CreateError::EulaRequired),
-            ),
-            (
-                CreateRequest {
-                    name: "   ".into(),
-                    ..request(LoaderKind::Vanilla)
-                },
-                |e| matches!(e, CreateError::InvalidName),
-            ),
-            (
-                CreateRequest {
-                    max_memory_mb: 64,
-                    ..request(LoaderKind::Vanilla)
-                },
-                |e| matches!(e, CreateError::InvalidMemory),
-            ),
-            (
-                CreateRequest {
-                    mc_version: "9.9.9".into(),
-                    ..request(LoaderKind::Vanilla)
-                },
-                |e| matches!(e, CreateError::UnknownVersion(_)),
-            ),
-            (
-                CreateRequest {
-                    loader_version: Some("0.0.0-nope".into()),
-                    ..request(LoaderKind::Fabric)
-                },
-                |e| matches!(e, CreateError::UnknownLoaderVersion { .. }),
-            ),
-            (
-                CreateRequest {
-                    mc_version: "1.0".into(),
-                    ..request(LoaderKind::Vanilla)
-                },
-                |e| matches!(e, CreateError::Catalog(CatalogError::NoServerDownload(_))),
-            ),
-            (
-                CreateRequest {
-                    mc_version: "1.0".into(),
-                    ..request(LoaderKind::Paper)
-                },
-                |e| matches!(e, CreateError::LoaderUnavailable { .. }),
-            ),
-        ];
-        for (request, expected) in cases {
-            let error = fixture.service.create(request.clone()).await.unwrap_err();
-            assert!(expected(&error), "{request:?} gave {error:?}");
-        }
-        assert!(fixture.registry.list().await.is_empty(), "nothing was registered");
-    }
-
-    #[tokio::test]
-    async fn failed_installs_leave_an_uninstalled_instance() {
-        let fixture = fixture().await;
-        // No Java 25 and an Adoptium mock with nothing for it: the install job must fail.
-        std::fs::remove_dir_all(fixture.service.java.managed_dir().join("temurin-25-x64")).unwrap();
-        fixture.service.java.list(true).await;
-
-        let (instance, job) = fixture
-            .service
-            .create(request(LoaderKind::Vanilla))
-            .await
-            .unwrap();
-        let finished = fixture.jobs.wait(job).await.unwrap();
-        assert_eq!(finished.status, JobStatus::Failed);
-        assert!(
-            fixture
-                .registry
-                .get(instance.id())
-                .await
-                .unwrap()
-                .definition
-                .installed_at
-                .is_none()
-        );
-    }
+    Ok(name)
 }
+
+mod clone;
+mod import;
+
+pub use clone::CloneRequest;
+pub use import::{ImportCandidate, ImportRequest};
+#[cfg(test)]
+mod tests;

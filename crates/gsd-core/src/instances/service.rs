@@ -9,14 +9,14 @@ use crate::{
     game::GameAdapter,
     ids::InstanceId,
     instances::{
-        Instance, InstanceRegistry,
+        Instance, InstanceRegistry, SettingsChange, SettingsError,
         definition::RuntimeChoice,
         launch::{build_process, restart_policy},
         registry::RegistryError,
     },
     java::{JavaRuntime, JavaRuntimes},
     jobs::JobRunner,
-    supervisor::{ServerState, Snapshot, SupervisorError, SupervisorHandle, Supervisors},
+    supervisor::{SandboxUnusable, ServerState, Snapshot, SupervisorError, SupervisorHandle, Supervisors},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -34,8 +34,16 @@ pub enum InstanceError {
     #[error("the server files are not installed yet")]
     NotInstalled,
     /// The startup check found that the sandbox can't work here (the text says why and how to fix it).
-    #[error("{0}")]
-    SandboxUnusable(String),
+    #[error(transparent)]
+    SandboxUnusable(#[from] SandboxUnusable),
+    #[error(transparent)]
+    Settings(#[from] SettingsError),
+    #[error("no Java runtime with id {0:?}")]
+    UnknownRuntime(String),
+    #[error("only owners and admins may pick a Java runtime that the app did not install")]
+    CustomRuntimeNotAllowed,
+    #[error("this server needs Java {needed} or newer; that runtime is Java {found}")]
+    RuntimeTooOld { needed: u32, found: u32 },
     #[error(transparent)]
     Supervisor(#[from] SupervisorError),
     #[error(transparent)]
@@ -156,8 +164,39 @@ impl InstanceService {
             return Err(InstanceError::Busy);
         }
         self.supervisors.remove(id);
+        if let Some(cgroups) = self.supervisors.host().cgroups() {
+            cgroups.remove(&id.to_string());
+        }
         self.registry.remove(id).await?;
         Ok(())
+    }
+
+    /// Validates and saves a settings change. A specific Java runtime must exist, be at least the
+    /// version the server needs, and (unless `allow_custom_runtime`) be one the app manages.
+    /// Applies from the next start.
+    pub async fn update_settings(
+        &self,
+        id: InstanceId,
+        change: &SettingsChange,
+        allow_custom_runtime: bool,
+    ) -> Result<Instance, InstanceError> {
+        let current = self.get(id).await?;
+        if let Some(RuntimeChoice::Runtime { id: runtime_id }) = &change.java_runtime {
+            let runtime = self
+                .java
+                .list(false)
+                .await
+                .into_iter()
+                .find(|runtime| &runtime.id == runtime_id)
+                .ok_or_else(|| InstanceError::UnknownRuntime(runtime_id.clone()))?;
+            check_runtime(&runtime, current.definition.java.major, allow_custom_runtime)?;
+        }
+        let mut validated = current.definition.clone();
+        change.apply(&mut validated)?;
+        Ok(self
+            .registry
+            .update(id, move |definition| *definition = validated)
+            .await?)
     }
 
     /// Starts every instance marked `auto_start` (called once at app startup).
@@ -184,9 +223,7 @@ impl InstanceService {
         if instance.definition.installed_at.is_none() {
             return Err(InstanceError::NotInstalled);
         }
-        if let Some(problem) = self.supervisors.sandbox_problem() {
-            return Err(InstanceError::SandboxUnusable(problem.to_owned()));
-        }
+        self.supervisors.host().ensure_usable()?;
         let adapter = self
             .adapters
             .get(&instance.definition.game)
@@ -218,5 +255,64 @@ impl InstanceService {
         found.ok_or(InstanceError::JavaMissing {
             major: settings.major,
         })
+    }
+}
+
+/// Whether `runtime` may run a server needing Java `needed`: new enough, and installed by the app
+/// unless the user may pick custom runtimes.
+fn check_runtime(
+    runtime: &JavaRuntime,
+    needed: u32,
+    allow_custom_runtime: bool,
+) -> Result<(), InstanceError> {
+    if !runtime.managed && !allow_custom_runtime {
+        return Err(InstanceError::CustomRuntimeNotAllowed);
+    }
+    if runtime.major < needed {
+        return Err(InstanceError::RuntimeTooOld {
+            needed,
+            found: runtime.major,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    fn runtime(major: u32, managed: bool) -> JavaRuntime {
+        JavaRuntime {
+            id: format!("java-{major}"),
+            home: PathBuf::from("/opt/java"),
+            executable: PathBuf::from("/opt/java/bin/java"),
+            major,
+            version: format!("{major}.0.1"),
+            vendor: None,
+            managed,
+        }
+    }
+
+    #[test]
+    fn runtimes_must_be_new_enough_and_managed_unless_allowed() {
+        assert!(check_runtime(&runtime(25, true), 25, false).is_ok());
+        assert!(
+            check_runtime(&runtime(26, true), 25, false).is_ok(),
+            "newer is fine"
+        );
+        assert!(matches!(
+            check_runtime(&runtime(21, true), 25, true),
+            Err(InstanceError::RuntimeTooOld {
+                needed: 25,
+                found: 21
+            })
+        ));
+        assert!(matches!(
+            check_runtime(&runtime(25, false), 25, false),
+            Err(InstanceError::CustomRuntimeNotAllowed)
+        ));
+        assert!(check_runtime(&runtime(25, false), 25, true).is_ok());
     }
 }

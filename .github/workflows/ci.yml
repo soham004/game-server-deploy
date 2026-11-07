@@ -51,6 +51,14 @@ jobs:
           cargo build -p gsd-app --locked
           sudo install -m 0755 target/debug/gsd /usr/local/bin/gsd-ci
           sudo /usr/local/bin/gsd-ci --data-dir /srv/gsd-ci isolation-check
+      - name: Hard limits against the real kernel (cgroup v2, as root)
+        # These tests skip themselves without root; REQUIRE_KERNEL_TESTS turns a skip into a
+        # failure here. Each builds a private group under /sys/fs/cgroup and removes it.
+        run: |
+          exe=$(cargo test -p gsd-core --lib --locked --no-run --message-format=json \
+            | jq -r 'select(.profile.test == true and .target.kind == ["lib"]) | .executable')
+          sudo env REQUIRE_KERNEL_TESTS=1 "$exe" --test-threads=1 \
+            cgroup::tests::kernel explains_when_the_memory_ceiling_stopped_the_server
 
   windows:
     name: Windows (build, unit tests)

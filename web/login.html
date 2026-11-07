@@ -19,7 +19,7 @@
       <h1 class="c-auth__title">{{APP_NAME}}</h1>
     </header>
 
-    <form class="c-form" data-form="login" novalidate>
+    <form class="c-form" data-form="login" method="post" novalidate>
       <h2 class="c-form__title">Sign in</h2>
       <div class="c-field">
         <label class="c-field__label" for="login-username">Username</label>
@@ -30,10 +30,10 @@
         <input class="c-input" id="login-password" name="password" type="password" autocomplete="current-password" required>
       </div>
       <p class="c-form__error" data-form-error role="alert" hidden></p>
-      <button class="c-button c-button--primary c-button--block" type="submit">Sign in</button>
+      <button class="c-button c-button--primary c-button--block" type="submit" disabled>Sign in</button>
     </form>
 
-    <form class="c-form" data-form="change-password" novalidate hidden>
+    <form class="c-form" data-form="change-password" method="post" novalidate hidden>
       <h2 class="c-form__title">Choose a new password</h2>
       <p class="c-form__intro">Your password was reset. Pick a new one to continue.</p>
       <div class="c-field">
@@ -46,7 +46,7 @@
         <p class="c-field__hint">At least 10 characters. A few random words work well.</p>
       </div>
       <p class="c-form__error" data-form-error role="alert" hidden></p>
-      <button class="c-button c-button--primary c-button--block" type="submit">Save and continue</button>
+      <button class="c-button c-button--primary c-button--block" type="submit" disabled>Save and continue</button>
     </form>
   </main>
 </body>

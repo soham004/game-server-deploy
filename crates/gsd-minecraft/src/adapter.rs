@@ -76,7 +76,7 @@ mod tests {
             MinecraftAdapter
                 .diagnose(&line(LineSource::Stdout, bind))
                 .map(|d| d.code),
-            Some("port_in_use")
+            Some("port_bind_failed")
         );
         assert!(
             MinecraftAdapter

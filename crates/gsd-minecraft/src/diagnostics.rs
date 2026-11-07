@@ -29,15 +29,48 @@ fn rule(
     }
 }
 
+/// Every port-binding failure shares one code: Minecraft logs "FAILED TO BIND TO PORT!" and then
+/// the cause on the next line, so the specific explanation replaces the generic one (the actor
+/// keeps one diagnostic per code).
+const PORT_BIND_FAILED: &str = "port_bind_failed";
+
 static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
     vec![
         rule(
             r"FAILED TO BIND TO PORT",
-            "port_in_use",
+            PORT_BIND_FAILED,
+            Severity::Error,
+            "Couldn't open the server port",
+            |_| {
+                "The server could not listen on its network port. The console lines after this one say why."
+                    .into()
+            },
+        ),
+        rule(
+            r"(?i)bind\(\.\.\) failed with error\(-98\)|BindException: Address already in use",
+            PORT_BIND_FAILED,
             Severity::Error,
             "Port already in use",
             |_| {
                 "Another program (or another server) is using this server's port. Stop it or change the port in the server settings.".into()
+            },
+        ),
+        rule(
+            r"bind\(\.\.\) failed with error\(-22\)",
+            PORT_BIND_FAILED,
+            Severity::Error,
+            "The sandbox rejected the server's port setup",
+            |_| {
+                "This happens when Java runs with -Djava.net.preferIPv6Addresses=system. Remove that flag from the server's JVM arguments.".into()
+            },
+        ),
+        rule(
+            r"(?i)bind\(\.\.\) failed with error\(-13\)|BindException: Permission denied",
+            PORT_BIND_FAILED,
+            Severity::Error,
+            "Port not allowed",
+            |_| {
+                "Each server may only listen on the port it was given. Check that server-port (and query/RCON ports) in server.properties weren't changed by hand.".into()
             },
         ),
         rule(
@@ -150,13 +183,48 @@ pub fn diagnose(raw: &str) -> Option<Diagnostic> {
 mod tests {
     use super::*;
 
+    /// The exact lines from the real Forge 26.3 run (2026-11-07), plus the other causes.
+    #[test]
+    fn explains_why_binding_the_port_failed() {
+        let cases = [
+            (
+                "[07Nov2026 15:29:49.020] [Server thread/WARN] [net.minecraft.server.dedicated.DedicatedServer/]: **** FAILED TO BIND TO PORT!",
+                "Couldn't open the server port",
+            ),
+            (
+                "[07Nov2026 15:29:49.021] [Server thread/WARN] [net.minecraft.server.dedicated.DedicatedServer/]: The exception was: io.netty.channel.unix.Errors$NativeIoException: bind(..) failed with error(-22): Invalid argument",
+                "The sandbox rejected the server's port setup",
+            ),
+            (
+                "[12:00:00] [Server thread/WARN]: The exception was: io.netty.channel.unix.Errors$NativeIoException: bind(..) failed with error(-98): Address already in use",
+                "Port already in use",
+            ),
+            (
+                "[12:00:00] [Server thread/WARN]: The exception was: java.net.BindException: Address already in use",
+                "Port already in use",
+            ),
+            (
+                "[12:00:00] [Server thread/WARN]: The exception was: io.netty.channel.unix.Errors$NativeIoException: bind(..) failed with error(-13): Permission denied",
+                "Port not allowed",
+            ),
+        ];
+        for (line, title) in cases {
+            let diagnostic = diagnose(line).unwrap_or_else(|| panic!("no diagnosis for {line}"));
+            assert_eq!(
+                (diagnostic.code, diagnostic.title.as_str()),
+                (PORT_BIND_FAILED, title),
+                "{line}"
+            );
+        }
+        assert!(
+            diagnose("[12:00:00] [Server thread/WARN]: Perhaps a server is already running on that port?")
+                .is_none()
+        );
+    }
+
     #[test]
     fn recognises_common_failures() {
         let cases = [
-            (
-                "[12:00:00] [Server thread/WARN]: **** FAILED TO BIND TO PORT!",
-                "port_in_use",
-            ),
             (
                 "[12:00:00] [main/INFO]: You need to agree to the EULA in order to run the server.",
                 "eula_not_accepted",

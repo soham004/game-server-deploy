@@ -33,6 +33,11 @@ impl MinecraftServer {
     pub fn to_table(&self) -> Result<toml::Table, SettingsError> {
         toml::Table::try_from(self).map_err(SettingsError::Encode)
     }
+
+    /// "`NeoForge` 26.3": the loader's display name and the Minecraft version.
+    pub fn software_label(&self) -> String {
+        format!("{} {}", self.loader.display_name(), self.mc_version)
+    }
 }
 
 #[cfg(test)]
@@ -51,5 +56,6 @@ mod tests {
         assert_eq!(table["loader"].as_str(), Some("fabric"));
         assert_eq!(MinecraftServer::from_table(&table).unwrap(), server);
         assert!(MinecraftServer::from_table(&toml::Table::new()).is_err());
+        assert_eq!(server.software_label(), "Fabric 26.3");
     }
 }

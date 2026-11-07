@@ -11,33 +11,40 @@ Conventions:
 
 ## Endpoints (v1 target)
 
-### System and auth
+Sections marked **(built)** describe what exists after M2; the rest is the plan.
+
+### System and auth (built, except where noted)
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | liveness (no auth) |
 | GET | `/setup/status` | has an admin been created? (first-run wizard) |
-| POST | `/setup` | create the first admin |
-| POST | `/auth/login` · `/auth/logout` | session |
+| POST | `/setup` | create the first owner `{username, password, setup_token?}` |
+| POST | `/auth/login` · `/auth/logout` · `/me/password` | session; change own password |
 | GET | `/meta` | `{name, slug, version}` from `gsd_brand` (no auth; the frontend never hard-codes the name) |
 | GET | `/me` | current user + global role + effective permissions per instance |
-| GET/POST | `/users` · PATCH/DELETE `/users/{id}` · POST `/users/{id}/reset-password` | user management (owner) |
-| GET/PUT/DELETE | `/instances/{id}/grants/{user_id}` | per-instance role or permissions (owner/admin) |
-| GET/DELETE | `/me/sessions` · `/users/{id}/sessions` | list and revoke sessions |
-| GET | `/instances/{id}/isolation` · POST `/isolation/check` | achieved isolation level + self-test |
-| GET/PATCH | `/settings` | app settings (CurseForge key write-only) |
-| GET | `/system` | host info: OS, CPUs, RAM, disk free, app version, LAN/public IP, isolation level, `sandbox_problem` (D-026) |
+| GET/POST | `/users` | list (with active session counts) · create `{username, role}` → `{user, temporary_password}` (owner, D-033) |
+| PATCH/DELETE | `/users/{id}` | `{role?, disabled?}` · delete; never your own account, never the last active owner |
+| POST | `/users/{id}/reset-password` · `/users/{id}/sign-out` | new temporary password · end every session |
+| GET | `/users/{id}/grants` | the member's per-instance grants |
+| PUT/DELETE | `/users/{id}/grants/{instance_id}` | `{grant: viewer|moderator|operator|manager|custom, permissions?}` · remove |
+| GET/DELETE | `/me/sessions` | list and revoke own sessions (planned) |
+| POST | `/system/isolation-check` | sandbox self-test, including the hard memory limit (D-034) |
+| GET/PATCH | `/settings` | app settings (CurseForge key write-only) (planned) |
+| GET | `/system` | version, OS, isolation level, `sandbox_problem` (D-026), `hard_limits` + `hard_limits_problem` (D-034), game ports |
 
-### Catalog (version pickers)
-| GET | `/catalog/minecraft/versions?types=release,snapshot` | from the Mojang manifest |
-| GET | `/catalog/loaders/{loader}/versions?mc=26.3` | loader versions for an MC version (with `recommended`, `stable` flags) |
-| GET | `/catalog/loaders?mc=26.3` | which loaders support this MC version |
+### Catalog (version pickers, built)
+| GET | `/catalog/minecraft/versions` | every Minecraft version, newest first, from the Mojang manifest (the UI filters by kind) |
+| GET | `/catalog/minecraft/loaders?mc=26.3` | each loader's availability and versions for that Minecraft version (`recommended`, `stable` flags) |
 
-### Instances
-| GET | `/instances` | list with state, players, resource summary |
-| POST | `/instances` | create `{name, mc, loader, loader_version, memory, eula_accepted, java?}` → 202 job |
-| POST | `/instances/import` | from an existing folder, zip, `.mrpack` or CurseForge zip → 202 job |
-| GET/PATCH/DELETE | `/instances/{id}` | details, update definition, delete (with a `confirm` body) |
-| POST | `/instances/{id}/clone` | → 202 |
+### Instances (built: list, create, show, delete, settings, clone, import, lifecycle, command, console)
+| GET | `/instances` | list with state, players, `software` label |
+| POST | `/instances` | create `{name, mc_version, loader, loader_version?, max_memory_mb, eula_accepted}` → 202 job |
+| GET/POST | `/imports` | folders in `<data>/imports/` with what was detected · import `{folder, name, mc_version, loader, jar?, …}` → 202 (D-032) |
+| GET/DELETE | `/instances/{id}` | details, delete (stopped only) |
+| GET/PATCH | `/instances/{id}/settings` | name, memory, JVM preset and extra args, Java runtime, auto-start, restart rules (D-032) |
+| POST | `/instances/{id}/clone` | `{name, include_worlds}` → 202 (stopped source only) |
+| POST | `/instances/{id}/install` | re-run the loader install → 202 |
+| POST | `/instances/import` | zip, `.mrpack` or CurseForge zip → 202 job (planned, M4) |
 | POST | `/instances/{id}/change-version` | `{mc?, loader?, loader_version?}` → 202 (auto backup) |
 | POST | `/instances/{id}/start` · `/stop` · `/restart` · `/kill` | lifecycle |
 | POST | `/instances/{id}/command` | `{command}` → write to stdin |
@@ -50,17 +57,15 @@ Conventions:
 | GET | `/instances/{id}/logs/{name}?q=&level=&from=&to=` | read with filter (gz decompressed server-side, paged) |
 | POST | `/instances/{id}/logs/{name}/share` | upload to mclo.gs (explicit user action) |
 
-### Files
+### Files (built, D-031)
 | GET | `/instances/{id}/files?path=` | list a directory |
-| GET | `/instances/{id}/files/content?path=` | read text (size-limited) |
-| PUT | `/instances/{id}/files/content?path=` | write text `{content, expected_mtime}` (optimistic concurrency) |
-| GET | `/instances/{id}/files/download?path=` | file, or a folder as a streamed zip |
-| POST | `/instances/{id}/files/upload?path=` | multipart / chunked |
-| POST | `/instances/{id}/files/ops` | `{op: mkdir|rename|move|copy|delete|extract|compress, …}` |
+| GET/PUT | `/instances/{id}/files/text` | read `?path=` (≤ 5 MiB) with its `revision` · write `{path, content, revision?}` (`409 file_changed` if it moved on) |
+| GET | `/instances/{id}/files/download?path=` | file, or a folder as a streamed zip (always an attachment) |
+| PUT | `/instances/{id}/files/upload?path=&overwrite=` | raw body streamed to a temp file, renamed when complete |
+| POST | `/instances/{id}/files/folder` · `rename` · `copy` · `delete` · `extract` · `compress` | one operation each; delete moves to the instance's trash |
 
 ### Properties, gamerules, players, worlds
-| GET/PUT | `/instances/{id}/properties` | structured `{entries:[{key,value,schema?}]}` · raw text via `?format=raw` |
-| GET | `/schema/server-properties?mc=26.3` | editor schema |
+| GET/PUT | `/instances/{id}/properties` | values + schema + `revision` · `{revision, changes}` (key → value or null) or `{revision, text}`; `422` with per-key `details`, managed keys (ports) refused (built, D-029) |
 | GET/PATCH | `/instances/{id}/gamerules` | via MCSMP or commands (running only) |
 | GET | `/instances/{id}/players` | online + known players, ops, whitelist, bans |
 | POST | `/instances/{id}/players/actions` | `{action: op|deop|whitelist_add|whitelist_remove|ban|pardon|kick|ban_ip, target, reason?}` |

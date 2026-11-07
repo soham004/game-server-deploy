@@ -7,7 +7,7 @@
 #![allow(unsafe_code)]
 
 use std::{
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -18,7 +18,7 @@ use landlock::{
 };
 use nix::sys::resource::{Resource, getrlimit, setrlimit};
 
-use super::{SandboxSpec, SandboxSupport};
+use super::{SandboxSpec, SandboxSupport, cgroup::CgroupSlot};
 
 /// The newest ABI we know how to use; older kernels get a best-effort subset.
 const TARGET_ABI: ABI = ABI::V5;
@@ -43,6 +43,7 @@ pub(super) fn apply(
     command: &mut tokio::process::Command,
     spec: &SandboxSpec,
     support: &SandboxSupport,
+    cgroup: Option<&CgroupSlot>,
 ) -> io::Result<()> {
     let own_user = spec.user.filter(|_| support.separate_users);
     if let Some(user) = own_user {
@@ -58,12 +59,18 @@ pub(super) fn apply(
         None
     };
     let ruleset = Mutex::new(ruleset);
+    let cgroup_procs = cgroup.map(CgroupSlot::procs_file).transpose()?;
 
-    // SAFETY: runs in the child after fork. It only calls setrlimit and the Landlock syscalls
-    // (`restrict_self` = prctl(NO_NEW_PRIVS) + landlock_restrict_self), all async-signal-safe.
-    // The mutex is private to this closure, so it can't be held by another thread at fork time.
+    // SAFETY: runs in the child after fork. It only calls write (joining the control group:
+    // "0" means the writing process), setrlimit and the Landlock syscalls (`restrict_self` =
+    // prctl(NO_NEW_PRIVS) + landlock_restrict_self), all async-signal-safe. The mutex is private
+    // to this closure, so it can't be held by another thread at fork time.
     unsafe {
         command.pre_exec(move || {
+            // First, so everything after (including exec) is already counted against the caps.
+            if let Some(mut procs) = cgroup_procs.as_ref() {
+                procs.write_all(b"0")?;
+            }
             limits.apply()?;
             let prepared = ruleset
                 .lock()
@@ -178,6 +185,7 @@ mod tests {
             bind_tcp: vec![],
             connect_tcp: vec![],
             limits: ResourceLimits::default(),
+            cgroup: None,
         };
         let mut command = tokio::process::Command::new("/bin/sh");
         command
@@ -185,7 +193,7 @@ mod tests {
             .arg(script)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        apply(&mut command, &spec, &support).unwrap();
+        apply(&mut command, &spec, &support, None).unwrap();
         let output = command.output().await.unwrap();
         let text =
             String::from_utf8_lossy(&output.stdout).into_owned() + &String::from_utf8_lossy(&output.stderr);

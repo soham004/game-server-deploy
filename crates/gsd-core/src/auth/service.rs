@@ -241,6 +241,10 @@ fn dummy_hash() -> &'static str {
     DUMMY.get_or_init(|| passwords::hash("timing-equaliser").unwrap_or_default())
 }
 
+mod accounts;
+
+pub use accounts::{AccountChange, UserSummary};
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -109,9 +109,13 @@ pub enum Input {
     Stop,
     Restart,
     Kill,
-    Spawned { pid: Option<u32> },
+    Spawned {
+        pid: Option<u32>,
+    },
     SpawnFailed,
     Ready,
+    /// Someone sent the game's stop command through the console: the coming exit is expected.
+    StopTyped,
     Exited(ExitInfo),
     StopTimedOut,
     RestartDue,
@@ -189,6 +193,12 @@ impl Machine {
             Input::Spawned { pid } => Ok(self.spawned(pid)),
             Input::SpawnFailed => Ok(self.spawn_failed(now)),
             Input::Ready => Ok(self.ready(now)),
+            Input::StopTyped => {
+                if self.state.is_active() {
+                    self.stop_requested = true;
+                }
+                Ok(vec![])
+            }
             Input::Exited(exit) => Ok(self.exited(exit, now)),
             Input::StopTimedOut => Ok(self.stop_timed_out()),
             Input::RestartDue => Ok(self.restart_due(now)),
@@ -300,8 +310,11 @@ impl Machine {
             self.begin_start(now);
             return vec![Effect::Spawn];
         }
-        // A clean exit nobody here asked for is someone typing `stop` in the console.
-        if expected || exit.success() {
+        // A clean exit nobody asked for while running: the server stopped itself (e.g. a plugin
+        // ran `stop`). Before it was ready, the start failed: Minecraft exits with 0 after
+        // "Failed to initialize server", and that must not look like a normal stop.
+        let was_running = matches!(self.state, ServerState::Running { .. });
+        if expected || (exit.success() && was_running) {
             self.state = ServerState::Stopped {
                 since: Some(now),
                 exit: Some(exit),
@@ -499,6 +512,41 @@ mod tests {
         let mut machine = running(now);
         assert_eq!(machine.handle(clean_exit(), now), Ok(vec![]));
         assert_eq!(machine.state().name(), "stopped");
+    }
+
+    /// Regression (real Forge/NeoForge runs): "FAILED TO BIND TO PORT" → "Failed to initialize
+    /// server" → exit code 0, before the server was ever ready. That is a failed start.
+    #[test]
+    fn a_clean_exit_before_ready_is_a_failed_start() {
+        let now = Utc::now();
+        let mut machine = Machine::new(policy());
+        machine.handle(Input::Start, now).unwrap();
+        machine.handle(Input::Spawned { pid: Some(7) }, now).unwrap();
+        let effects = machine.handle(clean_exit(), now).unwrap();
+        assert_eq!(machine.state().name(), "crashed");
+        assert_eq!(effects, [Effect::ScheduleRestart(BACKOFF[0])]);
+    }
+
+    #[test]
+    fn stop_typed_in_the_console_while_starting_is_still_a_stop() {
+        let now = Utc::now();
+        let mut machine = Machine::new(policy());
+        machine.handle(Input::Start, now).unwrap();
+        machine.handle(Input::Spawned { pid: Some(7) }, now).unwrap();
+        assert_eq!(machine.handle(Input::StopTyped, now), Ok(vec![]));
+        assert_eq!(machine.handle(clean_exit(), now), Ok(vec![]));
+        assert_eq!(machine.state().name(), "stopped");
+    }
+
+    #[test]
+    fn stop_typed_while_stopped_is_ignored_and_does_not_leak_into_the_next_run() {
+        let now = Utc::now();
+        let mut machine = Machine::new(policy());
+        assert_eq!(machine.handle(Input::StopTyped, now), Ok(vec![]));
+        machine.handle(Input::Start, now).unwrap();
+        machine.handle(Input::Spawned { pid: Some(7) }, now).unwrap();
+        machine.handle(crash(), now).unwrap();
+        assert_eq!(machine.state().name(), "crashed");
     }
 
     #[test]

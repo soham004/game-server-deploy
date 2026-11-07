@@ -59,18 +59,25 @@ struct SystemInfo {
     isolation_level: IsolationLevel,
     /// Set when servers can't start because the sandbox can't work here (explains the fix).
     sandbox_problem: Option<String>,
+    /// Servers get a hard memory and task ceiling (cgroup v2).
+    hard_limits: bool,
+    /// Why they don't, if they don't.
+    hard_limits_problem: Option<String>,
     game_ports: String,
 }
 
 async fn system(State(state): State<AppState>, _actor: CurrentActor) -> Json<SystemInfo> {
-    let support = state.instances.supervisors().support();
+    let host = state.instances.supervisors().host();
+    let support = host.support();
     Json(SystemInfo {
         version: gsd_brand::VERSION,
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
         isolation: support,
         isolation_level: support.level(),
-        sandbox_problem: state.instances.supervisors().sandbox_problem().map(str::to_owned),
+        sandbox_problem: host.problem().map(str::to_owned),
+        hard_limits: host.cgroups().is_some(),
+        hard_limits_problem: host.cgroups_problem().map(str::to_owned),
         game_ports: state.config.game_ports.to_string(),
     })
 }
@@ -85,8 +92,8 @@ async fn isolation_check(
     // (Not `cache/` either: it is private, so a sandbox user couldn't reach a scratch dir there.)
     let scratch = gsd_core::supervisor::sandbox::check::scratch_in(&state.config.sandbox_check_dir())
         .map_err(|error| ApiError::internal(&error))?;
-    let support = state.instances.supervisors().support();
-    let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), support)
+    let host = state.instances.supervisors().host();
+    let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), host)
         .await
         .map_err(|error| ApiError::internal(&error))?;
     Ok(Json(report))

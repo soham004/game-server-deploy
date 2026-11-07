@@ -16,19 +16,22 @@ Ask the user, or verify during implementation. Move answered items into `decisio
 - None. The last three were answered on 2026-11-07 (D-021 … D-023). The real product name is deferred: placeholders stay until the user picks one.
 
 ## To verify technically (before writing the code that depends on them)
-- [ ] NeoForge installer server flag: `--install-server` vs `--installServer` (`java -jar … --help`).
-- [ ] Forge maven-metadata version format for 26.x (`26.3-66.1.5`?).
-- [ ] Purpur API v2 endpoints and checksum fields.
-- [ ] Quilt meta v3 loader endpoint shape.
+- [x] NeoForge installer server flag: both exist; `--install-server` used (D-028).
+- [x] Forge maven-metadata version format for 26.x: `26.3-66.1.5` (D-028).
+- [x] Purpur API v2 endpoints and checksum fields: MD5 only (D-028).
+- [x] Quilt meta v3 loader endpoint shape: `[{loader:{version,…},launcherMeta}]`, unsorted (D-028).
 - [ ] Fill v3: is there a `builds/latest` route, and the exact `channel` values.
 - [ ] Modrinth search facet syntax + `POST /version_files/update` body against the live API.
 - [ ] CurseForge class ids (`GET /categories?gameId=432&classesOnly=true`).
 - [ ] The data generator command on 26.x still `-DbundlerMainClass=net.minecraft.data.Main --reports`.
-- [ ] `server.properties` defaults for 26.3 (`white-list` default; whether `pvp` still exists): generate and diff.
+- [x] `server.properties` defaults for 26.3: `white-list=true`, no `pvp` key (D-029).
 - [ ] MCSMP notification method names via `rpc.discover` on a real 26.3 server.
 - [ ] Generational ZGC flag status on Java 25.
-- [ ] Sandbox: Landlock ABI on target hosts (Debian 12 kernel 6.1 = no net rules; Ubuntu 24.04 = yes); Docker default seccomp
-      still allows `landlock_*`; the JVM with a numeric UID without a passwd entry; cgroup writability in Docker (expected: read-only).
+- [ ] Sandbox: Landlock ABI on target hosts (Debian 12 kernel 6.1 = no net rules; Ubuntu 24.04 = yes). Verified on the dev
+      machine: Docker's default seccomp allows `landlock_*` (isolation level Strong in the container), the JVM runs with a
+      numeric UID without a passwd entry, and Docker's cgroupfs is read-only (hard limits report themselves off, D-034).
+- [ ] Hard limits in Docker: document an opt-in (private cgroup namespace with a writable cgroupfs) once someone needs it;
+      the code already accepts a container init (tini) sharing the namespace root.
 - [ ] `sysinfo` process-tree RSS accuracy (or read cgroup `memory.current` when cgroups are available).
 
 ## Environment (dev machine, checked 2026-11-07)

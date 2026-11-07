@@ -41,12 +41,13 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true
-hex.workspace = true
+sqlx.workspace = true
+gsd-minecraft = { workspace = true, features = ["test-support"] }
 http-body-util.workspace = true
-sha1.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true
 wiremock.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

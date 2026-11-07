@@ -27,6 +27,14 @@ pub mod actions {
     pub const INSTANCE_RESTARTED: &str = "instance.restarted";
     pub const INSTANCE_KILLED: &str = "instance.killed";
     pub const CONSOLE_COMMAND: &str = "console.command";
+    pub const PROPERTIES_CHANGED: &str = "properties.changed";
+    pub const FILES_CHANGED: &str = "files.changed";
+    pub const SETTINGS_CHANGED: &str = "instance.settings_changed";
+    pub const USER_CREATED: &str = "user.created";
+    pub const USER_UPDATED: &str = "user.updated";
+    pub const USER_DELETED: &str = "user.deleted";
+    pub const USER_SIGNED_OUT: &str = "user.signed_out";
+    pub const GRANT_CHANGED: &str = "user.grant_changed";
     pub const JAVA_INSTALLED: &str = "java.install_requested";
 }
 

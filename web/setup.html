@@ -20,7 +20,7 @@
       <p class="c-auth__subtitle">Create the owner account. The owner can manage everything, including other users.</p>
     </header>
 
-    <form class="c-form" data-form="setup" novalidate>
+    <form class="c-form" data-form="setup" method="post" novalidate>
       <div class="c-field" data-token-field hidden>
         <label class="c-field__label" for="setup-token">Setup token</label>
         <input class="c-input c-input--mono" id="setup-token" name="setup_token" autocomplete="off" spellcheck="false">
@@ -41,7 +41,7 @@
         <input class="c-input" id="setup-password-confirm" name="password_confirm" type="password" autocomplete="new-password" required>
       </div>
       <p class="c-form__error" data-form-error role="alert" hidden></p>
-      <button class="c-button c-button--primary c-button--block" type="submit">Create owner account</button>
+      <button class="c-button c-button--primary c-button--block" type="submit" disabled>Create owner account</button>
     </form>
   </main>
 </body>

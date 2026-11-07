@@ -5,11 +5,18 @@
 //! whether the sandbox behaved as intended. The probe is the app binary itself
 //! (`<binary> isolation-probe <action> <target>`), exiting 0 when the action succeeded.
 
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use serde::Serialize;
 
-use super::{ResourceLimits, SandboxSpec, SandboxSupport, system_read_only_paths, system_read_write_paths};
+use super::{
+    HostSandbox, ResourceLimits, SandboxSpec, SandboxSupport,
+    cgroup::{CgroupLimits, CgroupRequest, CgroupsUnavailable},
+    system_read_only_paths, system_read_write_paths,
+};
 use crate::{
     instances::SandboxIds,
     supervisor::process::{self, ProcessSpec},
@@ -20,6 +27,9 @@ const PROBE_IDS: SandboxIds = SandboxIds {
     uid: 30999,
     gid: 30999,
 };
+
+/// Control group used by the probe (instances use their ULIDs, which never look like this).
+const PROBE_CGROUP: &str = "isolation-probe";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckResult {
@@ -49,13 +59,10 @@ impl IsolationReport {
 }
 
 /// Runs all checks. `probe` is the app binary; `scratch` an empty directory it may use.
-pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::io::Result<IsolationReport> {
-    let own = scratch.join("own");
-    let other = scratch.join("other");
-    std::fs::create_dir_all(&own)?;
-    std::fs::create_dir_all(&other)?;
+pub async fn run(probe: &Path, scratch: &Path, host: &HostSandbox) -> std::io::Result<IsolationReport> {
+    let support = host.support();
+    let (own, other) = probe_folders(scratch, support)?;
     std::fs::write(other.join("secret.txt"), "another server's data")?;
-    prepare_ownership(&own, &other, support)?;
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let admin_port = listener.local_addr()?.port();
@@ -63,7 +70,7 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
     let read_other = probe_action(
         probe,
         &own,
-        support,
+        host,
         "read",
         &other.join("secret.txt").display().to_string(),
     )
@@ -71,7 +78,7 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
     let write_other = probe_action(
         probe,
         &own,
-        support,
+        host,
         "write",
         &other.join("planted.txt").display().to_string(),
     )
@@ -79,20 +86,14 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
     let write_own = probe_action(
         probe,
         &own,
-        support,
+        host,
         "write",
         &own.join("ok.txt").display().to_string(),
     )
     .await;
-    let connect = probe_action(
-        probe,
-        &own,
-        support,
-        "connect",
-        &format!("127.0.0.1:{admin_port}"),
-    )
-    .await;
-    let whoami = probe_output(probe, &own, support, "uid", "-").await;
+    let connect = probe_action(probe, &own, host, "connect", &format!("127.0.0.1:{admin_port}")).await;
+    let whoami = probe_output(probe, &own, host, "uid", "-").await;
+    let cgroup = probe_cgroup(probe, &own, host).await;
     drop(listener);
 
     let fs_enforced = support.filesystem || support.separate_users;
@@ -131,6 +132,16 @@ pub async fn run(probe: &Path, scratch: &Path, support: SandboxSupport) -> std::
             enforced: support.separate_users,
             detail: whoami.map_or_else(|| "unknown".into(), |uid| format!("runs as uid {uid}")),
         },
+        CheckResult {
+            name: "Runs under a hard memory limit",
+            passed: cgroup.is_ok(),
+            enforced: host.cgroups().is_some(),
+            detail: match (&cgroup, host.cgroups_problem()) {
+                (Ok(path), _) => format!("runs in control group {path}"),
+                (Err(_), Some(reason)) => format!("unavailable: {reason}"),
+                (Err(problem), None) => problem.0.clone(),
+            },
+        },
     ];
     Ok(IsolationReport {
         support,
@@ -164,13 +175,46 @@ pub async fn own_folder_usable(probe: &Path, dir: &Path, support: SandboxSupport
         return Ok(true);
     }
     let scratch = scratch_in(dir)?;
-    let own = scratch.path().join("own");
-    let other = scratch.path().join("other");
+    let (own, _) = probe_folders(scratch.path(), support)?;
+    let target = own.join("ok.txt").display().to_string();
+    let host = HostSandbox::new(support, None);
+    Ok(probe_action(probe, &own, &host, "write", &target).await)
+}
+
+/// Keeps `host`'s hard limits only if a sandboxed process (as its own user, when the app is
+/// root) really ends up in its control group here; otherwise turns them off with the reason.
+///
+/// Joining happens after the child dropped root, which relies on the kernel checking the
+/// permissions of whoever opened `cgroup.procs` (Linux ≥ 5.16, or a backport). Better to find a
+/// kernel without it now than to fail every server start later.
+pub async fn verify_cgroups(probe: &Path, dir: &Path, host: HostSandbox) -> HostSandbox {
+    if host.cgroups().is_none() {
+        return host;
+    }
+    let result = async {
+        let scratch = scratch_in(dir).map_err(|error| error.to_string())?;
+        let (own, _) = probe_folders(scratch.path(), host.support()).map_err(|error| error.to_string())?;
+        probe_cgroup(probe, &own, &host)
+            .await
+            .map_err(|problem| problem.0)
+    }
+    .await;
+    match result {
+        Ok(_) => host,
+        Err(reason) => host.with_cgroups(Err(CgroupsUnavailable(format!(
+            "A server process could not join its control group ({reason}), so hard memory limits are off."
+        )))),
+    }
+}
+
+/// `own/` (owned by the probe's user) and `other/` in `scratch`: two servers' folders.
+fn probe_folders(scratch: &Path, support: SandboxSupport) -> std::io::Result<(PathBuf, PathBuf)> {
+    let own = scratch.join("own");
+    let other = scratch.join("other");
     std::fs::create_dir_all(&own)?;
     std::fs::create_dir_all(&other)?;
     prepare_ownership(&own, &other, support)?;
-    let target = own.join("ok.txt").display().to_string();
-    Ok(probe_action(probe, &own, support, "write", &target).await)
+    Ok((own, other))
 }
 
 fn outcome(succeeded: bool, verb: &str, blocked: &str) -> String {
@@ -216,39 +260,63 @@ fn probe_spec(probe: &Path, own: &Path, action: &str, target: &str) -> ProcessSp
             bind_tcp: vec![],
             connect_tcp: vec![443],
             limits: ResourceLimits::default(),
+            cgroup: None,
         }),
     }
 }
 
 /// Whether the action succeeded inside the sandbox.
-async fn probe_action(probe: &Path, own: &Path, support: SandboxSupport, action: &str, target: &str) -> bool {
-    run_probe(probe, own, support, action, target)
+async fn probe_action(probe: &Path, own: &Path, host: &HostSandbox, action: &str, target: &str) -> bool {
+    run_probe(probe_spec(probe, own, action, target), host)
         .await
-        .is_some_and(|(success, _)| success)
+        .is_ok_and(|(success, _)| success)
 }
 
 async fn probe_output(
     probe: &Path,
     own: &Path,
-    support: SandboxSupport,
+    host: &HostSandbox,
     action: &str,
     target: &str,
 ) -> Option<String> {
-    run_probe(probe, own, support, action, target)
+    run_probe(probe_spec(probe, own, action, target), host)
         .await
+        .ok()
         .filter(|(success, _)| *success)
         .map(|(_, stdout)| stdout.trim().to_owned())
 }
 
-async fn run_probe(
-    probe: &Path,
-    own: &Path,
-    support: SandboxSupport,
-    action: &str,
-    target: &str,
-) -> Option<(bool, String)> {
-    let spec = probe_spec(probe, own, action, target);
-    let mut spawned = process::spawn(&spec, &support).ok()?;
+/// The control group a probe placed in [`PROBE_CGROUP`] reports for itself, if that is the one.
+async fn probe_cgroup(probe: &Path, own: &Path, host: &HostSandbox) -> Result<String, CgroupsUnavailable> {
+    let Some(tree) = host.cgroups() else {
+        return Err(CgroupsUnavailable("not available on this host".into()));
+    };
+    let mut spec = probe_spec(probe, own, "cgroup", "-");
+    if let Some(sandbox) = spec.sandbox.as_mut() {
+        sandbox.cgroup = Some(CgroupRequest {
+            name: PROBE_CGROUP.into(),
+            limits: CgroupLimits {
+                memory_max: 256 * 1024 * 1024,
+                tasks_max: 64,
+            },
+        });
+    }
+    let result = run_probe(spec, host).await;
+    tree.remove(PROBE_CGROUP);
+    let (success, output) = result.map_err(|error| CgroupsUnavailable(error.to_string()))?;
+    let path = output.trim();
+    if !success {
+        Err(CgroupsUnavailable("the probe failed".into()))
+    } else if path.ends_with(&format!("/instances/{PROBE_CGROUP}")) {
+        Ok(path.to_owned())
+    } else {
+        Err(CgroupsUnavailable(format!("the probe ran in {path} instead")))
+    }
+}
+
+/// Spawns a probe and collects (exited successfully, stdout).
+async fn run_probe(spec: ProcessSpec, host: &HostSandbox) -> std::io::Result<(bool, String)> {
+    let mut spawned = process::spawn(&spec, host)?;
     drop(spawned.stdin); // the probe never reads stdin
     let mut stdout = String::new();
     let read = async {
@@ -258,9 +326,8 @@ async fn run_probe(
     };
     let status = tokio::time::timeout(Duration::from_secs(10), read)
         .await
-        .ok()?
-        .ok()?;
-    Some((status.success(), stdout))
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "the probe did not finish"))??;
+    Ok((status.success(), stdout))
 }
 
 /// The probe's side: perform one action and exit 0 on success, 1 on failure.
@@ -276,6 +343,13 @@ pub fn probe_main(action: &str, target: &str) -> i32 {
             println!("{}", nix::unistd::getuid());
             cfg!(unix)
         }
+        // Prints the probe's cgroup v2 group.
+        "cgroup" => std::fs::read_to_string("/proc/self/cgroup").is_ok_and(|text| {
+            text.lines()
+                .find_map(|line| line.strip_prefix("0::"))
+                .map(|path| println!("{path}"))
+                .is_some()
+        }),
         _ => false,
     };
     i32::from(!succeeded)

@@ -13,9 +13,12 @@ use gsd_core::{
     net::http_client,
     random::random_token,
     store::SqlitePool,
-    supervisor::{SandboxSupport, Supervisors, sandbox::check},
+    supervisor::{
+        HostSandbox, SandboxSupport, Supervisors,
+        sandbox::{cgroup::CgroupTree, check},
+    },
 };
-use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftService};
+use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
@@ -52,9 +55,7 @@ pub struct BuildOptions {
     pub endpoints: Option<Endpoints>,
     pub adoptium_api: Option<String>,
     /// Skips host detection and the data-dir sandbox check.
-    pub sandbox: Option<SandboxSupport>,
-    /// With `sandbox`: pretend the data-dir check found this problem.
-    pub sandbox_problem: Option<String>,
+    pub sandbox: Option<HostSandbox>,
     pub probe_ports: Option<bool>,
 }
 
@@ -90,13 +91,11 @@ impl AppState {
             tracing::error!(path = %problem.path.display(), error = %problem.error, "skipping an instance that could not be loaded");
         }
 
-        let (support, sandbox_problem) = if let Some(support) = options.sandbox {
-            (support, options.sandbox_problem)
-        } else {
-            let support = SandboxSupport::detect();
-            (support, check_sandbox_in_data_dir(&config, support).await)
+        let host = match options.sandbox {
+            Some(host) => host,
+            None => detect_host_sandbox(&config).await,
         };
-        let supervisors = Supervisors::new(events.clone(), support, sandbox_problem);
+        let supervisors = Supervisors::new(events.clone(), host.clone());
         let mut adapters: HashMap<String, Arc<dyn GameAdapter>> = HashMap::new();
         adapters.insert(GAME_ID.to_owned(), Arc::new(MinecraftAdapter));
         let instances = InstanceService::new(
@@ -117,7 +116,11 @@ impl AppState {
             registry,
             java.clone(),
             jobs.clone(),
-            config.download_cache_dir(),
+            host,
+            MinecraftPaths {
+                download_cache: config.download_cache_dir(),
+                imports: config.imports_dir(),
+            },
         );
 
         Ok(Self {
@@ -132,6 +135,21 @@ impl AppState {
             minecraft,
             shutdown: CancellationToken::new(),
         })
+    }
+}
+
+/// The host's isolation layers, the result of the data-directory check below, and hard limits
+/// (control groups) when this host delegates them to the app and a probe proves they work.
+async fn detect_host_sandbox(config: &Config) -> HostSandbox {
+    let support = SandboxSupport::detect();
+    // Before any probe runs: setting up may move the app into a subgroup of its own, which is
+    // refused while other processes (such as a probe) share its group.
+    let cgroups = CgroupTree::detect();
+    let host =
+        HostSandbox::new(support, check_sandbox_in_data_dir(config, support).await).with_cgroups(cgroups);
+    match std::env::current_exe() {
+        Ok(probe) => check::verify_cgroups(&probe, &config.sandbox_check_dir(), host).await,
+        Err(_) => host,
     }
 }
 

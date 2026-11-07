@@ -1,6 +1,7 @@
 //! API errors: an HTTP status plus a stable machine-readable `code` the UI can switch on.
 //!
-//! Wire format: `{"error": {"code": "invalid_credentials", "message": "…"}}`.
+//! Wire format: `{"error": {"code": "invalid_credentials", "message": "…"}}`, plus `"details"`
+//! where there is more to say (e.g. which fields were invalid).
 
 use std::fmt::Display;
 
@@ -24,6 +25,7 @@ pub struct ApiError {
     status: StatusCode,
     code: &'static str,
     message: String,
+    details: Option<serde_json::Value>,
 }
 
 impl ApiError {
@@ -32,7 +34,15 @@ impl ApiError {
             status,
             code,
             message: message.into(),
+            details: None,
         }
+    }
+
+    /// Adds machine-readable details (serialised as `error.details`).
+    #[must_use]
+    pub fn with_details(mut self, details: impl serde::Serialize) -> Self {
+        self.details = serde_json::to_value(details).ok();
+        self
     }
 
     pub fn unauthenticated() -> Self {
@@ -72,7 +82,11 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = json!({ "error": { "code": self.code, "message": self.message } });
+        let mut error = json!({ "code": self.code, "message": self.message });
+        if let Some(details) = self.details {
+            error["details"] = details;
+        }
+        let body = json!({ "error": error });
         (self.status, Json(body)).into_response()
     }
 }
@@ -94,6 +108,8 @@ impl From<AuthError> for ApiError {
                 Self::new(StatusCode::UNPROCESSABLE_ENTITY, "weak_password", message)
             }
             AuthError::UserNotFound => Self::new(StatusCode::NOT_FOUND, "user_not_found", message),
+            AuthError::OwnAccount => Self::new(StatusCode::CONFLICT, "own_account", message),
+            AuthError::LastOwner => Self::new(StatusCode::CONFLICT, "last_owner", message),
             AuthError::Repo(_)
             | AuthError::Password(_)
             | AuthError::Random(_)
@@ -117,6 +133,16 @@ impl From<InstanceError> for ApiError {
             InstanceError::SandboxUnusable(_) => {
                 Self::new(StatusCode::SERVICE_UNAVAILABLE, "sandbox_unusable", message)
             }
+            InstanceError::Settings(_) => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid_settings", message)
+            }
+            InstanceError::UnknownRuntime(_) => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "unknown_runtime", message)
+            }
+            InstanceError::RuntimeTooOld { .. } => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "runtime_too_old", message)
+            }
+            InstanceError::CustomRuntimeNotAllowed => Self::forbidden("custom_runtime_not_allowed", message),
             InstanceError::Supervisor(error) => error.into(),
             InstanceError::Registry(error) => error.into(),
             InstanceError::UnknownGame(_) => Self::internal(&error),
@@ -169,6 +195,8 @@ impl From<CreateError> for ApiError {
             CreateError::Catalog(error) => error.into(),
             CreateError::Registry(error) => error.into(),
             CreateError::Job(error) => error.into(),
+            CreateError::SourceNotInstalled => Self::new(StatusCode::CONFLICT, "not_installed", message),
+            CreateError::ImportNotFound(_) => Self::new(StatusCode::NOT_FOUND, "import_not_found", message),
             CreateError::NotMinecraft(_) => Self::internal(&error),
         }
     }
@@ -181,6 +209,17 @@ impl From<CatalogError> for ApiError {
             CatalogError::UnknownVersion(_) => Self::new(StatusCode::NOT_FOUND, "unknown_version", message),
             CatalogError::NoServerDownload(_) => {
                 Self::new(StatusCode::UNPROCESSABLE_ENTITY, "no_server_download", message)
+            }
+            CatalogError::LoaderUnavailable { .. } => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "loader_unavailable", message)
+            }
+            CatalogError::UnknownLoaderVersion { .. } => Self::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "unknown_loader_version",
+                message,
+            ),
+            CatalogError::BrokenBuild { .. } => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "broken_build", message)
             }
             CatalogError::Unreachable { .. }
             | CatalogError::Status { .. }
@@ -205,5 +244,43 @@ impl From<JobError> for ApiError {
 impl From<JsonRejection> for ApiError {
     fn from(rejection: JsonRejection) -> Self {
         Self::new(rejection.status(), "invalid_request_body", rejection.body_text())
+    }
+}
+
+impl From<gsd_minecraft::properties::PropertiesError> for ApiError {
+    fn from(error: gsd_minecraft::properties::PropertiesError) -> Self {
+        use gsd_minecraft::properties::PropertiesError;
+        let message = error.to_string();
+        match error {
+            PropertiesError::Conflict => Self::new(StatusCode::CONFLICT, "file_changed", message),
+            PropertiesError::Invalid(fields) => {
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "invalid_properties", message)
+                    .with_details(fields)
+            }
+            PropertiesError::TooLarge => Self::new(StatusCode::PAYLOAD_TOO_LARGE, "file_too_large", message),
+            PropertiesError::Io { .. } => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_core::files::FilesError> for ApiError {
+    fn from(error: gsd_core::files::FilesError) -> Self {
+        use gsd_core::files::FilesError;
+        let message = error.to_string();
+        let status = |status, code| Self::new(status, code, message.clone());
+        match error {
+            FilesError::Path(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_path"),
+            FilesError::NotFound(_) => status(StatusCode::NOT_FOUND, "file_not_found"),
+            FilesError::AlreadyExists(_) => status(StatusCode::CONFLICT, "file_exists"),
+            FilesError::NotADirectory(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "not_a_folder"),
+            FilesError::IsADirectory(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "is_a_folder"),
+            FilesError::NotText(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "not_text"),
+            FilesError::TooLarge { .. } => status(StatusCode::PAYLOAD_TOO_LARGE, "file_too_large"),
+            FilesError::Conflict(_) => status(StatusCode::CONFLICT, "file_changed"),
+            FilesError::InvalidOperation(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_operation"),
+            FilesError::Forbidden(_) => status(StatusCode::FORBIDDEN, "file_forbidden"),
+            FilesError::BadArchive(..) => status(StatusCode::UNPROCESSABLE_ENTITY, "bad_archive"),
+            FilesError::Io { .. } => Self::internal(&error),
+        }
     }
 }

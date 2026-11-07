@@ -18,6 +18,10 @@ pub enum AuthError {
     UsernameTaken,
     #[error("user not found")]
     UserNotFound,
+    #[error("you can't change or delete your own account here")]
+    OwnAccount,
+    #[error("the last owner can't be demoted, disabled or deleted")]
+    LastOwner,
     #[error(transparent)]
     Repo(#[from] RepoError),
     #[error(transparent)]

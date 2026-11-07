@@ -94,6 +94,7 @@ fn prepare_data_dir(config: &Config) -> Result<(), ServeError> {
         (config.trash_dir(), 0o700),
         (config.data_dir.join("cache"), 0o700),
         (config.sandbox_check_dir(), 0o711),
+        (config.imports_dir(), 0o700),
     ];
     for (path, mode) in dirs {
         let map_err = |source| ServeError::DataDir {
@@ -116,7 +117,7 @@ fn announce(state: &AppState, listener: &TcpListener) {
     let address = listener
         .local_addr()
         .map_or_else(|_| state.config.bind.to_string(), |a| a.to_string());
-    let support = state.instances.supervisors().support();
+    let support = state.instances.supervisors().host().support();
     tracing::info!(
         data_dir = %state.config.data_dir.display(),
         isolation = ?support.level(),
@@ -124,8 +125,13 @@ fn announce(state: &AppState, listener: &TcpListener) {
         gsd_brand::NAME,
         gsd_brand::VERSION
     );
-    if let Some(problem) = state.instances.supervisors().sandbox_problem() {
+    let host = state.instances.supervisors().host();
+    if let Some(problem) = host.problem() {
         tracing::error!("{problem}");
+    }
+    match host.cgroups_problem() {
+        None => tracing::info!("servers get hard memory and task limits (cgroup v2)"),
+        Some(reason) => tracing::info!("hard memory limits are off: {reason}"),
     }
     if let Some(token) = state.setup_gate.token() {
         tracing::warn!(

@@ -15,7 +15,7 @@ use gsd_core::{
     instances::Instance,
     supervisor::{ServerState, Snapshot},
 };
-use gsd_minecraft::{CreateRequest, LoaderKind};
+use gsd_minecraft::{CloneRequest, CreateRequest, LoaderKind, settings::MinecraftServer};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -40,11 +40,12 @@ pub fn routes() -> Router<AppState> {
         .route("/instances/{instance_id}/command", post(command))
         .route("/instances/{instance_id}/console", get(console))
         .route("/instances/{instance_id}/install", post(reinstall))
+        .route("/instances/{instance_id}/clone", post(clone))
 }
 
 /// An instance as the UI sees it.
 #[derive(Debug, Serialize)]
-pub struct InstanceDto {
+pub(crate) struct InstanceDto {
     id: InstanceId,
     name: String,
     game: String,
@@ -57,6 +58,8 @@ pub struct InstanceDto {
     port: u16,
     /// Game-specific settings (Minecraft version, loader, …).
     server: serde_json::Value,
+    /// What it runs, for display: "`NeoForge` 26.3".
+    software: String,
     java_major: u32,
     max_memory_mb: u32,
     /// What the current user may do on it.
@@ -64,7 +67,7 @@ pub struct InstanceDto {
 }
 
 impl InstanceDto {
-    fn new(state: &AppState, instance: &Instance, actor: &Actor) -> Self {
+    pub(crate) fn new(state: &AppState, instance: &Instance, actor: &Actor) -> Self {
         let definition = &instance.definition;
         Self {
             id: definition.id,
@@ -77,11 +80,20 @@ impl InstanceDto {
             state: state.instances.state(definition.id),
             port: definition.ports.game,
             server: serde_json::to_value(&definition.server).unwrap_or_default(),
+            software: software_label(definition),
             java_major: definition.java.major,
             max_memory_mb: definition.java.max_memory_mb,
             permissions: actor.permissions_for(definition.id),
         }
     }
+}
+
+/// The display label of what an instance runs (the game id if it isn't a known game).
+fn software_label(definition: &gsd_core::instances::InstanceDefinition) -> String {
+    MinecraftServer::from_table(&definition.server)
+        .ok()
+        .filter(|_| definition.game == gsd_minecraft::GAME_ID)
+        .map_or_else(|| definition.game.clone(), |server| server.software_label())
 }
 
 async fn list(State(state): State<AppState>, CurrentActor(actor): CurrentActor) -> Json<Vec<InstanceDto>> {
@@ -110,9 +122,9 @@ struct CreateBody {
 }
 
 #[derive(Debug, Serialize)]
-struct CreatedResponse {
-    instance: InstanceDto,
-    job_id: JobId,
+pub(crate) struct CreatedResponse {
+    pub(crate) instance: InstanceDto,
+    pub(crate) job_id: JobId,
 }
 
 /// 202: the instance exists; its files are installed by the returned job.
@@ -266,4 +278,44 @@ async fn audit(state: &AppState, actor: &Actor, instance: InstanceId, action: &'
         .audit
         .record(AuditEntry::on_instance(actor.id(), instance, action))
         .await;
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloneBody {
+    name: String,
+    #[serde(default)]
+    include_worlds: bool,
+}
+
+/// 202: the copy exists; its files are copied by the returned job. The source must be stopped
+/// (a running server's world is being written).
+async fn clone(
+    State(state): State<AppState>,
+    auth: AuthorizedGlobal<perm::InstanceCreate>,
+    Path(source_id): Path<InstanceId>,
+    ApiJson(body): ApiJson<CloneBody>,
+) -> Result<Response, ApiError> {
+    let source = state.instances.get(source_id).await?;
+    if state.instances.state(source_id).is_active() {
+        return Err(gsd_core::instances::InstanceError::StillRunning.into());
+    }
+    let request = CloneRequest {
+        name: body.name,
+        include_worlds: body.include_worlds,
+    };
+    let (instance, job_id) = state.minecraft.clone_instance(source_id, request).await?;
+    let details = json!({ "name": instance.definition.name, "source": source.definition.name, "include_worlds": body.include_worlds });
+    state
+        .audit
+        .record(
+            AuditEntry::on_instance(auth.actor.id(), instance.id(), actions::INSTANCE_CREATED)
+                .with_details(details),
+        )
+        .await;
+    let body = CreatedResponse {
+        instance: InstanceDto::new(&state, &instance, &auth.actor),
+        job_id,
+    };
+    Ok((StatusCode::ACCEPTED, Json(body)).into_response())
 }

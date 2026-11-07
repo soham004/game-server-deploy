@@ -7,6 +7,7 @@ use gsd_core::{
     audit::{AuditEntry, AuditLog, actions},
     auth::{AuthError, AuthService},
     store::{self, StoreError},
+    supervisor::{HostSandbox, SandboxSupport, sandbox::cgroup::CgroupsUnavailable},
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing_subscriber::EnvFilter;
@@ -101,8 +102,12 @@ async fn isolation_check(config: &Config) -> Result<(), CliError> {
     let scratch =
         gsd_core::supervisor::sandbox::check::scratch_in(&config.sandbox_check_dir()).map_err(fail)?;
     println!("Testing in {}", config.data_dir.display());
-    let support = gsd_core::supervisor::SandboxSupport::detect();
-    let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), support)
+    // Hard limits need the app's own control group; only the running app can test them
+    // (POST /system/isolation-check).
+    let host = HostSandbox::new(SandboxSupport::detect(), None).with_cgroups(Err(CgroupsUnavailable(
+        "tested only by the running app (its isolation check)".into(),
+    )));
+    let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), &host)
         .await
         .map_err(fail)?;
 

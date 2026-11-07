@@ -82,7 +82,7 @@ function card(instance) {
       h('h2', { class: 'c-server-card__name' }, instance.name),
       h('span', { class: `c-pill is-${stateKey(instance)}` }, stateLabel(instance)),
     ),
-    h('p', { class: 'c-server-card__software' }, softwareLabel(instance.server)),
+    h('p', { class: 'c-server-card__software' }, softwareLabel(instance)),
     h('dl', { class: 'c-server-card__facts' },
       h('div', null, h('dt', null, 'Port'), h('dd', null, String(instance.port))),
       h('div', null, h('dt', null, 'Memory'), h('dd', null, memoryLabel(instance.max_memory_mb))),

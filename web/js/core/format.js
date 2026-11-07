@@ -22,12 +22,9 @@ export function stateKey(instance) {
   return instance.state?.status ?? 'stopped';
 }
 
-const LOADER_NAMES = { vanilla: 'Vanilla', paper: 'Paper', fabric: 'Fabric' };
-
-/** "Paper 26.3" style label from an instance's server settings. */
-export function softwareLabel(server) {
-  const loader = LOADER_NAMES[server?.loader] ?? server?.loader ?? '';
-  return `${loader} ${server?.mc_version ?? ''}`.trim();
+/** "NeoForge 26.3": the label the server sends (it owns the loader names). */
+export function softwareLabel(instance) {
+  return instance?.software ?? '';
 }
 
 export function memoryLabel(megabytes) {
@@ -43,4 +40,24 @@ export function shortDate(iso) {
 /** "12:01:22" from an ISO timestamp. */
 export function clockTime(iso) {
   return new Date(iso).toLocaleTimeString(undefined, { hour12: false });
+}
+
+/**
+ * "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago", then a date.
+ * @param {string} iso
+ * @param {number} [now] milliseconds since the epoch (for tests)
+ */
+export function relativeTime(iso, now = Date.now()) {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '';
+  const seconds = Math.max(0, Math.round((now - then) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  return shortDate(iso);
 }

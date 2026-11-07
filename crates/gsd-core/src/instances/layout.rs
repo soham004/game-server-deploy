@@ -82,6 +82,19 @@ impl InstanceLayout {
     }
 }
 
+/// Gives one file (or directory, not recursively) to the sandbox user, e.g. after the app
+/// replaced a file in `server/`. A no-op without root. Never follows a symlink.
+pub fn assign_file_ownership(path: &Path, ids: SandboxIds) -> std::io::Result<()> {
+    if !can_change_ownership() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::lchown(path, Some(ids.uid), Some(ids.gid))?;
+    #[cfg(not(unix))]
+    let _ = (path, ids);
+    Ok(())
+}
+
 /// Turns a display name into a directory-safe slug: "My Server!" → "my-server".
 pub fn slugify(name: &str) -> String {
     let mut slug = String::with_capacity(name.len());

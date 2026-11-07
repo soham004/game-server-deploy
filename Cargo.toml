@@ -22,6 +22,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "ws"] }
 base64 = "0.23"
 bytes = "1"
+cap-std = "4"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 directories = "6"
@@ -38,8 +39,10 @@ nix = { version = "0.31", features = ["resource", "signal", "user", "process"] }
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "stream"] }
 rust-embed = "8"
+rustix = { version = "1", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+md-5 = "0.11"
 sha1 = "0.11"
 sha2 = "0.11"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "migrate", "derive", "macros"] }
@@ -48,7 +51,7 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.30"
-tokio-util = "0.7"
+tokio-util = { version = "0.7", features = ["io", "io-util"] }
 toml = "1"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["trace", "compression-gzip", "compression-br", "set-header"] }

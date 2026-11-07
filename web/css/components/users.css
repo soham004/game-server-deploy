@@ -1,0 +1,93 @@
+/* Users page (views/users.js). */
+
+.c-users {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.c-users__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.c-users__table th,
+.c-users__table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.c-users__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.c-users__table tr.is-disabled td:first-child {
+  opacity: 0.6;
+}
+
+.c-users__actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.c-users__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+}
+
+.c-users__add {
+  max-width: 28rem;
+}
+
+.c-users__secret-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-users__password {
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  font-size: var(--text-md);
+  user-select: all;
+}
+
+.c-users__grants {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.c-users__grant,
+.c-users__grant-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* .c-input is full width by default; here the controls share one line and wrap only on narrow screens. */
+.c-users__grant > .c-input,
+.c-users__grant-add > .c-input {
+  flex: 1 1 14rem;
+  width: auto;
+}
+
+.c-users__grant > span {
+  flex: 0 1 12rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .c-users__table th:nth-child(4),
+  .c-users__table td:nth-child(4) {
+    display: none;
+  }
+}

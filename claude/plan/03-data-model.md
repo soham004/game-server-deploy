@@ -36,8 +36,8 @@ eula_accepted_at = "2026-11-07T10:00:05Z"   # recorded consent; we write eula.tx
 uid = 20001                    # allocated from the configured range at creation; never reused while the instance exists
 gid = 20001
 extra_connect_ports = []       # admin/owner-only allow-list for outbound connections beyond 80/443
-memory_hard_limit_factor = 1.4 # cgroup memory.max = Xmx × factor (when cgroups are available)
-pids_max = 2048
+# Hard limits (cgroup v2, when available) are not stored yet: memory.max = Xmx + max(Xmx/2, 1 GiB),
+# pids.max = 2048 (D-034). Per-instance overrides can come here later.
 
 [ports]
 game = 25565                   # from the public game port range (default 25565–25584, D-022)

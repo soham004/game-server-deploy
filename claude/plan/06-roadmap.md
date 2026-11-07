@@ -34,7 +34,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       jar via content-addressed cache, `eula.txt` from consent, seeded `server.properties`, chown) → `installed_at`.
       Retryable install. Delete moves the folder to `trash/`.
 - [x] Linux sandbox: per-instance UID/GID (when root), Landlock fs + net (ABI ≥ 4), rlimits, `no_new_privs`. `isolation-check`
-      CLI + `POST /system/isolation-check` + isolation level in `/system`; startup check that the sandbox works in the data dir (D-026). **cgroups not yet** (see M2).
+      CLI + `POST /system/isolation-check` + isolation level in `/system`; startup check that the sandbox works in the data dir (D-026). cgroup limits came in M2 (D-034).
 - [x] Supervisor actor: pure state machine (start/stop/restart/kill, stop timeout → kill, crash backoff 5/15/45/120 s,
       crash-loop guard), ordered output (exit reported after pipes drain), console history, players, diagnostics.
 - [x] WebSocket stream (`instances`, `jobs`, `console:<id>` topics; per-event permission checks; session re-validation).
@@ -43,14 +43,20 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [x] Diagnostics: port in use, EULA, wrong Java (names the version), OOM, overload, missing dependency, client-only mod,
       mixin failure, network/DNS unreachable, crash loop.
 - [x] Verified with a **real Paper 26.3 server** under Landlock in WSL2 (see decisions D-025).
-- [ ] cgroup v2 memory/pids limits (when writable), moved to M2.
+- [x] cgroup v2 memory/pids limits (when writable): done in M2 (D-034).
 
 ## M2: All loaders + configuration
-- [ ] Forge, NeoForge (installer jobs + args-file launch), Quilt (installer CLI), Purpur.
-- [ ] `server.properties` round-trip parser + schema + visual editor + raw view.
-- [ ] File manager (list, edit, upload, download, zip, rename, delete, extract) with path safety + ownership assignment.
-- [ ] Instance settings (memory, JVM presets, Java from the managed list, auto-start), clone, delete, import an existing folder.
-- [ ] User management UI (owner): users, roles, per-instance grants, sessions.
+- [x] Forge, NeoForge (installer jobs + args-file launch), Quilt (installer CLI), Purpur. Installers run sandboxed; all four
+      verified with real 26.3 installs and starts under Landlock (D-028).
+- [x] `server.properties` round-trip parser + schema (from a real 26.3 file) + visual editor + raw view (D-029); browser
+      end-to-end test (D-030).
+- [x] File manager (list, edit, upload, download, zip, rename, delete, extract) with path safety + ownership assignment
+      (D-031).
+- [x] Instance settings (memory, JVM presets, Java from the managed list, auto-start), clone, delete, import an existing folder
+      (D-032).
+- [x] User management UI (owner): users, roles, per-instance grants, sessions (D-033).
+- [x] cgroup v2 hard limits (memory ceiling, task cap, out-of-memory diagnostic) when the app's group is delegated;
+      verified under systemd with `Delegate=yes`; off with the reason in Docker's default setup (D-034).
 
 ## M3: Safety net
 - [ ] Backups: manual, world and full scope, quiesce, retention, restore with a pre-restore backup (re-chown on restore).

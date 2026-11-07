@@ -156,6 +156,56 @@ impl UserRepo {
         row.map(StoredUser::try_from).transpose()
     }
 
+    /// Every user, by name.
+    pub async fn list(&self) -> Result<Vec<User>, RepoError> {
+        let rows: Vec<UserRow> = sqlx::query_as(concat!(
+            "SELECT ",
+            user_columns!(),
+            " FROM users ORDER BY username"
+        ))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| StoredUser::try_from(row).map(|stored| stored.user))
+            .collect()
+    }
+
+    /// Owners that can still sign in (the app must always keep one).
+    pub async fn count_active_owners(&self) -> Result<i64, RepoError> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE global_role = 'owner' AND disabled = 0")
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
+    pub async fn update_role(&self, id: UserId, role: GlobalRole) -> Result<(), RepoError> {
+        sqlx::query("UPDATE users SET global_role = ? WHERE id = ?")
+            .bind(role.as_str())
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_disabled(&self, id: UserId, disabled: bool) -> Result<(), RepoError> {
+        sqlx::query("UPDATE users SET disabled = ? WHERE id = ?")
+            .bind(disabled)
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Deletes the user; their sessions and grants go with them (foreign keys cascade).
+    pub async fn delete(&self, id: UserId) -> Result<(), RepoError> {
+        sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn update_password(
         &self,
         id: UserId,

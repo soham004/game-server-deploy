@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, dead_code)]
 
-use std::{path::Path, time::Duration};
+use std::time::Duration;
 
 use axum::{
     Router,
@@ -23,19 +23,18 @@ use gsd_core::{
         users::{NewUser, UserRepo},
     },
     store::{self, SqlitePool},
-    supervisor::SandboxSupport,
+    supervisor::{HostSandbox, SandboxSupport},
 };
-use gsd_minecraft::Endpoints;
+use gsd_minecraft::{Endpoints, test_support};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path, path_regex},
+    matchers::{method, path},
 };
 
 pub const PASSWORD: &str = "correct horse battery";
-pub const FAKE_JAR: &[u8] = b"PK\x03\x04 fake server jar";
 
 pub struct TestApp {
     pub state: AppState,
@@ -61,17 +60,12 @@ impl TestApp {
         let pool = store::open_in_memory().await.unwrap();
         let mut config = Config::with_data_dir(dir.path().to_owned());
         config.game_ports = "41000-41009".parse().unwrap();
-        install_fake_java(&config.runtimes_dir());
+        test_support::install_fake_java(&config.runtimes_dir().join("temurin-25-x64"));
 
         let options = BuildOptions {
-            endpoints: Some(Endpoints {
-                mojang_manifest: format!("{}/mojang/manifest.json", upstream.uri()),
-                paper: upstream.uri(),
-                fabric: upstream.uri(),
-            }),
+            endpoints: Some(Endpoints::all_at(&upstream.uri())),
             adoptium_api: Some(upstream.uri()),
-            sandbox: Some(SandboxSupport::none()),
-            sandbox_problem,
+            sandbox: Some(HostSandbox::new(SandboxSupport::none(), sandbox_problem)),
             probe_ports: Some(false),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();
@@ -108,6 +102,10 @@ impl TestApp {
 
     pub async fn delete(&self, path: &str, cookie: Option<&str>) -> Response {
         self.write("DELETE", path, json!({}), cookie).await
+    }
+
+    pub async fn put(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
+        self.write("PUT", path, body, cookie).await
     }
 
     async fn write(&self, verb: &str, path: &str, body: Value, cookie: Option<&str>) -> Response {
@@ -211,88 +209,13 @@ pub async fn text_body(response: Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
-/// A "Java 25" whose `java` is a shell script behaving like a Minecraft server.
-fn install_fake_java(runtimes_dir: &Path) {
-    let home = runtimes_dir.join("temurin-25-x64");
-    std::fs::create_dir_all(home.join("bin")).unwrap();
-    std::fs::write(
-        home.join("release"),
-        "JAVA_VERSION=\"25.0.1\"\nIMPLEMENTOR=\"Test\"\n",
-    )
-    .unwrap();
-    let script = r#"#!/bin/sh
-echo "[12:00:00] [Server thread/INFO]: Starting minecraft server version 26.3"
-echo '[12:00:01] [Server thread/INFO]: Done (0.42s)! For help, type "help"'
-while IFS= read -r line; do
-  case "$line" in
-    stop) echo "[12:00:09] [Server thread/INFO]: Stopping the server"; exit 0 ;;
-    say\ *) echo "[12:00:05] [Server thread/INFO]: [Server] ${line#say }" ;;
-    join\ *) echo "[12:00:05] [Server thread/INFO]: ${line#join } joined the game" ;;
-    *) echo "[12:00:05] [Server thread/INFO]: Unknown or incomplete command" ;;
-  esac
-done
-"#;
-    let java = home.join("bin/java");
-    std::fs::write(&java, script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&java, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-}
-
-fn fixture(name: &str) -> Value {
-    let path = format!(
-        "{}/../gsd-minecraft/tests/fixtures/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
-}
-
-fn hex_sha1(bytes: &[u8]) -> String {
-    use sha1::Digest;
-    hex::encode(sha1::Sha1::digest(bytes))
-}
-
-/// The recorded upstream API responses, with download URLs pointing back at the mock.
-pub async fn mock_upstream() -> MockServer {
-    let server = MockServer::start().await;
-    let mut manifest = fixture("mojang_manifest.json");
-    for version in manifest["versions"].as_array_mut().unwrap() {
-        let id = version["id"].as_str().unwrap().to_owned();
-        version["url"] = format!("{}/mojang/versions/{id}.json", server.uri()).into();
-    }
-    let mut detail = fixture("mojang_version_26.3.json");
-    detail["downloads"]["server"]["url"] = format!("{}/downloads/vanilla.jar", server.uri()).into();
-    detail["downloads"]["server"]["sha1"] = hex_sha1(FAKE_JAR).into();
-
-    let routes = [
-        ("/mojang/manifest.json", manifest),
-        ("/mojang/versions/26.3.json", detail),
-        ("/mojang/versions/1.0.json", fixture("mojang_version_1.0.json")),
-        ("/v3/projects/paper", fixture("paper_project.json")),
-        (
-            "/v3/projects/paper/versions/26.3/builds",
-            fixture("paper_builds_26.3.json"),
-        ),
-        ("/v2/versions/game", fixture("fabric_game.json")),
-        ("/v2/versions/loader/26.3", fixture("fabric_loaders_26.3.json")),
-        ("/v2/versions/installer", fixture("fabric_installers.json")),
-        // Adoptium: nothing available (Java 25 is pre-installed by the test).
-        ("/v3/assets/latest/25/hotspot", json!([])),
-    ];
-    for (route, body) in routes {
-        Mock::given(method("GET"))
-            .and(path(route))
-            .respond_with(ResponseTemplate::new(200).set_body_json(body))
-            .mount(&server)
-            .await;
-    }
+/// The recorded upstream APIs of every loader (shared with gsd-minecraft's own tests), plus an
+/// Adoptium with nothing to offer (Java 25 is pre-installed by the test).
+async fn mock_upstream() -> MockServer {
+    let server = test_support::mock_upstream().await;
     Mock::given(method("GET"))
-        .and(path_regex(
-            r"^/(downloads/.*\.jar|v2/versions/loader/26\.3/[^/]+/[^/]+/server/jar)$",
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_bytes(FAKE_JAR))
+        .and(path("/v3/assets/latest/25/hotspot"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
         .mount(&server)
         .await;
     server

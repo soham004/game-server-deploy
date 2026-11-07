@@ -1,0 +1,15 @@
+/* Instance settings form (components/instance-settings.js). */
+
+.c-settings {
+  max-width: 44rem;
+}
+
+.c-settings__group {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-settings .c-settings__args {
+  min-height: 6rem;
+  resize: vertical;
+}
