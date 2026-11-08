@@ -300,3 +300,95 @@ Members manage only the instances they are granted. Member quotas (instance coun
   server as uid 20000 in `instances/<id>` with the expected limits and a passing isolation check; the Docker image
   (root, compose capabilities) reports limits off ("Read-only file system") and every file the app writes into an
   instance (install, upload, folder, extract, clone, import) belongs to that instance's UID.
+
+**D-035: Backups: zip archives, paused saving, staged restore** · accepted · 2026-11-08
+- `gsd-core/backups/`. Two scopes: **world** (the folders the adapter names: `level-name` and its `_nether`/`_the_end`)
+  and **full** (the server folder minus what the game recreates: `logs`, `crash-reports`, `cache`, `libraries`,
+  `versions`, `.fabric`). Custom include/exclude globs are not built.
+- Archive: one **zip** per backup, the selected entries under `server/` plus `gsd-backup.json` (backup and instance id,
+  software, scope, kind, counts and total bytes). Written in one pass through a hashing writer (`ZipWriter::new_stream`,
+  zip64 for ≥ 4 GiB entries), as `*.zip.partial`, renamed when complete; only complete archives get a row in the
+  `backups` table (size, SHA-256). The server folder is read through `cap-std`; symlinks and special files are left out.
+  `tar.zst` is not offered. Stored in `<data>/backups/<instance id>/` (0700, root only), named
+  `YYYYMMDD-HHMMSS-<kind>-<scope>.zip`; the folder isn't configurable yet.
+- Kinds: `manual`, `scheduled`, `pre_restore`, `pre_version_change`. Retention per instance (`[backups]` in
+  `instance.toml`, `keep` default 10, `keep_safety` default 3): the newest `keep` manual/scheduled and, separately, the
+  newest `keep_safety` safety backups stay; pinned backups never count and are never deleted. Runs after each backup.
+  GFS (hourly/daily/weekly) and a total-size cap are not built.
+- A running server: `save-off`, `save-all flush`, wait for "Saved the game" (`GameSignal::Saved`, default 5 min), archive,
+  `save-on`. The console shows them as `[backup] > …`. The resume command is also sent if the guard is dropped (panic).
+  If the server stopped or restarted while its files were read, the archive is discarded (`ServerChanged`). A server
+  that is starting, stopping or about to restart after a crash is refused (`server_busy`).
+- Disk space: the last backup of the same scope (or the selected files' size) + 20 % must be free; a restore needs the
+  archive's unpacked size + 20 % (`insufficient_storage`, 507).
+- Restore (a job holding the instance lock): verify (file present, SHA-256, manifest names this backup and instance) →
+  stop and wait → `pre_restore` backup (default on) → unpack into `<instance>/restore/` with the file manager's safe
+  extractor, limited to the manifest's sizes, files owned by the instance's user → swap: replaced top-level entries
+  move to `restore-old/` and the backup's move in (renames on one filesystem; undone if any rename fails) → delete the
+  staging folders → retention → start again if it was running (`InstanceService::start_from_job`, which skips the busy
+  check only for the lock holder). World restores replace only the world folders; full restores replace everything
+  except the excluded entries, which stay as they are. Leftover staging folders from an interrupted restore go to the
+  instance's `trash/`, never away. Retention runs after the restore, so restoring a safety backup can't expire it.
+- API: `GET/POST /instances/{id}/backups`, `PATCH/DELETE …/{bid}`, `POST …/{bid}/restore`, `GET …/{bid}/download`.
+  `instance.view` lists; `backups.create` backs up, pins and notes; `backups.restore` restores, deletes and downloads
+  (a download holds every world). `backups_changed` event refreshes open pages.
+- Deleting an instance leaves its backups for now (no UI reaches them); the "keep backups" choice comes with trash
+  cleanup (M3).
+
+**D-036: Scheduler: plans as JSON, one engine task, runs as the last editor** · accepted · 2026-11-08
+- `gsd-core/scheduler/`. A schedule is a `SchedulePlan` (name, enabled, trigger, conditions, actions, `on_error`,
+  `catch_up`), the wire format and the storage format at once (`schedules.plan_json`), validated by `validate.rs`
+  (limits, cron and IANA zone parse, warnings latest-last, console lines without control characters).
+- Triggers: `cron` (5 or 6 fields, `croner`) in an IANA zone (`chrono-tz`, daylight saving handled), `interval`
+  (60 s … 31 days, counted from the last run), `once`, and `event`: started, stopped, crashed, player joined, nobody
+  online for N (once per empty stretch). Conditions: server running/stopped, at least N players, somebody played
+  since the last run (from join/leave events, `activity.rs`), time window in a zone. Actions: command, broadcast
+  (`GameAdapter::broadcast_command`, `say` for Minecraft), restart/stop with countdown warnings (`[600, 300, 60, 10]`
+  → "Restarting in 10 minutes" …), start, backup (`kind: scheduled`), wait. Webhooks, update checks and drag
+  reordering are not built (arrows move actions).
+- Engine (`engine.rs`): one task; sleeps until the earliest due time (at most 60 s), a change (`Notify`) or a bus event.
+  The next time is saved before a run starts. At startup, runs left `running` are closed as failed, and missed time
+  triggers run once (`catch_up`) or are recorded as skipped. Deleting a server deletes its schedules (engine sees
+  `InstanceDeleted`).
+- A run (`run.rs`): record → checks (server exists; the user it runs as exists, is enabled and holds every action's
+  permission; conditions, except for "Run now") → the actions in order in a job holding the instance lock → outcome
+  `succeeded | failed | skipped` with a message. The lock means runs never overlap each other, an install, a backup or a
+  restore: a busy server records "skipped". Restart and start wait until the server is running (10 min), so a following
+  backup finds it up; every wait ends on job cancel. `InstanceService::{start,restart}_from_job` skip the busy check
+  only for the lock holder.
+- Whose permissions: `run_as` is whoever saved the schedule last (an edit takes it over, so nobody borrows another
+  user's rights); saving needs every action's permission; a deleted user leaves `run_as` empty (`ON DELETE SET NULL`)
+  and runs fail until someone saves it again. Commands show in the console as `[schedule <name>] > …`.
+- History: `schedule_runs`, newest 50 per schedule (`cause`: trigger, catch_up, manual). API: `GET/POST
+  /instances/{id}/schedules`, `PUT/DELETE …/{sid}`, `POST …/{sid}/run` (202), `GET …/{sid}/runs`. `instance.view`
+  reads; `schedules.manage` changes. `schedules_changed` event after changes and every run.
+- UI: Schedules tab; editor with "every day at", interval, once, event and raw cron; templates (daily restart with
+  warnings, backup every 6 h if somebody played, announcement, save every 10 min). Times use the browser's zone.
+- Tests run in real time (one-off triggers a second ahead), including a fresh engine finding missed runs.
+
+**D-037: Trash: named by deletion time, emptied hourly after a retention** · accepted · 2026-11-08
+- `gsd-core/trash.rs`. Every trash entry is named `<YYYYMMDD-HHMMSS>-<name>` (servers used `<name>-<stamp>` before;
+  both are read). Two places: `<data>/trash/` (deleted servers, and the backups deleted with one, as
+  `<stamp>-<slug>-backups`) and `<instance>/trash/` (`InstanceLayout::trash_dir`: files deleted in the file manager,
+  leftovers of an interrupted restore).
+- The housekeeping task (hourly, with the session purge) removes entries older than `trash_retention_days` (config
+  file or `<PREFIX>_TRASH_RETENTION_DAYS`, default 7, `0` keeps everything). An entry without a readable time is
+  never removed; symlinks are removed, never followed. Not a user schedule: it isn't per server and needs no permissions.
+- Deleting a server: `DELETE /instances/{id}?delete_backups=true` also deletes its backups (rows gone, folder to the
+  trash, so they can be recovered until it is emptied). Without it the backups stay in `<data>/backups/<id>/`; nothing
+  in the UI lists them yet (roadmap, Later). The UI asks when the server has backups.
+
+**D-038: Changing a server's version: backup, install over, update last** · accepted · 2026-11-08
+- `gsd-minecraft/service/change_version.rs`, `POST /instances/{id}/change-version {mc_version, loader_version?,
+  allow_downgrade?}` (`instance.update`; the server must be stopped and not busy). The loader stays the same: switching
+  loader (Paper → Fabric) is not offered. `loader_version` absent picks the recommended build for the new version.
+- Checked before anything happens: the version and build exist (catalog), something actually changes
+  (`version_unchanged`), and an older Minecraft version (by release time) is confirmed (`downgrade_not_confirmed`, 409):
+  newer worlds can't be loaded by older versions. The UI asks for the server's name for a downgrade.
+- The job: a full `pre_version_change` backup (if it fails, nothing is changed) → Java for the new version → the
+  normal install pipeline over the existing files (worlds, configs, mods and `server.properties` stay) → for Forge and
+  NeoForge, the old build's own folder (the parent of the old args file, only if it is a plain path under `libraries/`)
+  is removed → ownership → `instance.toml` gets the new `[server]`, Java major and launch only now; a specifically
+  chosen Java runtime that is too old for the new version falls back to automatic. A failure after the backup reports
+  "restore the backup <file> to go back".
+- Not built: the mod compatibility check (M4) and changing the loader.

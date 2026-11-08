@@ -45,6 +45,15 @@
   color: var(--color-danger);
 }
 
+/* Results (schedule runs): succeeded, failed; skipped stays muted. */
+.c-pill.is-succeeded {
+  color: var(--color-success);
+}
+
+.c-pill.is-failed {
+  color: var(--color-danger);
+}
+
 .c-tag-list {
   display: flex;
   flex-wrap: wrap;

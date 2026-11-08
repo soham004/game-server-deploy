@@ -67,8 +67,11 @@ impl TestApp {
             adoptium_api: Some(upstream.uri()),
             sandbox: Some(HostSandbox::new(SandboxSupport::none(), sandbox_problem)),
             probe_ports: Some(false),
+            backup_save_timeout: Some(Duration::from_secs(2)),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();
+        // As `serve` does; it stops with the app's shutdown token.
+        state.scheduler.start(state.shutdown.clone());
         let router = http::router(state.clone());
         Self {
             state,
@@ -106,6 +109,10 @@ impl TestApp {
 
     pub async fn put(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
         self.write("PUT", path, body, cookie).await
+    }
+
+    pub async fn patch(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
+        self.write("PATCH", path, body, cookie).await
     }
 
     async fn write(&self, verb: &str, path: &str, body: Value, cookie: Option<&str>) -> Response {
@@ -157,6 +164,20 @@ impl TestApp {
             .await;
         assert_eq!(response.status(), StatusCode::OK);
         session_cookie(&response)
+    }
+
+    /// Creates a vanilla 26.3 server, waits for its install and returns its id.
+    pub async fn installed_instance(&self, name: &str, cookie: &str) -> String {
+        let body = json!({ "name": name, "mc_version": "26.3", "loader": "vanilla", "max_memory_mb": 1024, "eula_accepted": true });
+        let created = json_body(self.post("/api/v1/instances", body, Some(cookie)).await).await;
+        let job = self
+            .wait_for_job(created["job_id"].as_str().expect("job id"), cookie)
+            .await;
+        assert_eq!(job["status"], "succeeded", "{job}");
+        created["instance"]["id"]
+            .as_str()
+            .expect("instance id")
+            .to_owned()
     }
 
     /// Polls a job until it finishes; returns its final JSON.

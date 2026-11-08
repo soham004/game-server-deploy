@@ -59,13 +59,16 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       verified under systemd with `Delegate=yes`; off with the reason in Docker's default setup (D-034).
 
 ## M3: Safety net
-- [ ] Backups: manual, world and full scope, quiesce, retention, restore with a pre-restore backup (re-chown on restore).
-- [ ] Scheduler: cron, interval, once and event triggers; actions; conditions; run history; runs with the creator's captured permissions.
-- [ ] Change version (upgrade/downgrade MC or loader): world-conversion warning, typed confirmation for downgrades,
-      mandatory `pre_version_change` backup, remove only the old loader's files, update `instance.toml`
-      (`features/instances-and-installers.md` → Change version; the mod compatibility check comes with M4).
-- [ ] Trash: purge deleted servers and files after a retention period (setting, default 7 days, as a scheduled task);
-      "keep backups" option when deleting a server. Until then `trash/` only grows (server delete since M1; files, D-031).
+- [x] Backups: manual, world and full scope, quiesce (save-off/flush/save-on), keep-last-N retention with pins and a
+      separate safety limit, staged restore with a pre-restore backup, files owned by the server user (D-035).
+- [x] Scheduler: cron (with time zone), interval, once and event triggers; conditions; command, broadcast, restart/stop
+      with warnings, start, backup and wait actions; run history; catch-up after downtime; runs with the last editor's
+      permissions, checked at every run (D-036).
+- [x] Change version (Minecraft or loader build, same loader): world-conversion warning, typed confirmation for
+      downgrades, mandatory `pre_version_change` backup, old Forge/NeoForge build folder removed, `instance.toml`
+      updated last (D-038). The mod compatibility check comes with M4.
+- [x] Trash: entries named by deletion time, emptied hourly after `trash_retention_days` (default 7); deleting a
+      server asks whether to delete its backups too (D-037).
 
 ## M4: Content: mods **and** plugins together
 - [ ] `ContentSource` abstraction; Modrinth search/install for **mods (Fabric/Quilt/Forge/NeoForge) and plugins
@@ -98,6 +101,9 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 ## Later (P2/P3)
 DockerBackend (container per server) · remote backup targets (S3/SFTP/rclone) · TOTP / passkeys · UPnP · mclo.gs share ·
 datapack manager · Chunky · Velocity · Geyser · multi-node agents · other games · self-update · Windows release packaging ·
-member quotas: server count, RAM, disk (D-023) · import "adopt in place" (`server_root` outside `instances/`; needs a
+member quotas: server count, RAM, disk (D-023) · backups beyond D-035: GFS retention (hourly/daily/weekly/monthly)
+and a total-size cap, custom include/exclude globs, `tar.zst` archives, a configurable backup folder (another disk),
+progress while archiving, restoring a single dimension, uploading a backup as a new instance, listing the backups of deleted servers · switching a server to another loader (Paper → Fabric) · scheduler beyond
+D-036: webhook and update-check actions, a "backup finished" event trigger, drag reordering of actions · import "adopt in place" (`server_root` outside `instances/`; needs a
 sandbox and ownership review) · opt-out of the network-filesystem refusal for the data dir (D-026) · real product name
 (placeholders until the user picks one, D-021).

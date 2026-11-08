@@ -297,7 +297,7 @@ async fn files<P>(state: &AppState, auth: &Authorized<P>) -> Result<ServerFiles,
 }
 
 /// `Content-Disposition: attachment` with the name encoded for any character (RFC 6266/5987).
-fn attachment(body: Body, name: &str) -> Response {
+pub(crate) fn attachment(body: Body, name: &str) -> Response {
     let ascii: String = name
         .chars()
         .map(|c| {

@@ -149,6 +149,19 @@ impl AuthService {
         Ok(Actor::new(stored.user, grants))
     }
 
+    /// The user's current permissions, for work done on their behalf without a request (a
+    /// schedule runs as whoever saved it). `None` if the user is gone or disabled.
+    pub async fn actor_for(&self, id: crate::ids::UserId) -> Result<Option<Actor>, AuthError> {
+        let Some(stored) = self.users.find_by_id(id).await? else {
+            return Ok(None);
+        };
+        if stored.user.disabled {
+            return Ok(None);
+        }
+        let grants = self.grants.for_user(id).await?;
+        Ok(Some(Actor::new(stored.user, grants)))
+    }
+
     pub async fn logout(&self, session_token: &str) -> Result<(), AuthError> {
         self.sessions.delete(&sessions::hash_token(session_token)).await?;
         Ok(())

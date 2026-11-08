@@ -134,6 +134,11 @@ export class Page {
     await this.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   }
 
+  /** Emulates a screen of this size (e.g. a phone: 375 × 812). */
+  async setViewport(width, height, { mobile = false } = {}) {
+    await this.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile });
+  }
+
   async goto(url) {
     await this.send('Page.navigate', { url });
     await this.waitFor(() => document.readyState === 'complete');

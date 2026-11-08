@@ -71,6 +71,10 @@ fn json_routes(base: &str) -> Vec<(String, serde_json::Value)> {
     let mut detail = fixture("mojang_version_26.3.json");
     detail["downloads"]["server"]["url"] = format!("{base}/downloads/vanilla-26.3.jar").into();
     detail["downloads"]["server"]["sha1"] = hash_hex::<sha1::Sha1>(FAKE_JAR).into();
+    // 26.2 is served as a copy of 26.3's detail (only the id differs), for version changes.
+    let mut older = detail.clone();
+    older["id"] = "26.2".into();
+    older["downloads"]["server"]["url"] = format!("{base}/downloads/vanilla-26.2.jar").into();
     let mut paper_builds = fixture("paper_builds_26.3.json");
     for build in paper_builds.as_array_mut().unwrap() {
         let id = build["id"].clone();
@@ -84,6 +88,7 @@ fn json_routes(base: &str) -> Vec<(String, serde_json::Value)> {
     vec![
         ("/mojang/manifest.json".into(), manifest),
         ("/mojang/versions/26.3.json".into(), detail),
+        ("/mojang/versions/26.2.json".into(), older),
         (
             "/mojang/versions/1.0.json".into(),
             fixture("mojang_version_1.0.json"),
@@ -133,7 +138,9 @@ pub fn catalog_for(server: &MockServer, cache: &Path) -> Catalog {
 ///   the working directory, then copies `installer-output/<jar>/` there, like the real installer
 ///   would create those files (built from the real installers' `run.sh`). A `fail-installer`
 ///   file in `java_home` makes it fail with exit code 3.
-/// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`).
+/// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`,
+///   `save-off`, `save-all flush`, `save-on`; `write <text>` puts `<text>` in
+///   `world/level.dat`). A `no-save` file in `java_home` makes it never confirm a save.
 ///
 /// The script needs `sh`, so only Unix tests run it. On Windows it is still found as Java 25
 /// (detection reads the `release` file without running the binary), which is enough for
@@ -187,6 +194,12 @@ while IFS= read -r line; do
     stop) echo "[12:00:09] [Server thread/INFO]: Stopping the server"; exit 0 ;;
     say\ *) echo "[12:00:05] [Server thread/INFO]: [Server] ${line#say }" ;;
     join\ *) echo "[12:00:05] [Server thread/INFO]: ${line#join } joined the game" ;;
+    save-off) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now disabled" ;;
+    save-on) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now enabled" ;;
+    save-all\ flush)
+      echo "[12:00:06] [Server thread/INFO]: System chat: Saving the game (this may take a moment!)"
+      [ -e "$home/no-save" ] || echo "[12:00:06] [Server thread/INFO]: System chat: Saved the game" ;;
+    write\ *) mkdir -p world; printf '%s' "${line#write }" > world/level.dat ;;
     *) echo "[12:00:05] [Server thread/INFO]: Unknown or incomplete command" ;;
   esac
 done

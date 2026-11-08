@@ -1,0 +1,150 @@
+/* Schedules tab (components/schedules.js) and the schedule editor (components/schedule-editor.js). */
+
+.c-schedules {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-schedules__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c-schedules__toolbar:empty {
+  display: none;
+}
+
+.c-schedules__toolbar > .c-input {
+  flex: 0 1 22rem;
+  width: auto;
+}
+
+.c-schedules__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+}
+
+.c-schedules__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c-schedule {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-schedule.is-disabled .c-schedule__main {
+  opacity: 0.65;
+}
+
+.c-schedule__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-schedule__when,
+.c-schedule__what,
+.c-schedule__message {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.c-schedule__message.is-failed {
+  color: var(--color-danger);
+}
+
+.c-schedule__message.is-skipped {
+  color: var(--color-text-muted);
+}
+
+.c-schedule__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.c-schedule__history {
+  grid-column: 1 / -1;
+  padding-top: var(--space-2);
+  border-top: var(--border-width) solid var(--color-border);
+  font-size: var(--text-sm);
+}
+
+.c-schedule__runs {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* On narrow screens the buttons go under the description. */
+@media (max-width: 40rem) {
+  .c-schedule {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .c-schedule__actions {
+    justify-content: flex-start;
+  }
+}
+
+.c-schedule-editor {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 48rem;
+}
+
+.c-schedule-editor .c-fieldset {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-schedule-editor__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-schedule-editor__row > .c-input {
+  flex: 0 1 10rem;
+  width: auto;
+}
+
+.c-schedule-editor__action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-schedule-editor__action > .c-input {
+  flex: 1 1 12rem;
+  width: auto;
+}
+
+.c-schedule-editor__step {
+  min-width: 1.5rem;
+  color: var(--color-text-muted);
+}
+
+.c-schedule-editor__tools {
+  display: flex;
+  gap: var(--space-1);
+}

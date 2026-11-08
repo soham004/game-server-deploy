@@ -1,9 +1,10 @@
 // End-to-end UI test in a real (headless) browser against a running app with a real server.
+// Set up with loaders.e2e.mjs, serve with serve.sh (see README.md), then:
 //
-//   E2E_URL=http://localhost:18739 E2E_USER=admin E2E_PASSWORD=… E2E_SERVER="E2E neoforge" \
-//   E2E_SCREENSHOTS=/tmp/shots node --test tests/e2e/ui.e2e.mjs
+//   E2E_URL=http://localhost:18739 E2E_SCREENSHOTS=/tmp/shots node --test tests/e2e/ui.e2e.mjs
 //
-// Skipped unless E2E_URL is set (it needs the app and an installed Minecraft server).
+// E2E_SERVER picks the server to drive (default "E2E neoforge"); E2E_USER and E2E_PASSWORD sign in.
+// Skipped unless E2E_URL is set.
 
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -302,6 +303,153 @@ test('changes settings through the form', { skip, timeout: 30000 }, step('settin
   assert.deepEqual(page.errors, [], 'no JavaScript errors');
 }));
 
+test('backs up the running server and restores the world', { skip, timeout: 420000 }, step('backups', async () => {
+  const api = (path, init = {}) => page.evaluate(async ({ path, init }) => {
+    const response = await fetch(`/api/v1${path}`, { ...init, headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' } });
+    return response.status === 204 ? null : response.json();
+  }, { path, init });
+  const marker = 'world/e2e-after-backup.txt';
+  const markerExists = async () => (await api(`/instances/${serverId}/files?path=world`)).entries.some((e) => e.name === 'e2e-after-backup.txt');
+  const rowWithNote = (note) => page.waitFor((n) => [...document.querySelectorAll('.c-backups__table tbody tr')].some((r) => r.textContent.includes(n)), {
+    args: [note], timeout: 180000, interval: 500, message: `a backup noted "${note}"`,
+  });
+
+  await page.click('.c-tabs__tab', 'Backups');
+  await page.waitFor(() => document.querySelector('.c-backups__summary')?.textContent.includes('kept'), { message: 'the backups tab' });
+  await page.fill('#backup-scope', 'world');
+  await page.fill('#backup-note', 'e2e checkpoint');
+  await page.click('.c-backups__create button[type="submit"]');
+  await rowWithNote('e2e checkpoint');
+  const backups = (await api(`/instances/${serverId}/backups`)).backups;
+  const checkpoint = backups.find((b) => b.note === 'e2e checkpoint');
+  assert.equal(checkpoint.scope, 'world');
+  assert.ok(checkpoint.size_bytes > 100_000, `a real world was archived (${checkpoint.size_bytes} bytes)`);
+  const consoleText = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/console`)).json()).console.map((l) => l.text).join('\n'), serverId);
+  assert.ok(consoleText.includes('[backup] > save-off') && consoleText.includes('Saved the game') && consoleText.includes('[backup] > save-on'),
+    'the running world was paused, flushed and resumed');
+  await shot('14-backups');
+
+  // Something changes after the backup; restoring brings the world back as it was.
+  await api(`/instances/${serverId}/files/text`, { method: 'PUT', body: JSON.stringify({ path: marker, content: 'made after the backup' }) });
+  assert.ok(await markerExists());
+  page.answerDialogs(true);
+  await page.evaluate((id) => {
+    const row = document.querySelector(`.c-backups__table tr[data-backup="${id}"]`);
+    [...row.querySelectorAll('button')].find((b) => b.textContent === 'Restore').click();
+  }, checkpoint.id);
+  await page.waitFor(() => [...document.querySelectorAll('.c-toast')].some((t) => t.textContent.includes('restored')), {
+    timeout: 300000, interval: 1000, message: 'the restore to finish',
+  });
+  assert.equal(await markerExists(), false, 'the world is back as it was');
+  await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Running', {
+    timeout: 150000, interval: 1000, message: 'the server to run again (it was running before)',
+  });
+  await page.waitFor(() => [...document.querySelectorAll('.c-backups__kind')].some((b) => b.textContent === 'Before a restore'), { message: 'the safety backup row' });
+  await shot('15-restored');
+
+  // Clean up: delete both through the UI.
+  for (const backup of (await api(`/instances/${serverId}/backups`)).backups) {
+    page.answerDialogs(true);
+    await page.evaluate((id) => {
+      const row = document.querySelector(`.c-backups__table tr[data-backup="${id}"]`);
+      [...row.querySelectorAll('button')].find((b) => b.textContent === 'Delete').click();
+    }, backup.id);
+    await page.waitFor((id) => !document.querySelector(`.c-backups__table tr[data-backup="${id}"]`), { args: [backup.id], message: 'the row to go' });
+  }
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('schedules: from a template, run now, by hand, disable, history', { skip, timeout: 120000 }, step('schedules', async () => {
+  const item = (name) => `.c-schedule[data-schedule="${name}"]`;
+  const idOf = (name) => page.evaluate((n) => [...document.querySelectorAll('.c-schedule')]
+    .find((li) => li.querySelector('.c-schedule__title strong')?.textContent === n)?.dataset.schedule, name);
+  const clickIn = (id, label) => page.evaluate((i, l) => {
+    [...document.querySelector(`.c-schedule[data-schedule="${i}"]`).querySelectorAll('button')].find((b) => b.textContent === l).click();
+  }, id, label);
+
+  await page.click('.c-tabs__tab', 'Schedules');
+  await page.waitFor(() => document.querySelector('.c-schedules__toolbar select'), { message: 'the schedules toolbar' });
+
+  // From a template: the editor opens filled in; change the message and save.
+  await page.fill('.c-schedules__toolbar select', 'announce');
+  await page.waitFor(() => document.querySelector('.c-schedule-editor'), { message: 'the editor' });
+  assert.equal(await page.evaluate(() => document.querySelector('.c-schedule-editor [name="name"]').value), 'Announcement');
+  await page.fill('.c-schedule-editor [name="message-0"]', 'e2e hello from a schedule');
+  await page.click('.c-schedule-editor button[type="submit"]');
+  await page.waitFor(() => [...document.querySelectorAll('.c-schedule')].some((li) => li.textContent.includes('Every 30 minutes')), { message: 'the saved schedule' });
+  const announcement = await idOf('Announcement');
+
+  // Run now: the result shows on the item, the message in the console.
+  await clickIn(announcement, 'Run now');
+  await page.waitFor((s) => document.querySelector(s)?.querySelector('.c-pill.is-succeeded'), { args: [item(announcement)], timeout: 30000, message: 'the run to succeed' });
+  const consoleText = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/console`)).json()).console.map((l) => l.text).join('\n'), serverId);
+  assert.ok(consoleText.includes('[schedule Announcement] > say e2e hello from a schedule'), 'the message reached the server');
+
+  // By hand: every day at 04:00, restart with warnings.
+  await page.click('.c-schedules__toolbar button', 'New schedule');
+  await page.fill('.c-schedule-editor [name="name"]', 'E2E nightly restart');
+  await page.fill('.c-schedule-editor [name="when"]', 'daily');
+  await page.waitFor(() => document.querySelector('.c-schedule-editor [name="daily_time"]'), { message: 'the time field' });
+  await page.fill('.c-schedule-editor [name="daily_time"]', '04:00');
+  await page.fill('.c-schedule-editor [aria-label="Action 1"]', 'restart');
+  await page.waitFor(() => document.querySelector('.c-schedule-editor [name="warnings-0"]'), { message: 'the warnings field' });
+  // Nonsense is refused in the browser, with a reason.
+  await page.fill('.c-schedule-editor [name="warnings-0"]', 'soon');
+  await page.click('.c-schedule-editor button[type="submit"]');
+  await page.waitFor(() => [...document.querySelectorAll('.c-toast')].some((t) => t.textContent.includes('not a time')), { message: 'the warning error' });
+  await page.fill('.c-schedule-editor [name="warnings-0"]', '10m, 1m');
+  await page.click('.c-schedule-editor button[type="submit"]');
+  await page.waitFor(() => [...document.querySelectorAll('.c-schedule')].some((li) => li.textContent.includes('E2E nightly restart')), { message: 'the nightly schedule' });
+  const nightly = await idOf('E2E nightly restart');
+  const nightlyText = await page.evaluate((s) => document.querySelector(s).textContent, item(nightly));
+  assert.ok(nightlyText.includes('04:00') && nightlyText.includes('Restart (warnings 10m, 1m)') && nightlyText.includes('next in'), nightlyText);
+  await shot('16-schedules');
+
+  // Disable it; open the announcement's history.
+  await clickIn(nightly, 'Disable');
+  await page.waitFor((s) => document.querySelector(s)?.querySelector('.c-badge')?.textContent === 'Disabled', { args: [item(nightly)], message: 'the disabled badge' });
+  await clickIn(announcement, 'History');
+  await page.waitFor((s) => document.querySelector(`${s} .c-schedule__runs`)?.textContent.includes('Run now'), { args: [item(announcement)], message: 'the run history' });
+  await shot('17-schedule-history');
+
+  // Clean up through the UI.
+  for (const id of [announcement, nightly]) {
+    page.answerDialogs(true);
+    await clickIn(id, 'Delete');
+    await page.waitFor((s) => !document.querySelector(s), { args: [item(id)], message: 'the schedule to go' });
+  }
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('the backups and schedules tabs fit a phone screen', { skip, timeout: 60000 }, step('phone', async () => {
+  const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+  const schedule = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/schedules`, {
+    method: 'POST',
+    headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Phone check with a rather long name to wrap', enabled: true, trigger: { kind: 'interval', every_secs: 3600 }, actions: [{ kind: 'restart', warn_secs: [600, 300, 60, 10] }, { kind: 'backup', scope: 'world' }] }),
+  })).json()).id, serverId);
+  await page.setViewport(375, 812, { mobile: true });
+  try {
+    await page.click('.c-tabs__tab', 'Schedules');
+    await page.waitFor(() => document.querySelector('.c-schedule'), { message: 'a schedule item' });
+    assert.ok(await fits(), 'schedules: no sideways scrolling');
+    await shot('18-phone-schedules');
+    await page.fill('.c-schedules__toolbar select', 'daily-restart');
+    await page.waitFor(() => document.querySelector('.c-schedule-editor'), { message: 'the editor' });
+    assert.ok(await fits(), 'editor: no sideways scrolling');
+    await shot('19-phone-schedule-editor');
+    await page.click('.c-schedule-editor button', 'Cancel');
+    await page.click('.c-tabs__tab', 'Backups');
+    await page.waitFor(() => document.querySelector('.c-backups__summary')?.textContent, { message: 'the backups tab' });
+    assert.ok(await fits(), 'backups: no sideways scrolling');
+    await shot('20-phone-backups');
+  } finally {
+    await page.setViewport(1280, 900);
+    await page.evaluate(async ({ id, schedule }) => fetch(`/api/v1/instances/${id}/schedules/${schedule}`, { method: 'DELETE', headers: { 'X-CSRF': '1' } }), { id: serverId, schedule });
+  }
+  assert.deepEqual(page.errors, [], 'no JavaScript errors');
+}));
+
 test('stops the server from the UI', { skip, timeout: 120000 }, step('stop', async () => {
   await page.click('.c-actions button', 'Stop');
   await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Stopped', {
@@ -321,9 +469,10 @@ async function openServer(name) {
   await page.waitFor((n) => document.querySelector('.l-page-header__title')?.textContent === n, { args: [name], message: `the page of ${name}` });
 }
 
-/** Deletes the open server through the UI (typing its name to confirm). */
-async function deleteOpenServer(name) {
-  page.answerDialogs(name);
+/** Deletes the open server through the UI (typing its name to confirm; `more` answers the
+ * question about its backups, if it has any). */
+async function deleteOpenServer(name, ...more) {
+  page.answerDialogs(name, ...more);
   await page.click('.c-actions button', 'Delete');
   await page.waitFor((n) => location.pathname === '/' && ![...document.querySelectorAll('.c-server-card')].some((c) => c.textContent.includes(n)), {
     args: [name],
@@ -345,11 +494,28 @@ test('clones a server without its world', { skip, timeout: 180000 }, step('clone
   assert.ok(files.includes('libraries') && files.includes('server.properties'), files.join());
   assert.ok(!files.includes('world') && !files.includes('logs'), `worlds and logs are left out: ${files.join()}`);
   await shot('11-clone');
-  await deleteOpenServer('E2E clone');
-  assert.deepEqual(page.errors, [], 'no JavaScript errors');
+  // With a backup, deleting asks about it too (answered "delete them": the server's trash).
+  await page.evaluate(async () => {
+    const id = location.pathname.split('/').pop();
+    const started = await (await fetch(`/api/v1/instances/${id}/backups`, {
+      method: 'POST', headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'world' }),
+    })).json();
+    for (let i = 0; i < 100; i += 1) {
+      const job = await (await fetch(`/api/v1/jobs/${started.job_id}`)).json();
+      if (job.status !== 'running') return;
+      await new Promise((resolve) => { setTimeout(resolve, 200); });
+    }
+  });
+  page.answerDialogs('E2E clone', true);
+  await page.click('.c-actions button', 'Delete');
+  await page.waitFor(() => location.pathname === '/' && ![...document.querySelectorAll('.c-server-card')].some((c) => c.textContent.includes('E2E clone')), {
+    timeout: 20000,
+    message: 'the clone to disappear from the dashboard',
+  });
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs (the backups question was expected)');
 }));
 
-test('imports a server folder and runs it', { skip, timeout: 240000 }, step('import', async () => {
+test('imports a server folder, runs it, and changes its version', { skip, timeout: 600000 }, step('import', async () => {
   await page.goto(`${BASE}/servers/new`);
   await page.click('a.c-button', 'Import an existing server');
   await page.waitFor(() => document.querySelector('form[data-folder="e2e-import"]'), { message: 'the e2e-import folder' });
@@ -369,7 +535,31 @@ test('imports a server folder and runs it', { skip, timeout: 240000 }, step('imp
   await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Running', { timeout: 150000, interval: 1000, message: 'the imported server to run' });
   await page.click('.c-actions button', 'Stop');
   await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Stopped', { timeout: 100000, interval: 1000, message: 'the imported server to stop' });
-  await deleteOpenServer('E2E import');
+
+  // Change its version: down to 26.2 (a fresh world, since 26.3 worlds don't load in 26.2).
+  const id = await page.evaluate(() => location.pathname.split('/').pop());
+  await page.evaluate(async (instance) => fetch(`/api/v1/instances/${instance}/files/delete`, {
+    method: 'POST', headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' }, body: JSON.stringify({ paths: ['world'] }),
+  }), id);
+  await page.click('.c-tabs__tab', 'Settings');
+  await page.waitFor(() => document.querySelector('.c-version-change [name="target_mc"] option'), { message: 'the version section' });
+  assert.match(await page.evaluate(() => document.querySelector('.c-version-change').textContent), /runs Vanilla 26\.3/);
+  await page.fill('.c-version-change [name="target_mc"]', '26.2');
+  await shot('21-version-change');
+  page.answerDialogs('E2E import'); // a downgrade: type the name
+  await page.click('.c-version-change button', 'Change version');
+  await page.waitFor(() => document.querySelector('.c-instance-heading__meta .c-badge')?.textContent === 'Vanilla 26.2', {
+    timeout: 180000, interval: 1000, message: 'the server to run 26.2',
+  });
+  const backups = await page.evaluate(async (instance) => (await (await fetch(`/api/v1/instances/${instance}/backups`)).json()).backups, id);
+  assert.equal(backups[0].kind, 'pre_version_change', 'a safety backup was taken first');
+  await page.click('.c-actions button', 'Start');
+  await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Running', { timeout: 150000, interval: 1000, message: 'the downgraded server to run' });
+  const consoleText = await page.evaluate(async (instance) => (await (await fetch(`/api/v1/instances/${instance}/console`)).json()).console.map((l) => l.text).join('\n'), id);
+  assert.match(consoleText, /Starting minecraft server version 26\.2/, 'the real 26.2 server runs');
+  await page.click('.c-actions button', 'Stop');
+  await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Stopped', { timeout: 100000, interval: 1000, message: 'it to stop' });
+  await deleteOpenServer('E2E import', true);
   assert.deepEqual(page.errors, [], 'no JavaScript errors');
 }));
 

@@ -16,6 +16,7 @@
 
 pub mod audit;
 pub mod auth;
+pub mod backups;
 pub mod events;
 pub mod files;
 pub mod game;
@@ -26,5 +27,7 @@ pub mod jobs;
 pub mod net;
 pub mod ports;
 pub mod random;
+pub mod scheduler;
 pub mod store;
 pub mod supervisor;
+pub mod trash;

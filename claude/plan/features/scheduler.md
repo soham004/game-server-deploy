@@ -1,5 +1,10 @@
 # Feature: Scheduler (cron + Minecraft commands)
 
+**Built in M3 (D-036).** Differences from this sketch: the event trigger "backup finished", the `CheckUpdates`,
+`ApplyServerUpdate` and `Webhook` actions and drag reordering are not built (the roadmap lists them under Later);
+overlaps are prevented by the instance's job lock (a busy server records the run as skipped); tests use real time
+instead of an injected clock.
+
 ## Model
 ```rust
 pub struct Schedule {

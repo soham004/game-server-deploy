@@ -74,7 +74,7 @@ pub fn detect_signal(text: &str) -> Option<GameSignal> {
     if DONE.is_match(text) {
         return Some(GameSignal::Ready);
     }
-    if text == "Saved the game" {
+    if command_reply(text) == "Saved the game" {
         return Some(GameSignal::Saved);
     }
     if let Some(captures) = JOINED.captures(text) {
@@ -85,6 +85,12 @@ pub fn detect_signal(text: &str) -> Option<GameSignal> {
     LEFT.captures(text).map(|captures| GameSignal::PlayerLeft {
         name: captures["name"].to_owned(),
     })
+}
+
+/// The reply to a console command without its prefix: Minecraft 26.x logs replies as
+/// `System chat: Saved the game`; older versions as plain `Saved the game`.
+fn command_reply(text: &str) -> &str {
+    text.strip_prefix("System chat: ").unwrap_or(text)
 }
 
 /// Removes leading console-prompt residue (`>`, spaces, carriage returns) before a `[`.
@@ -180,11 +186,30 @@ mod tests {
             })
         );
         assert_eq!(detect_signal("Saved the game"), Some(GameSignal::Saved));
+        assert_eq!(detect_signal("Saving the game (this may take a moment!)"), None);
         assert_eq!(
             detect_signal("<Steve> I joined the game"),
             None,
             "chat can't fake events"
         );
         assert_eq!(detect_signal("Done (abc)!"), None);
+    }
+
+    /// Console lines of real 26.3 servers (`NeoForge`, vanilla): replies to commands carry "System chat: ".
+    #[test]
+    fn saves_are_recognised_in_26_3_command_replies() {
+        let lines = [
+            "[05:50:32] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: System chat: Saved the game",
+            "[03:12:59] [Server thread/INFO]: System chat: Saved the game",
+        ];
+        for raw in lines {
+            assert_eq!(
+                detect_signal(&parse_line(raw).text),
+                Some(GameSignal::Saved),
+                "{raw}"
+            );
+        }
+        let chat = parse_line("[03:12:59] [Server thread/INFO]: <Steve> System chat: Saved the game");
+        assert_eq!(detect_signal(&chat.text), None, "a player can't fake it");
     }
 }

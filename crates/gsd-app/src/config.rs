@@ -22,6 +22,7 @@ const DEFAULT_GAME_PORTS: (u16, u16) = (25565, 25584);
 const DEFAULT_INTERNAL_PORTS: (u16, u16) = (35565, 35664);
 const DEFAULT_SESSION_TTL_DAYS: u32 = 30;
 const MAX_SESSION_TTL_DAYS: u32 = 365;
+const DEFAULT_TRASH_RETENTION_DAYS: u32 = 7;
 
 /// Command-line flags that override configuration.
 #[derive(Debug, Default, Clone, clap::Args)]
@@ -66,6 +67,9 @@ pub struct Config {
     /// Loopback-only ports for RCON and the management protocol; never published.
     pub internal_ports: PortRange,
     pub session_ttl: TimeDelta,
+    /// Deleted servers, files and backups are removed from the trash after this many days;
+    /// 0 keeps them until removed by hand.
+    pub trash_retention_days: u32,
 }
 
 /// Settings that may appear in `config.toml` (all optional).
@@ -77,6 +81,7 @@ struct FileConfig {
     game_ports: Option<PortRange>,
     internal_ports: Option<PortRange>,
     session_ttl_days: Option<u32>,
+    trash_retention_days: Option<u32>,
 }
 
 impl Config {
@@ -89,6 +94,7 @@ impl Config {
             game_ports: port_range(DEFAULT_GAME_PORTS),
             internal_ports: port_range(DEFAULT_INTERNAL_PORTS),
             session_ttl: TimeDelta::days(i64::from(DEFAULT_SESSION_TTL_DAYS)),
+            trash_retention_days: DEFAULT_TRASH_RETENTION_DAYS,
         }
     }
 
@@ -121,6 +127,11 @@ impl Config {
     /// One folder per instance (see `gsd_core::instances::layout`).
     pub fn instances_dir(&self) -> PathBuf {
         self.data_dir.join("instances")
+    }
+
+    /// Backup archives, one folder per instance id (root only).
+    pub fn backups_dir(&self) -> PathBuf {
+        self.data_dir.join("backups")
     }
 
     /// Deleted instances, kept until purged.
@@ -169,6 +180,9 @@ impl Config {
         if let Some(days) = file.session_ttl_days {
             self.session_ttl = session_ttl_from_days(days)?;
         }
+        if let Some(days) = file.trash_retention_days {
+            self.trash_retention_days = days;
+        }
         Ok(())
     }
 
@@ -188,6 +202,9 @@ impl Config {
         }
         if let Some(days) = parse_env::<u32>(env, "SESSION_TTL_DAYS")? {
             self.session_ttl = session_ttl_from_days(days)?;
+        }
+        if let Some(days) = parse_env::<u32>(env, "TRASH_RETENTION_DAYS")? {
+            self.trash_retention_days = days;
         }
         Ok(())
     }
@@ -316,6 +333,7 @@ mod tests {
         assert!(config.bind.ip().is_loopback());
         assert_eq!(config.bind.port(), gsd_brand::DEFAULT_PORT);
         assert_eq!(config.game_ports.count(), 20);
+        assert_eq!(config.trash_retention_days, 7);
     }
 
     #[test]
@@ -323,12 +341,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join(CONFIG_FILE_NAME),
-            "bind = \"127.0.0.1:9001\"\ngame_ports = \"26000-26009\"\nsession_ttl_days = 7\n",
+            "bind = \"127.0.0.1:9001\"\ngame_ports = \"26000-26009\"\nsession_ttl_days = 7\ntrash_retention_days = 30\n",
         )
         .unwrap();
         let env = env_from(&[
             ("BIND", "127.0.0.1:9002"),
             ("TRUSTED_PROXIES", "172.16.0.0/12, 10.0.0.1/32"),
+            ("TRASH_RETENTION_DAYS", "0"),
         ]);
 
         let from_env = Config::load(
@@ -343,6 +362,10 @@ mod tests {
         assert_eq!(from_env.game_ports.first(), 26000);
         assert_eq!(from_env.session_ttl, TimeDelta::days(7));
         assert_eq!(from_env.trusted_proxies.len(), 2);
+        assert_eq!(
+            from_env.trash_retention_days, 0,
+            "the environment wins over the file"
+        );
 
         let cli = ConfigOverrides {
             data_dir: Some(dir.path().to_owned()),

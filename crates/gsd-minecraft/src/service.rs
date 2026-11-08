@@ -86,6 +86,12 @@ pub enum CreateError {
     },
     #[error("the server to copy has not finished installing")]
     SourceNotInstalled,
+    #[error("the server isn't installed yet")]
+    NotInstalled,
+    #[error("the server already runs {0}")]
+    VersionUnchanged(String),
+    #[error("Minecraft {to} is older than {from}: downgrading can break the world, so it must be confirmed")]
+    DowngradeNotConfirmed { from: String, to: String },
     #[error("there is no folder {0:?} in the imports folder")]
     ImportNotFound(String),
     #[error("Instance is not a Minecraft server")]
@@ -170,7 +176,13 @@ impl MinecraftService {
         if request.loader == LoaderKind::Vanilla {
             detail.server_download()?;
         }
-        let loader_version = self.resolve_loader_version(&request).await?;
+        let loader_version = self
+            .resolve_loader_version(
+                request.loader,
+                &request.mc_version,
+                request.loader_version.as_deref(),
+            )
+            .await?;
 
         let server = MinecraftServer {
             mc_version: request.mc_version.clone(),
@@ -243,38 +255,37 @@ impl MinecraftService {
         })?)
     }
 
-    /// The concrete loader version to record: the requested one (validated) or the recommended one.
-    async fn resolve_loader_version(&self, request: &CreateRequest) -> Result<Option<String>, CreateError> {
-        if !request.loader.has_versions() {
+    /// The concrete loader version to record: `wanted` (validated) or the recommended one.
+    async fn resolve_loader_version(
+        &self,
+        loader: LoaderKind,
+        mc_version: &str,
+        wanted: Option<&str>,
+    ) -> Result<Option<String>, CreateError> {
+        if !loader.has_versions() {
             return Ok(None);
         }
-        let available = self.catalog.loaders_for(&request.mc_version).await?;
+        let available = self.catalog.loaders_for(mc_version).await?;
         if !available
             .iter()
-            .any(|entry| entry.loader == request.loader && entry.available)
+            .any(|entry| entry.loader == loader && entry.available)
         {
             return Err(CreateError::LoaderUnavailable {
-                loader: request.loader,
-                mc_version: request.mc_version.clone(),
+                loader,
+                mc_version: mc_version.to_owned(),
             });
         }
-        let versions = self
-            .catalog
-            .loader_versions(request.loader, &request.mc_version)
-            .await?;
-        let chosen = match &request.loader_version {
-            Some(wanted) => versions.iter().find(|v| &v.id == wanted),
+        let versions = self.catalog.loader_versions(loader, mc_version).await?;
+        let chosen = match wanted {
+            Some(wanted) => versions.iter().find(|v| v.id == wanted),
             None => versions.iter().find(|v| v.recommended),
         };
         chosen
             .map(|v| Some(v.id.clone()))
             .ok_or_else(|| CreateError::UnknownLoaderVersion {
-                loader: request.loader,
-                mc_version: request.mc_version.clone(),
-                version: request
-                    .loader_version
-                    .clone()
-                    .unwrap_or_else(|| "(recommended)".into()),
+                loader,
+                mc_version: mc_version.to_owned(),
+                version: wanted.unwrap_or("(recommended)").to_owned(),
             })
     }
 }
@@ -295,9 +306,11 @@ fn validate_basics(name: &str, max_memory_mb: u32, eula_accepted: bool) -> Resul
     Ok(name)
 }
 
+mod change_version;
 mod clone;
 mod import;
 
+pub use change_version::ChangeVersionRequest;
 pub use clone::CloneRequest;
 pub use import::{ImportCandidate, ImportRequest};
 #[cfg(test)]

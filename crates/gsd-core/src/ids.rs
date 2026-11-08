@@ -55,6 +55,14 @@ ulid_id!(
     /// Identifies a background job.
     JobId
 );
+ulid_id!(
+    /// Identifies one backup archive.
+    BackupId
+);
+ulid_id!(
+    /// Identifies a schedule (a trigger with actions).
+    ScheduleId
+);
 
 #[cfg(test)]
 mod tests {

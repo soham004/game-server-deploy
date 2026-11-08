@@ -1,4 +1,5 @@
-//! Changing an instance's settings: name, memory, JVM tuning, Java runtime and behaviour.
+//! Changing an instance's settings: name, memory, JVM tuning, Java runtime, behaviour and how
+//! many backups to keep.
 //!
 //! [`SettingsChange::apply`] is pure validation plus assignment, so every rule is unit-tested;
 //! `InstanceService::update_settings` adds the checks that need the outside world (whether a
@@ -14,6 +15,7 @@ pub const MAX_MEMORY_MB: u32 = 64 * 1024;
 const MAX_JVM_ARGS: usize = 64;
 const MAX_JVM_ARG_LEN: usize = 512;
 const MAX_STOP_TIMEOUT_SECS: u64 = 15 * 60;
+pub const MAX_KEEP_BACKUPS: u32 = 100;
 
 /// JVM options an instance may not add (exactly these), and why.
 const FORBIDDEN_JVM_ARGS: &[(&str, &str)] = &[
@@ -47,6 +49,8 @@ pub struct SettingsChange {
     pub auto_restart: Option<bool>,
     pub crash_limit: Option<u32>,
     pub stop_timeout_secs: Option<u64>,
+    /// Manual and scheduled backups to keep (older ones are deleted after each backup).
+    pub keep_backups: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -65,6 +69,8 @@ pub enum SettingsError {
     InvalidCrashLimit,
     #[error("stop timeout must be 5 to {MAX_STOP_TIMEOUT_SECS} seconds")]
     InvalidStopTimeout,
+    #[error("the number of backups to keep must be 1 to {MAX_KEEP_BACKUPS}")]
+    InvalidKeepBackups,
 }
 
 impl SettingsChange {
@@ -80,6 +86,12 @@ impl SettingsChange {
         }
         self.apply_java(&mut next)?;
         self.apply_behavior(&mut next)?;
+        if let Some(keep) = self.keep_backups {
+            if !(1..=MAX_KEEP_BACKUPS).contains(&keep) {
+                return Err(SettingsError::InvalidKeepBackups);
+            }
+            next.backups.keep = keep;
+        }
         *definition = next;
         Ok(())
     }
@@ -189,11 +201,14 @@ mod tests {
                 name: Some("  Creative  ".into()),
                 max_memory_mb: Some(6144),
                 auto_start: Some(true),
+                keep_backups: Some(25),
                 ..SettingsChange::default()
             },
         )
         .unwrap();
         assert_eq!(after.name, "Creative");
+        assert_eq!(after.backups.keep, 25);
+        assert_eq!(after.backups.keep_safety, before.backups.keep_safety);
         assert_eq!(after.java.max_memory_mb, 6144);
         assert_eq!(after.java.min_memory_mb, before.java.min_memory_mb);
         assert!(after.behavior.auto_start);
@@ -239,6 +254,20 @@ mod tests {
                     ..Default::default()
                 },
                 SettingsError::InvalidMemory,
+            ),
+            (
+                SettingsChange {
+                    keep_backups: Some(0),
+                    ..Default::default()
+                },
+                SettingsError::InvalidKeepBackups,
+            ),
+            (
+                SettingsChange {
+                    keep_backups: Some(MAX_KEEP_BACKUPS + 1),
+                    ..Default::default()
+                },
+                SettingsError::InvalidKeepBackups,
             ),
             (
                 SettingsChange {

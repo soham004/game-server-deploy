@@ -1,0 +1,94 @@
+/* Backups tab (components/backups.js). */
+
+.c-backups {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-backups__create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c-backups__create > .c-input {
+  flex: 1 1 14rem;
+  width: auto;
+}
+
+.c-backups__summary {
+  margin: 0;
+}
+
+/* The table scrolls inside its frame on narrow screens; the page never scrolls sideways. */
+.c-backups__list {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-x: auto;
+}
+
+.c-backups__list:empty {
+  display: none;
+}
+
+.c-backups__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.c-backups__table th,
+.c-backups__table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.c-backups__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.c-backups__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.c-backups__table tr.is-pinned td:first-child {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.c-backups__date,
+.c-backups__ago,
+.c-backups__software {
+  display: block;
+  white-space: nowrap;
+}
+
+.c-backups__kind {
+  display: block;
+  width: fit-content;
+  margin: var(--space-1) 0;
+}
+
+.c-backups__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.c-backups__note {
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}
+
+.c-backups__actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.c-backups__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}

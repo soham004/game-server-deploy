@@ -1,8 +1,10 @@
 //! The Minecraft implementation of the core's [`GameAdapter`].
 
-use gsd_core::game::{Diagnostic, GameAdapter, GameSignal, LineSource, LogLine, ParsedLine};
+use std::path::Path;
 
-use crate::{diagnostics, log_parser};
+use gsd_core::game::{Diagnostic, GameAdapter, GameSignal, LineSource, LogLine, ParsedLine, SaveCommands};
+
+use crate::{diagnostics, log_parser, settings::MinecraftServer, worlds};
 
 /// Game id stored in `instance.toml`.
 pub const GAME_ID: &str = "minecraft";
@@ -32,6 +34,42 @@ impl GameAdapter for MinecraftAdapter {
 
     fn stop_command(&self) -> &'static str {
         "stop"
+    }
+
+    fn software(&self, server: &toml::Table) -> Option<String> {
+        MinecraftServer::from_table(server)
+            .ok()
+            .map(|server| server.software_label())
+    }
+
+    fn world_folders(&self, server_dir: &Path) -> Vec<String> {
+        worlds::world_folders(server_dir)
+    }
+
+    fn backup_excludes(&self) -> &[&str] {
+        // Logs, and what the server or its launcher recreates: downloaded libraries, the
+        // patched or remapped jars (Paper's `cache/` and `versions/`, Fabric's `.fabric/`).
+        &[
+            "logs",
+            "crash-reports",
+            "cache",
+            "libraries",
+            "versions",
+            ".fabric",
+        ]
+    }
+
+    fn broadcast_command(&self, message: &str) -> Option<String> {
+        Some(format!("say {message}"))
+    }
+
+    fn save_commands(&self) -> Option<SaveCommands> {
+        Some(SaveCommands {
+            pause: "save-off",
+            // `flush` waits for the chunk writes to finish before "Saved the game" is printed.
+            flush: "save-all flush",
+            resume: "save-on",
+        })
     }
 }
 

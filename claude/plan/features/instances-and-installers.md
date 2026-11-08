@@ -66,6 +66,9 @@ pub struct LoaderVersion { id: String, released: Option<DateTime<Utc>>, stable: 
 - After import: hash `mods/*.jar` → identify via Modrinth/CurseForge → write `.pw.toml` index (background job).
 
 ## Change version (upgrade or downgrade)
+**Built in M3 (D-038)**, for the same loader; the server must be stopped (step 3 does not stop it). Step 4 (mod
+compatibility) comes with M4; switching loader is not offered.
+
 1. Warn: upgrades convert worlds irreversibly; downgrades are **unsupported** and may corrupt worlds (red warning, typed confirmation).
 2. Mandatory backup (`pre_version_change`, full scope).
 3. Stop the server, run the new install plan into the same root (remove the old loader libraries carefully: only paths owned

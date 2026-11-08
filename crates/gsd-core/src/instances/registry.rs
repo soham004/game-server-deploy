@@ -19,7 +19,7 @@ use crate::{
     ids::InstanceId,
     instances::{
         InstanceDefinition, InstanceLayout, Ports, SCHEMA_VERSION, SandboxIds,
-        definition::{Behavior, DefinitionError, JavaSettings, LaunchSpec},
+        definition::{BackupPolicy, Behavior, DefinitionError, JavaSettings, LaunchSpec},
         layout::slugify,
     },
     ports::PortRange,
@@ -196,6 +196,7 @@ impl InstanceRegistry {
             launch: new.launch,
             java: new.java,
             behavior: new.behavior,
+            backups: BackupPolicy::default(),
             ports: Ports { game: game_port },
             sandbox: ids,
         };
@@ -239,11 +240,7 @@ impl InstanceRegistry {
         let trash = &self.inner.trash_dir;
         let io_error = |path: PathBuf| move |source| RegistryError::Io { path, source };
         std::fs::create_dir_all(trash).map_err(io_error(trash.clone()))?;
-        let destination = trash.join(format!(
-            "{}-{}",
-            instance.layout.slug(),
-            Utc::now().format("%Y%m%d-%H%M%S")
-        ));
+        let destination = trash.join(crate::trash::entry_name(&instance.layout.slug(), Utc::now()));
         std::fs::rename(instance.layout.root(), &destination).map_err(io_error(destination.clone()))?;
         entries.remove(&id);
         drop(entries);

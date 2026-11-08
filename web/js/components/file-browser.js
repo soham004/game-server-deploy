@@ -8,7 +8,7 @@
  */
 import { api } from '../core/api.js';
 import { h } from '../core/dom.js';
-import { relativeTime } from '../core/format.js';
+import { relativeTime, sizeLabel } from '../core/format.js';
 import { toast } from '../core/toast.js';
 
 /** Files the server rewrites while running: edit them through the app's own tools instead. */
@@ -316,13 +316,4 @@ export function createFileBrowser({ instanceId, canWrite }) {
   }
 
   return { element, load: () => open('') };
-}
-
-function sizeLabel(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
 }

@@ -24,7 +24,9 @@ base64 = "0.23"
 bytes = "1"
 cap-std = "4"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive"] }
+croner = "4"
 directories = "6"
 flate2 = "1"
 futures-util = "0.3"

@@ -98,7 +98,55 @@ impl InstanceService {
     }
 
     pub async fn start(&self, id: InstanceId) -> Result<(), InstanceError> {
-        let (instance, handle) = self.prepare(id).await?;
+        self.start_as(id, Caller::Request).await
+    }
+
+    /// Starts the server from a job that holds the instance's lock (a restore that found it
+    /// running). Everyone else gets [`InstanceError::Busy`] while a job runs.
+    pub async fn start_from_job(&self, id: InstanceId) -> Result<(), InstanceError> {
+        self.start_as(id, Caller::LockHolder).await
+    }
+
+    /// Stops the server (or cancels a pending crash restart) and waits until no process is left.
+    /// Returns whether it was running or starting, so the caller can start it again.
+    pub async fn stop_and_wait(&self, id: InstanceId) -> Result<bool, InstanceError> {
+        let instance = self.get(id).await?;
+        let Some(handle) = self.supervisors.get(id) else {
+            return Ok(false);
+        };
+        let state = handle.state();
+        let was_running = matches!(state, ServerState::Running { .. } | ServerState::Starting { .. });
+        let restart_pending = matches!(
+            state,
+            ServerState::Crashed {
+                restart_at: Some(_),
+                ..
+            }
+        );
+        if !state.is_active() && !restart_pending {
+            return Ok(false);
+        }
+        if !matches!(state, ServerState::Stopping { .. }) {
+            handle.stop().await?;
+        }
+        // The supervisor kills the process after the stop timeout; allow for that and the exit.
+        let limit = Duration::from_secs(instance.definition.behavior.stop_timeout_secs + 30);
+        if !handle.wait_for(limit, |state| !state.is_active()).await {
+            return Err(InstanceError::StillRunning);
+        }
+        Ok(was_running)
+    }
+
+    /// The adapter of the instance's game.
+    pub fn adapter(&self, instance: &Instance) -> Result<Arc<dyn GameAdapter>, InstanceError> {
+        self.adapters
+            .get(&instance.definition.game)
+            .cloned()
+            .ok_or_else(|| InstanceError::UnknownGame(instance.definition.game.clone()))
+    }
+
+    async fn start_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
+        let (instance, handle) = self.prepare(id, caller).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
         handle
@@ -108,7 +156,16 @@ impl InstanceService {
     }
 
     pub async fn restart(&self, id: InstanceId) -> Result<(), InstanceError> {
-        let (instance, handle) = self.prepare(id).await?;
+        self.restart_as(id, Caller::Request).await
+    }
+
+    /// Restarts the server from a job that holds the instance's lock (a schedule).
+    pub async fn restart_from_job(&self, id: InstanceId) -> Result<(), InstanceError> {
+        self.restart_as(id, Caller::LockHolder).await
+    }
+
+    async fn restart_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
+        let (instance, handle) = self.prepare(id, caller).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
         handle
@@ -215,20 +272,20 @@ impl InstanceService {
         self.supervisors.stop_all(timeout).await;
     }
 
-    async fn prepare(&self, id: InstanceId) -> Result<(Instance, SupervisorHandle), InstanceError> {
+    async fn prepare(
+        &self,
+        id: InstanceId,
+        caller: Caller,
+    ) -> Result<(Instance, SupervisorHandle), InstanceError> {
         let instance = self.get(id).await?;
-        if self.is_busy(id) {
+        if caller == Caller::Request && self.is_busy(id) {
             return Err(InstanceError::Busy);
         }
         if instance.definition.installed_at.is_none() {
             return Err(InstanceError::NotInstalled);
         }
         self.supervisors.host().ensure_usable()?;
-        let adapter = self
-            .adapters
-            .get(&instance.definition.game)
-            .cloned()
-            .ok_or_else(|| InstanceError::UnknownGame(instance.definition.game.clone()))?;
+        let adapter = self.adapter(&instance)?;
         let policy = restart_policy(&instance.definition.behavior);
         Ok((instance, self.supervisors.get_or_spawn(id, adapter, policy)))
     }
@@ -256,6 +313,15 @@ impl InstanceService {
             major: settings.major,
         })
     }
+}
+
+/// Who asks to start a server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Caller {
+    /// A user or the app; refused while a job holds the instance.
+    Request,
+    /// The job that holds the instance's lock.
+    LockHolder,
 }
 
 /// Whether `runtime` may run a server needing Java `needed`: new enough, and installed by the app

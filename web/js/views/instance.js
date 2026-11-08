@@ -1,6 +1,6 @@
 /**
  * One server: header with state and lifecycle buttons, then tabs (Console, Overview, Properties,
- * Files, Settings).
+ * Files, Backups, Schedules, Settings).
  * Live updates come from the "instances" and "jobs" topics.
  */
 import { api } from '../core/api.js';
@@ -10,10 +10,13 @@ import { navigate } from '../core/navigation.js';
 import { session } from '../core/session.js';
 import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
+import { createBackups } from '../components/backups.js';
 import { createConsole } from '../components/console.js';
 import { createFileBrowser } from '../components/file-browser.js';
 import { createInstanceSettings } from '../components/instance-settings.js';
 import { createPropertiesEditor } from '../components/properties-editor.js';
+import { createSchedules } from '../components/schedules.js';
+import { createVersionChange } from '../components/version-change.js';
 
 export async function mount(root, { id }) {
   let instance;
@@ -45,13 +48,19 @@ export async function mount(root, { id }) {
     ? createPropertiesEditor({ instanceId: id, onRestart: () => lifecycle('restart') })
     : null;
   const files = can('files.read') ? createFileBrowser({ instanceId: id, canWrite: can('files.write') }) : null;
+  const backups = createBackups({ instanceId: id, can, software: () => instance.software });
+  const schedules = createSchedules({ instanceId: id, can });
   const settings = createInstanceSettings({ instanceId: id, onSaved: () => refresh(), onRestart: () => lifecycle('restart') });
+  const version = isMinecraft && can('instance.update') ? createVersionChange({ instanceId: id, instance: () => instance }) : null;
+  const settingsPanel = h('div', { class: 'c-settings-tab' }, settings.element, version?.element);
   const tabs = createTabs([
     { id: 'console', label: 'Console', panel: terminal ? terminal.element : h('p', null, 'You cannot view this console.') },
     { id: 'overview', label: 'Overview', panel: overview },
     properties ? { id: 'properties', label: 'Properties', panel: properties.element, onFirstOpen: properties.load } : null,
     files ? { id: 'files', label: 'Files', panel: files.element, onFirstOpen: files.load } : null,
-    { id: 'settings', label: 'Settings', panel: settings.element, onFirstOpen: settings.load },
+    { id: 'backups', label: 'Backups', panel: backups.element, onFirstOpen: backups.load },
+    { id: 'schedules', label: 'Schedules', panel: schedules.element, onFirstOpen: schedules.load },
+    { id: 'settings', label: 'Settings', panel: settingsPanel, onFirstOpen: () => Promise.all([settings.load(), version?.load()]) },
   ].filter(Boolean));
 
   root.append(
@@ -71,6 +80,7 @@ export async function mount(root, { id }) {
     renderActions();
     renderOverview();
     terminal?.setRunning(['starting', 'running'].includes(instance.state.status) && !instance.busy);
+    version?.update();
   }
 
   function renderActions() {
@@ -141,13 +151,31 @@ export async function mount(root, { id }) {
       toast('The name did not match; nothing was deleted.', { kind: 'error' });
       return;
     }
+    const deleteBackups = await askAboutBackups();
+    if (deleteBackups === null) return;
     try {
-      await api.delete(`/instances/${id}`);
+      await api.delete(`/instances/${id}${deleteBackups ? '?delete_backups=true' : ''}`);
       toast(`${instance.name} was deleted.`, { kind: 'success' });
       navigate('/');
     } catch (error) {
       toast(error.message, { kind: 'error' });
     }
+  }
+
+  /** Whether to delete the server's backups too: true, false, or null if the lookup failed. */
+  async function askAboutBackups() {
+    let count;
+    try {
+      count = (await api.get(`/instances/${id}/backups`)).backups.length;
+    } catch (error) {
+      toast(error.message, { kind: 'error' });
+      return null;
+    }
+    if (count === 0) return false;
+    return window.confirm(
+      `${instance.name} has ${count} ${count === 1 ? 'backup' : 'backups'}. Delete them too?\n\n`
+      + 'OK: they go to the trash with the server. Cancel: they are kept in the backups folder.',
+    );
   }
 
   function renderOverview() {
@@ -237,6 +265,8 @@ export async function mount(root, { id }) {
     offJobs();
     offResync();
     terminal?.destroy();
+    backups.destroy();
+    schedules.destroy();
   };
 }
 

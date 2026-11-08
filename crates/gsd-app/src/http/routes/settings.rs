@@ -1,11 +1,12 @@
-//! An instance's settings: name, memory, JVM tuning, Java runtime and behaviour.
+//! An instance's settings: name, memory, JVM tuning, Java runtime, behaviour and how many
+//! backups to keep.
 
 use axum::{Json, Router, extract::State, routing::get};
 use gsd_core::{
     audit::{AuditEntry, actions},
     auth::{GlobalPermission, Permission},
     instances::{
-        Instance, SettingsChange,
+        BackupPolicy, Instance, SettingsChange,
         definition::{Behavior, JavaSettings},
     },
     java::JavaRuntime,
@@ -31,6 +32,7 @@ struct SettingsView {
     name: String,
     java: JavaSettings,
     behavior: Behavior,
+    backups: BackupPolicy,
     /// Java installations to choose from (`managed`: installed by the app).
     runtimes: Vec<JavaRuntime>,
     can_edit: bool,
@@ -80,6 +82,7 @@ async fn view<P>(state: &AppState, auth: &Authorized<P>, instance: &Instance) ->
         name: definition.name.clone(),
         java,
         behavior: definition.behavior.clone(),
+        backups: definition.backups.clone(),
         runtimes: state.java.list(false).await,
         can_edit: auth.actor.can(Permission::InstanceSettings, auth.instance_id),
         can_use_custom_runtime: auth.actor.can_global(GlobalPermission::CustomRuntime),
@@ -100,6 +103,7 @@ fn changed_fields(change: &SettingsChange) -> Vec<&'static str> {
         ("auto_restart", change.auto_restart.is_some()),
         ("crash_limit", change.crash_limit.is_some()),
         ("stop_timeout_secs", change.stop_timeout_secs.is_some()),
+        ("keep_backups", change.keep_backups.is_some()),
     ]
     .into_iter()
     .filter_map(|(field, changed)| changed.then_some(field))

@@ -1,5 +1,6 @@
 /**
- * Instance settings form: name, memory, Java runtime and tuning, and crash/stop behaviour.
+ * Instance settings form: name, memory, Java runtime and tuning, crash/stop behaviour, and how
+ * many backups to keep.
  *
  *   const settings = createInstanceSettings({ instanceId, onSaved, onRestart });
  *   panel.append(settings.element);
@@ -94,6 +95,10 @@ export function createInstanceSettings({ instanceId, onSaved, onRestart }) {
         field('Stop timeout (seconds)', input('stop_timeout_secs', behavior.stop_timeout_secs, { type: 'number', min: 5, max: 900 }),
           'How long a graceful stop may take before the server is killed.'),
       ),
+      h('fieldset', { class: 'c-fieldset c-settings__group' }, h('legend', null, 'Backups'),
+        field('Backups to keep', input('keep_backups', data.backups.keep, { type: 'number', min: 1, max: 100 }),
+          'Older manual and scheduled backups are deleted after each new one. Pinned backups are always kept.'),
+      ),
       data.can_edit ? h('div', { class: 'c-form__actions' }, h('button', { class: 'c-button c-button--primary', type: 'submit' }, 'Save settings')) : null,
     );
   }
@@ -114,6 +119,7 @@ export function createInstanceSettings({ instanceId, onSaved, onRestart }) {
       auto_restart: value('auto_restart').checked,
       crash_limit: number('crash_limit'),
       stop_timeout_secs: number('stop_timeout_secs'),
+      keep_backups: number('keep_backups'),
     };
     const loaded = {
       name: data.name,
@@ -126,6 +132,7 @@ export function createInstanceSettings({ instanceId, onSaved, onRestart }) {
       auto_restart: data.behavior.auto_restart,
       crash_limit: data.behavior.crash_limit,
       stop_timeout_secs: data.behavior.stop_timeout_secs,
+      keep_backups: data.backups.keep,
     };
     return Object.fromEntries(Object.entries(current).filter(([key, next]) => JSON.stringify(next) !== JSON.stringify(loaded[key])));
   }

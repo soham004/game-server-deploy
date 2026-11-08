@@ -5,6 +5,7 @@ use std::{collections::HashMap, fmt, sync::Arc};
 use gsd_core::{
     audit::AuditLog,
     auth::{AuthError, AuthService},
+    backups::BackupService,
     events::EventBus,
     game::GameAdapter,
     instances::{AllocationPolicy, InstanceRegistry, InstanceService, registry::RegistryError},
@@ -12,6 +13,7 @@ use gsd_core::{
     jobs::JobRunner,
     net::http_client,
     random::random_token,
+    scheduler::Scheduler,
     store::SqlitePool,
     supervisor::{
         HostSandbox, SandboxSupport, Supervisors,
@@ -34,6 +36,8 @@ pub struct AppState {
     pub jobs: JobRunner,
     pub java: JavaRuntimes,
     pub instances: InstanceService,
+    pub backups: BackupService,
+    pub scheduler: Scheduler,
     pub minecraft: MinecraftService,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
@@ -57,6 +61,8 @@ pub struct BuildOptions {
     /// Skips host detection and the data-dir sandbox check.
     pub sandbox: Option<HostSandbox>,
     pub probe_ports: Option<bool>,
+    /// How long a backup waits for a running server to confirm its save.
+    pub backup_save_timeout: Option<std::time::Duration>,
 }
 
 impl AppState {
@@ -106,6 +112,25 @@ impl AppState {
             adapters,
         );
 
+        let mut backups = BackupService::new(
+            pool.clone(),
+            instances.clone(),
+            jobs.clone(),
+            events.clone(),
+            config.backups_dir(),
+        );
+        if let Some(timeout) = options.backup_save_timeout {
+            backups = backups.with_save_timeout(timeout);
+        }
+        let scheduler = Scheduler::new(
+            pool.clone(),
+            instances.clone(),
+            backups.clone(),
+            auth.clone(),
+            jobs.clone(),
+            events.clone(),
+        );
+
         let catalog = Catalog::new(
             client,
             options.endpoints.unwrap_or_default(),
@@ -132,6 +157,8 @@ impl AppState {
             jobs,
             java,
             instances,
+            backups,
+            scheduler,
             minecraft,
             shutdown: CancellationToken::new(),
         })

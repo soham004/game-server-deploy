@@ -1,7 +1,10 @@
 //! The seam between the game-agnostic core and a game adapter (today: Minecraft).
 //!
-//! The supervisor only needs a game to tell it how to read its console output and how to ask
-//! it to stop. Everything else game-specific (versions, installers) lives in the adapter crate.
+//! The supervisor needs a game to tell it how to read its console output and how to ask it to
+//! stop; backups need to know where the worlds are and how to pause saving. Everything else
+//! game-specific (versions, installers) lives in the adapter crate.
+
+use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -101,4 +104,28 @@ pub trait GameAdapter: Send + Sync + std::fmt::Debug {
     fn diagnose(&self, line: &LogLine) -> Option<Diagnostic>;
     /// The console command that stops the server gracefully.
     fn stop_command(&self) -> &str;
+    /// A short description of the installed software for people, e.g. `"Paper 26.3"`, from the
+    /// instance's `[server]` table. Backups record it so a restore can warn about a mismatch.
+    fn software(&self, server: &toml::Table) -> Option<String>;
+    /// The top-level folders of `server_dir` that hold the world(s).
+    fn world_folders(&self, server_dir: &Path) -> Vec<String>;
+    /// Top-level entries a full backup leaves out because the installer recreates them or they
+    /// are disposable (logs, libraries, caches). A full restore keeps the current ones.
+    fn backup_excludes(&self) -> &[&str];
+    /// How to get a consistent copy of a running server's world, if the game supports it.
+    fn save_commands(&self) -> Option<SaveCommands>;
+    /// The console command that shows `message` to everyone online (schedules' broadcasts and
+    /// restart warnings), if the game has one.
+    fn broadcast_command(&self, message: &str) -> Option<String>;
+}
+
+/// Console commands that hold world saving still while a backup reads the files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaveCommands {
+    /// Stops automatic saving, so files don't change mid-backup.
+    pub pause: &'static str,
+    /// Writes everything to disk; the game reports it with [`GameSignal::Saved`].
+    pub flush: &'static str,
+    /// Turns automatic saving back on.
+    pub resume: &'static str,
 }

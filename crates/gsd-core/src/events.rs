@@ -37,6 +37,10 @@ pub enum EventKind {
     Diagnostic(Diagnostic),
     Job(JobSnapshot),
     JobRemoved(JobId),
+    /// The instance's list of backups changed (one was added, deleted, pinned or expired).
+    BackupsChanged,
+    /// The instance's schedules changed, or one of them ran.
+    SchedulesChanged,
 }
 
 #[derive(Debug, Clone)]

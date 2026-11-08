@@ -76,7 +76,7 @@ jobs:
       - run: cargo test --workspace --locked --no-fail-fast
 
   docker-test:
-    name: Docker image (build, health, sandbox)
+    name: Docker image (build, health, sandbox, file ownership)
     runs-on: ubuntu-24.04
     needs: linux
     steps:
@@ -105,6 +105,17 @@ jobs:
             --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add CHOWN \
             --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add KILL \
             app:ci isolation-check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: As root, every file a server gets belongs to its own user (real Minecraft servers)
+        # Installs, uploads, clone, import, a running server's backup and restore, a version change
+        # and a delete with backups, against the image above. Downloads from Mojang. See
+        # tests/e2e/README.md.
+        env:
+          E2E_IMAGE: app:ci
+          E2E_REQUIRED: "1"
+        run: node --test tests/e2e/docker.e2e.mjs
 
   publish:
     name: Publish ${{ matrix.platform }}

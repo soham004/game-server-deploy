@@ -66,9 +66,15 @@ pub(crate) struct Root {
 
 impl Root {
     pub(crate) fn open(layout: &InstanceLayout, ids: SandboxIds) -> io::Result<Self> {
+        Self::at(&layout.server_dir(), layout.trash_dir(), ids)
+    }
+
+    /// A root on any folder, e.g. the staging folder a backup is unpacked into before it
+    /// replaces the server's files.
+    pub(crate) fn at(dir: &std::path::Path, trash: PathBuf, ids: SandboxIds) -> io::Result<Self> {
         Ok(Self {
-            dir: Dir::open_ambient_dir(layout.server_dir(), ambient_authority())?,
-            trash: layout.root().join("trash"),
+            dir: Dir::open_ambient_dir(dir, ambient_authority())?,
+            trash,
             ids,
         })
     }
@@ -230,7 +236,7 @@ impl Root {
         let trash = self
             .trash_dir()
             .map_err(|e| FilesError::io(&SafeRelPath::root(), e))?;
-        let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+        let now = Utc::now();
         for path in paths {
             let name = path.file_name().ok_or_else(|| {
                 FilesError::InvalidOperation("the server folder itself can't be deleted".into())
@@ -238,12 +244,12 @@ impl Root {
             self.dir
                 .symlink_metadata(path.as_path())
                 .map_err(|e| FilesError::io(path, e))?;
-            let mut target = format!("{stamp}-{name}");
+            let mut target = crate::trash::entry_name(name, now);
             for n in 1.. {
                 if !trash.exists(&target) {
                     break;
                 }
-                target = format!("{stamp}-{n}-{name}");
+                target = crate::trash::entry_name(&format!("{n}-{name}"), now);
             }
             self.dir
                 .rename(path.as_path(), &trash, &target)

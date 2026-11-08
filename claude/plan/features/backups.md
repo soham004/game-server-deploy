@@ -1,24 +1,27 @@
 # Feature: Backups and Restore
 
+**Built in M3 (D-035).** What D-035 leaves out is marked *(later)* here and listed in the roadmap's Later section.
+
 ## Scopes
 - **World**: the `level-name` folder(s) (plus `world_nether` and `world_the_end` for Bukkit-style layouts).
 - **Full**: the entire `server/` except excluded globs (default excludes: `logs/`, `crash-reports/`, `cache/`,
   `libraries/`, `versions/`, `.fabric/`, `*.tmp`, BlueMap/Dynmap tile folders (detected)).
-- **Custom**: user-chosen include and exclude globs (`globset`).
+- **Custom** *(later)*: user-chosen include and exclude globs (`globset`).
 
 ## Consistent snapshot while running (quiesce)
 1. `save-off` (stop autosave) → `save-all flush` → wait for the `Saved the game` log line (or MCSMP `server/saved`), with a timeout.
-2. Archive (in `spawn_blocking`), streaming files → `zip` (default, user-friendly) or `tar.zst` (faster and smaller; setting).
+2. Archive (in `spawn_blocking`), streaming files → `zip` (`tar.zst`, faster and smaller, is *later*).
 3. **Always** send `save-on` afterwards, even on failure (a guard pattern).
-4. Optional in-game messages "Backup started/finished" (opt-in; Crafty #193).
+4. *(later)* Optional in-game messages "Backup started/finished" (opt-in; Crafty #193).
 If the server is stopped, just archive.
 
 ## Storage, metadata, retention
-- Path: `<data>/backups/<slug>/<YYYYMMDD-HHMMSS>-<kind>.<ext>`. The backup dir is configurable (another disk).
+- Path: `<data>/backups/<instance id>/<YYYYMMDD-HHMMSS>-<kind>-<scope>.zip` (the id, not the slug: slugs can be reused
+  after a delete). A configurable backup folder (another disk) is *later*.
 - Each archive embeds a `gsd-backup.json` (instance id, MC version, loader, scope, created_at) so it is self-describing.
 - DB row with size and sha256 (computed while streaming).
-- Retention policy per instance: keep last N (default 10) **and/or** GFS (keep 24 hourly, 7 daily, 4 weekly, 6 monthly),
-  plus a max total size. **Pinned** and `pre_*` safety backups are excluded from the count (they have their own limit and age).
+- Retention policy per instance: keep last N (default 10); GFS (keep 24 hourly, 7 daily, 4 weekly, 6 monthly) and a max
+  total size are *later*. **Pinned** and `pre_*` safety backups are excluded from the count (they have their own limit and age).
   Retention runs after each backup and logs what it deleted.
 - Disk-space pre-check: estimate from the last backup size or the folder size; refuse if free space is under the estimate × 1.2.
 

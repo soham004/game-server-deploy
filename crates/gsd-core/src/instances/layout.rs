@@ -52,6 +52,12 @@ impl InstanceLayout {
         self.root.join("tmp")
     }
 
+    /// Files deleted in the file manager and what a restore set aside (outside the server's
+    /// reach; emptied by `trash::purge`).
+    pub fn trash_dir(&self) -> PathBuf {
+        self.root.join("trash")
+    }
+
     /// Directories the server process may write to.
     pub fn writable_dirs(&self) -> [PathBuf; 3] {
         [self.server_dir(), self.home_dir(), self.tmp_dir()]

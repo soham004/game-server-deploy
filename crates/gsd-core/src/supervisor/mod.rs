@@ -173,6 +173,26 @@ mod tests {
         fn stop_command(&self) -> &'static str {
             "stop"
         }
+
+        fn software(&self, _server: &toml::Table) -> Option<String> {
+            None
+        }
+
+        fn world_folders(&self, _server_dir: &std::path::Path) -> Vec<String> {
+            vec!["world".into()]
+        }
+
+        fn backup_excludes(&self) -> &[&str] {
+            &["logs"]
+        }
+
+        fn save_commands(&self) -> Option<crate::game::SaveCommands> {
+            None
+        }
+
+        fn broadcast_command(&self, message: &str) -> Option<String> {
+            Some(format!("say {message}"))
+        }
     }
 
     /// A shell script that behaves like a game server: prints READY, echoes commands, exits on

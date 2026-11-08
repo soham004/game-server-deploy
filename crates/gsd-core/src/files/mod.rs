@@ -13,7 +13,7 @@ mod path;
 mod root;
 mod service;
 
-pub use archive::{ExtractLimits, ExtractSummary};
+pub use archive::{ExtractLimits, ExtractSummary, unpack_zip};
 pub use copy::{CopySummary, copy_server_dir};
 pub use error::FilesError;
 pub use path::{PathError, SafeRelPath};

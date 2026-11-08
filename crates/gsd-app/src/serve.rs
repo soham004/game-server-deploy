@@ -6,9 +6,10 @@ use std::{
     time::Duration,
 };
 
+use chrono::{TimeDelta, Utc};
 use gsd_core::{
-    auth::AuthService,
     store::{self, StoreError},
+    trash::{self, Purged},
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 
@@ -57,7 +58,10 @@ pub async fn run(config: Config) -> Result<(), ServeError> {
         .map_err(|source| ServeError::Bind { addr, source })?;
     announce(&state, &listener);
 
-    let housekeeping = spawn_housekeeping(state.auth.clone());
+    let housekeeping = spawn_housekeeping(state.clone());
+    // Before auto-start, so "when the server starts" schedules see those starts. It stops on
+    // the shutdown token, before the servers are stopped below.
+    let scheduler = state.scheduler.start(state.shutdown.clone());
     state.instances.start_auto_start_instances().await;
 
     let shutdown = state.shutdown.clone();
@@ -70,6 +74,7 @@ pub async fn run(config: Config) -> Result<(), ServeError> {
         })
         .await;
 
+    let _ = scheduler.await;
     tracing::info!("stopping game servers");
     instances.stop_all(SERVER_STOP_TIMEOUT).await;
     housekeeping.abort();
@@ -140,19 +145,56 @@ fn announce(state: &AppState, listener: &TcpListener) {
     }
 }
 
-/// Periodic maintenance: purge expired sessions.
-fn spawn_housekeeping(auth: AuthService) -> JoinHandle<()> {
+/// Periodic maintenance: purge expired sessions, empty old trash.
+fn spawn_housekeeping(state: AppState) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(HOUSEKEEPING_INTERVAL);
         loop {
             ticker.tick().await;
-            match auth.purge_expired_sessions().await {
+            match state.auth.purge_expired_sessions().await {
                 Ok(0) => {}
                 Ok(removed) => tracing::debug!(removed, "purged expired sessions"),
                 Err(error) => tracing::warn!(%error, "failed to purge expired sessions"),
             }
+            empty_trash(&state).await;
         }
     })
+}
+
+/// Removes what has been in a trash folder (the app's, and each server's) longer than the
+/// configured retention.
+pub async fn empty_trash(state: &AppState) -> Purged {
+    let days = state.config.trash_retention_days;
+    if days == 0 {
+        return Purged::default();
+    }
+    let cutoff = Utc::now() - TimeDelta::days(i64::from(days));
+    let mut folders = vec![state.config.trash_dir()];
+    for instance in state.instances.registry().list().await {
+        folders.push(instance.layout.trash_dir());
+    }
+    let purged = tokio::task::spawn_blocking(move || {
+        let mut total = Purged::default();
+        for folder in folders {
+            match trash::purge(&folder, cutoff) {
+                Ok(purged) => total += purged,
+                Err(error) => {
+                    tracing::warn!(%error, folder = %folder.display(), "could not empty a trash folder");
+                }
+            }
+        }
+        total
+    })
+    .await
+    .unwrap_or_default();
+    if purged.removed > 0 {
+        tracing::info!(
+            removed = purged.removed,
+            days,
+            "emptied old entries from the trash"
+        );
+    }
+    purged
 }
 
 async fn shutdown_signal() {

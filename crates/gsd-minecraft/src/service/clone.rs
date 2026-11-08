@@ -13,7 +13,7 @@ use gsd_core::{
 };
 
 use super::{CreateError, MinecraftService};
-use crate::{install::point_at_port, properties::PropertiesDoc, settings::MinecraftServer};
+use crate::{install::point_at_port, settings::MinecraftServer, worlds::world_folders};
 
 /// Folders never worth copying.
 const NEVER_COPIED: [&str; 2] = ["logs", "crash-reports"];
@@ -98,6 +98,7 @@ impl MinecraftService {
             registry
                 .update(clone.id(), |definition| {
                     definition.installed_at = Some(Utc::now());
+                    definition.backups = source.definition.backups.clone();
                 })
                 .await
                 .map_err(JobFailure::from)?;
@@ -111,14 +112,7 @@ impl MinecraftService {
 fn skipped_folders(source: &Instance, include_worlds: bool) -> Vec<String> {
     let mut skip: Vec<String> = NEVER_COPIED.iter().map(|name| (*name).to_owned()).collect();
     if !include_worlds {
-        let properties =
-            std::fs::read(source.layout.server_dir().join("server.properties")).unwrap_or_default();
-        let world = PropertiesDoc::from_bytes(&properties)
-            .get("level-name")
-            .filter(|name| !name.is_empty() && !name.contains('/'))
-            .unwrap_or("world")
-            .to_owned();
-        skip.extend([format!("{world}_nether"), format!("{world}_the_end"), world]);
+        skip.extend(world_folders(&source.layout.server_dir()));
     }
     skip
 }

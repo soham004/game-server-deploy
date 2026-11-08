@@ -4,18 +4,20 @@ A self-hosted game server manager with a Rust backend and a plain HTML/CSS/JS we
 Minecraft: Java Edition ("Prism Launcher for servers"). The product name, slug and default port are
 build-time settings (see `crates/gsd-brand`).
 
-**Status:** milestones M0 to M2. Create Vanilla, Paper, Purpur, Fabric, Quilt, Forge and NeoForge servers from a
+**Status:** milestones M0 to M3. Create Vanilla, Paper, Purpur, Fabric, Quilt, Forge and NeoForge servers from a
 version picker, or import an existing server folder; run them sandboxed (own user, Landlock filesystem and network
 rules, resource limits, and a hard memory ceiling with cgroup v2 where the host delegates it), with a live console,
 auto-restart on crash and diagnostics. Edit `server.properties` visually, manage files, change settings, clone
-servers, and manage users with per-server access. Plans and research live in
+servers, change their Minecraft or loader version, and manage users with per-server access. Back up worlds or whole
+servers (a running world is paused and flushed first) and restore them; schedule commands, restarts with in-game
+warnings and backups by time or event. Deleted servers and files wait in a trash for a week. Plans and research live in
 [`claude/`](claude/README.md).
 
 ## Layout
 | Path | What |
 |---|---|
 | `crates/gsd-brand` | The single declaration of name, slug and default port |
-| `crates/gsd-core` | Game-agnostic services: store, auth/RBAC, audit, jobs, Java runtimes, instances, sandboxed supervisor |
+| `crates/gsd-core` | Game-agnostic services: store, auth/RBAC, audit, jobs, Java runtimes, instances, sandboxed supervisor, backups, scheduler, trash |
 | `crates/gsd-minecraft` | Minecraft adapter: version catalog and installers for every loader, import, clone, `server.properties`, log parsing, diagnostics |
 | `crates/gsd-mods` | Modrinth / CurseForge / Hangar (from M4) |
 | `crates/gsd-app` | The binary: config, CLI, HTTP API, embedded web UI |
@@ -36,10 +38,9 @@ Logs: lifecycle events (start, exit, crash, problems found) and failed jobs go t
 the game servers print, run with `GSD_LOG=info,gsd_core::supervisor=debug`.
 
 ```bash
-cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
-bash scripts/check-branding.sh
-node --test 'tests/web/*.test.mjs'   # frontend unit tests (Node 22+, no npm install)
+bash scripts/check.sh   # what CI runs: fmt, clippy, all tests, branding, frontend syntax and unit tests
 ```
+Real servers, a real browser, Docker as root and systemd: see [`tests/e2e/`](tests/e2e/README.md).
 
 ## Commands
 | Command | Purpose |
@@ -52,7 +53,7 @@ node --test 'tests/web/*.test.mjs'   # frontend unit tests (Node 22+, no npm ins
 
 Global flags: `--data-dir`, `--bind`. Environment variables use the brand prefix (`GSD_` by default):
 `GSD_DATA_DIR`, `GSD_BIND`, `GSD_TRUSTED_PROXIES`, `GSD_GAME_PORTS`, `GSD_INTERNAL_PORTS`,
-`GSD_SESSION_TTL_DAYS`, `GSD_LOG`. The same settings (minus the data dir) can go in `<data dir>/config.toml`.
+`GSD_SESSION_TTL_DAYS`, `GSD_TRASH_RETENTION_DAYS` (default 7; 0 keeps the trash), `GSD_LOG`. The same settings (minus the data dir) can go in `<data dir>/config.toml`.
 
 ## Docker
 ```bash

@@ -2,7 +2,7 @@
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -15,7 +15,9 @@ use gsd_core::{
     instances::Instance,
     supervisor::{ServerState, Snapshot},
 };
-use gsd_minecraft::{CloneRequest, CreateRequest, LoaderKind, settings::MinecraftServer};
+use gsd_minecraft::{
+    ChangeVersionRequest, CloneRequest, CreateRequest, LoaderKind, settings::MinecraftServer,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -41,6 +43,7 @@ pub fn routes() -> Router<AppState> {
         .route("/instances/{instance_id}/console", get(console))
         .route("/instances/{instance_id}/install", post(reinstall))
         .route("/instances/{instance_id}/clone", post(clone))
+        .route("/instances/{instance_id}/change-version", post(change_version))
 }
 
 /// An instance as the UI sees it.
@@ -165,14 +168,32 @@ async fn show(
     Ok(Json(InstanceDto::new(&state, &instance, &auth.actor)))
 }
 
+#[derive(Debug, Deserialize)]
+struct DeleteQuery {
+    /// Also delete the server's backups (they go to the trash too). Kept by default.
+    #[serde(default)]
+    delete_backups: bool,
+}
+
+/// Moves the server to the trash; its backups only when asked (they outlive it otherwise, in
+/// `<data>/backups/<id>/`).
 async fn delete(
     State(state): State<AppState>,
     auth: AuthorizedGlobal<perm::InstanceDelete>,
     Path(instance_id): Path<InstanceId>,
+    Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
     let instance = state.instances.get(instance_id).await?;
     state.instances.delete(instance_id).await?;
-    let details = json!({ "name": instance.definition.name });
+    let backups_deleted = if query.delete_backups {
+        state
+            .backups
+            .discard_all(instance_id, &instance.layout.slug(), &state.config.trash_dir())
+            .await?
+    } else {
+        0
+    };
+    let details = json!({ "name": instance.definition.name, "backups_deleted": backups_deleted });
     state
         .audit
         .record(
@@ -270,6 +291,49 @@ async fn reinstall(
         actions::INSTANCE_REINSTALLED,
     )
     .await;
+    Ok((StatusCode::ACCEPTED, Json(JobResponse { job_id })).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChangeVersionBody {
+    mc_version: String,
+    #[serde(default)]
+    loader_version: Option<String>,
+    /// Going to an older Minecraft version (which can break the world) was confirmed.
+    #[serde(default)]
+    allow_downgrade: bool,
+}
+
+/// Installs another Minecraft or loader version over a stopped server, after a full backup.
+async fn change_version(
+    State(state): State<AppState>,
+    auth: Authorized<perm::InstanceUpdate>,
+    ApiJson(body): ApiJson<ChangeVersionBody>,
+) -> Result<Response, ApiError> {
+    if state.instances.state(auth.instance_id).is_active() {
+        return Err(gsd_core::instances::InstanceError::StillRunning.into());
+    }
+    if state.instances.is_busy(auth.instance_id) {
+        return Err(gsd_core::instances::InstanceError::Busy.into());
+    }
+    let request = ChangeVersionRequest {
+        mc_version: body.mc_version.clone(),
+        loader_version: body.loader_version.clone(),
+        allow_downgrade: body.allow_downgrade,
+        by: Some(auth.actor.id()),
+    };
+    let job_id = state
+        .minecraft
+        .change_version(auth.instance_id, request, &state.backups)
+        .await?;
+    let entry = AuditEntry::on_instance(
+        auth.actor.id(),
+        auth.instance_id,
+        actions::INSTANCE_VERSION_CHANGED,
+    )
+    .with_details(json!({ "mc_version": body.mc_version, "loader_version": body.loader_version }));
+    state.audit.record(entry).await;
     Ok((StatusCode::ACCEPTED, Json(JobResponse { job_id })).into_response())
 }
 

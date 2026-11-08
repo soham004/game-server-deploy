@@ -32,6 +32,8 @@ pub struct InstanceDefinition {
     pub java: JavaSettings,
     #[serde(default)]
     pub behavior: Behavior,
+    #[serde(default)]
+    pub backups: BackupPolicy,
     pub ports: Ports,
     pub sandbox: SandboxIds,
 }
@@ -113,6 +115,25 @@ impl Default for Behavior {
             crash_limit: 3,
             crash_window_secs: 600,
             stop_timeout_secs: 60,
+        }
+    }
+}
+
+/// How many backups to keep. Pinned backups never count and are never deleted automatically.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackupPolicy {
+    /// Manual and scheduled backups: the newest this many are kept.
+    pub keep: u32,
+    /// Safety backups taken before a restore or a version change: the newest this many are kept.
+    pub keep_safety: u32,
+}
+
+impl Default for BackupPolicy {
+    fn default() -> Self {
+        Self {
+            keep: 10,
+            keep_safety: 3,
         }
     }
 }
@@ -223,6 +244,7 @@ pub(crate) mod tests {
                 extra_jvm_args: vec![],
             },
             behavior: Behavior::default(),
+            backups: BackupPolicy::default(),
             ports: Ports { game: 25565 },
             sandbox: SandboxIds {
                 uid: 20000,

@@ -3,7 +3,7 @@ use gsd_core::{
     ids::InstanceId,
     instances::{
         InstanceDefinition, InstanceLayout, Ports, SCHEMA_VERSION, SandboxIds,
-        definition::{Behavior, JavaSettings, JvmPreset, LaunchSpec, RuntimeChoice},
+        definition::{BackupPolicy, Behavior, JavaSettings, JvmPreset, LaunchSpec, RuntimeChoice},
     },
 };
 
@@ -40,6 +40,7 @@ fn instance(dir: &std::path::Path) -> Instance {
                 extra_jvm_args: vec![],
             },
             behavior: Behavior::default(),
+            backups: BackupPolicy::default(),
             ports: Ports { game: 25565 },
             sandbox: SandboxIds {
                 uid: 20000,

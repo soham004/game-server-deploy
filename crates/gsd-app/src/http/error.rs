@@ -195,7 +195,13 @@ impl From<CreateError> for ApiError {
             CreateError::Catalog(error) => error.into(),
             CreateError::Registry(error) => error.into(),
             CreateError::Job(error) => error.into(),
-            CreateError::SourceNotInstalled => Self::new(StatusCode::CONFLICT, "not_installed", message),
+            CreateError::SourceNotInstalled | CreateError::NotInstalled => {
+                Self::new(StatusCode::CONFLICT, "not_installed", message)
+            }
+            CreateError::VersionUnchanged(_) => invalid("version_unchanged"),
+            CreateError::DowngradeNotConfirmed { .. } => {
+                Self::new(StatusCode::CONFLICT, "downgrade_not_confirmed", message)
+            }
             CreateError::ImportNotFound(_) => Self::new(StatusCode::NOT_FOUND, "import_not_found", message),
             CreateError::NotMinecraft(_) => Self::internal(&error),
         }
@@ -281,6 +287,47 @@ impl From<gsd_core::files::FilesError> for ApiError {
             FilesError::Forbidden(_) => status(StatusCode::FORBIDDEN, "file_forbidden"),
             FilesError::BadArchive(..) => status(StatusCode::UNPROCESSABLE_ENTITY, "bad_archive"),
             FilesError::Io { .. } => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_core::backups::BackupError> for ApiError {
+    fn from(error: gsd_core::backups::BackupError) -> Self {
+        use gsd_core::backups::BackupError;
+        let message = error.to_string();
+        let status = |status, code| Self::new(status, code, message.clone());
+        match error {
+            BackupError::NotFound => status(StatusCode::NOT_FOUND, "backup_not_found"),
+            BackupError::FileMissing => status(StatusCode::NOT_FOUND, "backup_file_missing"),
+            BackupError::Instance(error) => error.into(),
+            BackupError::Job(error) => error.into(),
+            BackupError::ServerBusy(_) => status(StatusCode::CONFLICT, "server_busy"),
+            BackupError::NoSpace { .. } => status(StatusCode::INSUFFICIENT_STORAGE, "insufficient_storage"),
+            BackupError::InvalidNote => status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_note"),
+            BackupError::Damaged(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "backup_damaged"),
+            // These happen inside the backup and restore jobs, which report them themselves.
+            BackupError::Quiesce(_)
+            | BackupError::ServerChanged
+            | BackupError::Io { .. }
+            | BackupError::Unpack(_)
+            | BackupError::Repo(_) => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_core::scheduler::ScheduleError> for ApiError {
+    fn from(error: gsd_core::scheduler::ScheduleError) -> Self {
+        use gsd_core::scheduler::ScheduleError;
+        let message = error.to_string();
+        let status = |status, code| Self::new(status, code, message.clone());
+        match error {
+            ScheduleError::NotFound => status(StatusCode::NOT_FOUND, "schedule_not_found"),
+            ScheduleError::Plan(_) | ScheduleError::Trigger(_) => {
+                status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_schedule")
+            }
+            ScheduleError::MissingPermission(_) => Self::forbidden("missing_permission", message.clone()),
+            ScheduleError::Instance(error) => error.into(),
+            ScheduleError::Repo(_) => Self::internal(&error),
         }
     }
 }

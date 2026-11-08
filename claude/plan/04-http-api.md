@@ -45,7 +45,7 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/clone` | `{name, include_worlds}` → 202 (stopped source only) |
 | POST | `/instances/{id}/install` | re-run the loader install → 202 |
 | POST | `/instances/import` | zip, `.mrpack` or CurseForge zip → 202 job (planned, M4) |
-| POST | `/instances/{id}/change-version` | `{mc?, loader?, loader_version?}` → 202 (auto backup) |
+| POST | `/instances/{id}/change-version` | `{mc_version, loader_version?, allow_downgrade?}` → 202 `{job_id}`; full backup first; same loader; stopped server (built) |
 | POST | `/instances/{id}/start` · `/stop` · `/restart` · `/kill` | lifecycle |
 | POST | `/instances/{id}/command` | `{command}` → write to stdin |
 | GET | `/instances/{id}/console?lines=500` | recent ring-buffer lines |
@@ -84,9 +84,10 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/content/manual-match` | upload blocked CurseForge files, matched by fingerprint |
 
 ### Backups, schedules, updates, jobs, Java, notifications
-| GET/POST | `/instances/{id}/backups` | list / create `{scope, note}` → 202 |
-| POST | `/instances/{id}/backups/{bid}/restore` → 202 · DELETE · PATCH (pin, note) · GET `/download` |
-| GET/POST | `/instances/{id}/schedules` · PATCH/DELETE `/schedules/{sid}` · POST `/schedules/{sid}/run` · GET `/schedules/{sid}/runs` |
+| GET/POST | `/instances/{id}/backups` | list `{backups, policy, total_bytes}` / create `{scope, note?}` (scope `world` or `full`) → 202 `{job_id}` (built) |
+| POST | `/instances/{id}/backups/{bid}/restore` `{safety_backup?=true}` → 202 `{job_id}` · PATCH `{pinned?, note?}` (empty note removes it) · DELETE → 204 · GET `…/download` (built) |
+| GET/POST | `/instances/{id}/schedules` | list `{schedules}` (each: `plan`, `description`, `run_as`, `next_run_at`, `last_run`) / create a `SchedulePlan` → 201 (built) |
+| PUT/DELETE | `/instances/{id}/schedules/{sid}` | replace the plan (runs as the editor from then on) / delete → 204 · POST `…/{sid}/run` → 202 · GET `…/{sid}/runs` (built) |
 | GET | `/instances/{id}/updates` | server and loader update status |
 | POST | `/instances/{id}/updates/apply` → 202 |
 | GET | `/jobs?active=true` · GET `/jobs/{id}` · POST `/jobs/{id}/cancel` |

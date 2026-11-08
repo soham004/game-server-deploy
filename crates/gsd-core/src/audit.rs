@@ -22,6 +22,7 @@ pub mod actions {
     pub const INSTANCE_CREATED: &str = "instance.created";
     pub const INSTANCE_DELETED: &str = "instance.deleted";
     pub const INSTANCE_REINSTALLED: &str = "instance.reinstalled";
+    pub const INSTANCE_VERSION_CHANGED: &str = "instance.version_change_requested";
     pub const INSTANCE_STARTED: &str = "instance.started";
     pub const INSTANCE_STOPPED: &str = "instance.stopped";
     pub const INSTANCE_RESTARTED: &str = "instance.restarted";
@@ -36,6 +37,13 @@ pub mod actions {
     pub const USER_SIGNED_OUT: &str = "user.signed_out";
     pub const GRANT_CHANGED: &str = "user.grant_changed";
     pub const JAVA_INSTALLED: &str = "java.install_requested";
+    pub const BACKUP_REQUESTED: &str = "backup.requested";
+    pub const BACKUP_RESTORE_REQUESTED: &str = "backup.restore_requested";
+    pub const BACKUP_DELETED: &str = "backup.deleted";
+    pub const SCHEDULE_CREATED: &str = "schedule.created";
+    pub const SCHEDULE_UPDATED: &str = "schedule.updated";
+    pub const SCHEDULE_DELETED: &str = "schedule.deleted";
+    pub const SCHEDULE_RUN_REQUESTED: &str = "schedule.run_requested";
 }
 
 /// One event to record.

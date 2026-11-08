@@ -21,11 +21,12 @@ pub mod service;
 pub mod settings;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+pub mod worlds;
 
 pub use adapter::{GAME_ID, MinecraftAdapter};
 pub use catalog::{Catalog, CatalogError, Endpoints};
 pub use loader::LoaderKind;
 pub use service::{
-    CloneRequest, CreateError, CreateRequest, ImportCandidate, ImportRequest, MinecraftPaths,
-    MinecraftService, user_jvm_args, with_default_jvm_args,
+    ChangeVersionRequest, CloneRequest, CreateError, CreateRequest, ImportCandidate, ImportRequest,
+    MinecraftPaths, MinecraftService, user_jvm_args, with_default_jvm_args,
 };

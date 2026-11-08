@@ -7,12 +7,15 @@ manager, starting with Minecraft: Java Edition ("Prism Launcher for servers").
 Linux-first Docker image, multi-user RBAC in v1, per-server isolation, mods and plugins equally, user-supplied CurseForge key,
 nginx for TLS, browser-only, build-time branding.
 
-**M0, M1 and M2 are implemented** (2026-11-07): all seven loaders (each verified with a real 26.3 install and start in
-the sandbox), `server.properties` editor, file manager, instance settings, clone, import, user management, and cgroup v2
-hard limits. Checks: 337 Rust tests (5 of them need root and run as root in CI), clippy (pedantic, `-D warnings`) clean,
-12 frontend unit tests, 9 browser end-to-end scenarios (`tests/e2e/`, headless Chrome/Edge, no dependencies), plus
-manual end-to-end runs under systemd (`Delegate=yes`) and in the Docker image as root. Next step: M3 (backups,
-scheduler) in `plan/06-roadmap.md`. Implementation log: `decisions.md` D-024 (M0), D-025/D-026 (M1), D-027 … D-034 (M2).
+**M0 to M3 are implemented** (2026-11-08): all seven loaders (each verified with a real 26.3 install and start in
+the sandbox), `server.properties` editor, file manager, instance settings, clone, import, user management, cgroup v2
+hard limits (M2); backups and restore, the scheduler, trash cleanup and version changes (M3). Checks: 417 Rust tests
+(plus 5 that need root and run as root in CI), clippy (pedantic, `-D warnings`) clean on Linux and Windows, 19 frontend
+unit tests, 12 browser end-to-end scenarios, and real-environment tests run by hand: every loader installed and started, a
+real NeoForge build change, the Docker image as root (file ownership everywhere) and systemd with `Delegate=yes` (all
+in `tests/e2e/`, see its README; `scripts/check.sh` runs what CI runs). Next step: M4 (mods and plugins) in
+`plan/06-roadmap.md`. Implementation log: `decisions.md` D-024 (M0), D-025/D-026 (M1), D-027 … D-034 (M2),
+D-035 … D-038 (M3).
 
 CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.
 

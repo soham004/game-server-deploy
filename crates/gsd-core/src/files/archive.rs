@@ -5,13 +5,17 @@
 //! paths: "zip slip"), links and special files are skipped, and the total size and entry count
 //! are capped by the bytes actually written, not what the headers claim (zip bombs).
 
-use std::io::{self, Read, Seek, Write};
+use std::{
+    io::{self, Read, Seek, Write},
+    path::Path,
+};
 
 use cap_std::fs::OpenOptions;
 use serde::Serialize;
 use zip::{CompressionMethod, write::SimpleFileOptions};
 
 use super::{FilesError, SafeRelPath, root::Root};
+use crate::instances::SandboxIds;
 
 /// How much one extraction may unpack (protects the disk from zip bombs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +64,34 @@ fn archive_kind(path: &SafeRelPath) -> Option<ArchiveKind> {
     } else {
         None
     }
+}
+
+/// Unpacks the zip file `archive` (anywhere on disk) into the existing folder `into`, with the
+/// same protections as extracting inside a server folder; files are handed to `ids`. Restoring
+/// a backup uses this to fill a staging folder.
+pub fn unpack_zip(
+    archive: &Path,
+    into: &Path,
+    ids: SandboxIds,
+    limits: ExtractLimits,
+) -> Result<ExtractSummary, FilesError> {
+    let shown = archive
+        .file_name()
+        .and_then(|name| SafeRelPath::parse(&name.to_string_lossy()).ok())
+        .unwrap_or_else(SafeRelPath::root);
+    let root =
+        Root::at(into, into.join(".trash"), ids).map_err(|e| FilesError::io(&SafeRelPath::root(), e))?;
+    let file = std::fs::File::open(archive).map_err(|e| FilesError::io(&shown, e))?;
+    let mut extraction = Extraction {
+        root: &root,
+        destination: SafeRelPath::root(),
+        limits,
+        summary: ExtractSummary::default(),
+    };
+    extraction
+        .zip(file)
+        .map_err(|e| e.into_files_error(|detail| FilesError::BadArchive(shown, detail)))?;
+    Ok(extraction.summary)
 }
 
 /// Where extracted entries go, and how much is left of the limits.
