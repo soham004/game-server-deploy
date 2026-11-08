@@ -50,7 +50,8 @@ pub struct CompatFilter { mc: McVersion, loaders: Vec<LoaderTag>, side: Side /* 
 ## Updates
 - Modrinth: `POST /version_files/update` with all sha1s plus loader and MC filters → candidates.
 - CurseForge: `GET /mods/{id}/files?gameVersion&modLoaderType` for each indexed project (batched).
-- The UI shows "N updates available"; "Update all" makes a backup (`pre_update`, mods folder only by default), then replaces files.
+- The UI shows "N updates available"; "Update selected" makes a full backup (`pre_update`; full, not the mods folder:
+  updates can migrate world data, D-040), then replaces files.
   Changelogs are shown inline when available.
 
 ## CurseForge specifics

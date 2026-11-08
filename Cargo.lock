@@ -1107,6 +1107,7 @@ dependencies = [
  "gsd-brand",
  "gsd-core",
  "gsd-minecraft",
+ "gsd-mods",
  "http-body-util",
  "ipnet",
  "mime_guess",
@@ -1200,6 +1201,27 @@ dependencies = [
 [[package]]
 name = "gsd-mods"
 version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "futures-util",
+ "gsd-core",
+ "gsd-minecraft",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.1",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "wiremock",
+ "zip",
+]
 
 [[package]]
 name = "h2"

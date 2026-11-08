@@ -75,6 +75,8 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       (Paper/Purpur/Folia)**; dependency resolution; packwiz index; enable/disable; remove.
 - [ ] Hangar (PaperMC plugin repo) source.
 - [ ] Identify unknown jars (Modrinth SHA-1, CF fingerprint, `plugin.yml`/mod metadata); bulk update check + apply.
+      Built for Modrinth (D-040): metadata, SHA-1 identify, bulk check, update after a full `pre_update` backup. The CF
+      fingerprint part comes with CurseForge.
 - [ ] CurseForge (user-pasted API key, server-side only): mods + Bukkit plugins, fingerprints, blocked-download flow.
 - [ ] Modpacks: `.mrpack` server install; CurseForge server packs.
 - [ ] Import from an uploaded zip / server pack (extract into a new instance with the archive limits, then the same loader

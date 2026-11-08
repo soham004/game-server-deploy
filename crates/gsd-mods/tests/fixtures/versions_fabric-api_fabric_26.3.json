@@ -1,0 +1,86 @@
+[
+ {
+  "id": "nJlcvFfj",
+  "project_id": "P7dR8mSH",
+  "name": "[26.3] Fabric API 0.165.2+26.3",
+  "version_number": "0.165.2+26.3",
+  "version_type": "release",
+  "date_published": "2026-11-03T09:28:14.677569Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [],
+  "changelog": "- Bump version (modmuss50)\n- Fix registry_contains creating unbound holders (#5676) (modmuss)\n- Fix custom damage handler break callbacks (#5675) (modmuss)\n- Fix item loss when extracting from bundles",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/nJlcvFfj/fabric-api-0.165.2%2B26.3.jar",
+    "filename": "fabric-api-0.165.2+26.3.jar",
+    "primary": true,
+    "size": 1779306,
+    "hashes": {
+     "sha1": "2e364989e3f6efb97e1dbd12d80d835c7ab8c26c",
+     "sha512": "21ce87863ed73c4c871e072f13c5a7b00bd148a098c5064a5f381479d1ddd7c54b0f40ef7d17ce2ae5712deb647c5fcaf12cb72fb663fe8d958188e870b33de0"
+    }
+   }
+  ]
+ },
+ {
+  "id": "EQKgpeKu",
+  "project_id": "P7dR8mSH",
+  "name": "[26.3] Fabric API 0.165.0+26.3",
+  "version_number": "0.165.0+26.3",
+  "version_type": "release",
+  "date_published": "2026-10-23T08:35:46.648085Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [],
+  "changelog": "- Bump version (modmuss50)\n- [26.3] Ice tag and datagen util (#5649 Backport) (#5660) (Cassian)\n- Add VanillaHudElements.INFO_BAR_FOREGROUND (#5659) (modmuss)\n- Add no-op run() impl in SimpleFabricLoo",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/EQKgpeKu/fabric-api-0.165.0%2B26.3.jar",
+    "filename": "fabric-api-0.165.0+26.3.jar",
+    "primary": true,
+    "size": 1778588,
+    "hashes": {
+     "sha1": "8f8a23d6c9fbf7b075b31b4fb0a1007b0488d1d2",
+     "sha512": "0a4b8a14e847b71567b557b43d906c2167fa263eeeef37454a821ba286996e3da1616dc2d9647736d28a250d5ecf400541cae808359b29a62324a8a6f2ad5e30"
+    }
+   }
+  ]
+ },
+ {
+  "id": "LEklt8GT",
+  "project_id": "P7dR8mSH",
+  "name": "[26.3] Fabric API 0.164.0+26.3",
+  "version_number": "0.164.0+26.3",
+  "version_type": "release",
+  "date_published": "2026-10-19T10:10:38.206621Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [],
+  "changelog": "- Bump version (modmuss50)\n- Fix possible deadlock during client tests. (#5656) (modmuss)\n- Add missing tag entries and some reordering of tag entries (#5654) (TelepathicGrunt)\n- Add Poplar Chest Boat",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/LEklt8GT/fabric-api-0.164.0%2B26.3.jar",
+    "filename": "fabric-api-0.164.0+26.3.jar",
+    "primary": true,
+    "size": 1775592,
+    "hashes": {
+     "sha512": "2ce7b0826f75801a56e8150eb5ceca467cdf8b4b44e160b5a5381e5412567d024f46a16c679f29c4a9346b2687fa1740f91ed6026a31b2ed1f3d4b5035968d69",
+     "sha1": "7ec45ba92a286ed7d0c57bcd74cf9182789741ec"
+    }
+   }
+  ]
+ }
+]

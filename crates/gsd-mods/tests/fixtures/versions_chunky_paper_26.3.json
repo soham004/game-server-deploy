@@ -1,0 +1,97 @@
+[
+ {
+  "id": "RBuKjN4k",
+  "project_id": "fALzjamp",
+  "name": "Chunky 1.5.66",
+  "version_number": "1.5.66",
+  "version_type": "release",
+  "date_published": "2026-11-04T03:00:18.722959Z",
+  "game_versions": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "folia",
+   "paper"
+  ],
+  "dependencies": [],
+  "changelog": "",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/RBuKjN4k/Chunky-Paper-1.5.66.jar",
+    "filename": "Chunky-Paper-1.5.66.jar",
+    "primary": true,
+    "size": 396960,
+    "hashes": {
+     "sha1": "1ad238cf2e923a7dac91c93ae5c7681bcb96abda",
+     "sha512": "c67b14569b8624d8d4ca550f0a064703e144d388073b4c34a913c3bd34ea39351bef504542101d7f85b499b4de95c24d027a62ee64aad3f9a7051ae4bec80c52"
+    }
+   }
+  ]
+ },
+ {
+  "id": "selGpja4",
+  "project_id": "fALzjamp",
+  "name": "Chunky 1.5.66",
+  "version_number": "1.5.66",
+  "version_type": "release",
+  "date_published": "2026-11-04T02:56:30.391488Z",
+  "game_versions": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "bukkit",
+   "spigot"
+  ],
+  "dependencies": [],
+  "changelog": "",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/selGpja4/Chunky-Bukkit-1.5.66.jar",
+    "filename": "Chunky-Bukkit-1.5.66.jar",
+    "primary": true,
+    "size": 399522,
+    "hashes": {
+     "sha512": "2e4c6de0ed5f29d7578b7fe5de4b5aed650db77835d489839b50cbe6e9cb5b115592fd8a26ba4626881ba050baac443bfc0f37e7b5153066c22e798afd87cc8e",
+     "sha1": "175b6b19a508437ea6f5c84594f7652300d1298e"
+    }
+   }
+  ]
+ },
+ {
+  "id": "MdY6JATr",
+  "project_id": "fALzjamp",
+  "name": "Chunky 1.5.3",
+  "version_number": "1.5.3",
+  "version_type": "release",
+  "date_published": "2026-05-04T05:46:08.712785Z",
+  "game_versions": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "bukkit",
+   "folia",
+   "paper",
+   "spigot"
+  ],
+  "dependencies": [],
+  "changelog": "",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/MdY6JATr/Chunky-Bukkit-1.5.3.jar",
+    "filename": "Chunky-Bukkit-1.5.3.jar",
+    "primary": true,
+    "size": 304616,
+    "hashes": {
+     "sha512": "43ffecc6e6a734b752da41575bbb316526c124c3f878942437d5133c377bfbd9b78bda975520dc074d7158c15dade58a444ccd0fd8d8a25d165b6fc450140422",
+     "sha1": "7ff47ee3afec89a1725e6eef393f373c549eff3b"
+    }
+   }
+  ]
+ }
+]

@@ -41,6 +41,8 @@ pub struct TestApp {
     pub pool: SqlitePool,
     pub router: Router,
     pub upstream: MockServer,
+    /// Modrinth, from recorded responses (`gsd_mods::test_support`).
+    pub modrinth: MockServer,
     pub dir: tempfile::TempDir,
 }
 
@@ -57,6 +59,7 @@ impl TestApp {
     async fn build(sandbox_problem: Option<String>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let upstream = mock_upstream().await;
+        let modrinth = gsd_mods::test_support::mock_modrinth().await;
         let pool = store::open_in_memory().await.unwrap();
         let mut config = Config::with_data_dir(dir.path().to_owned());
         config.game_ports = "41000-41009".parse().unwrap();
@@ -68,6 +71,7 @@ impl TestApp {
             sandbox: Some(HostSandbox::new(SandboxSupport::none(), sandbox_problem)),
             probe_ports: Some(false),
             backup_save_timeout: Some(Duration::from_secs(2)),
+            modrinth_api: Some(modrinth.uri()),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();
         // As `serve` does; it stops with the app's shutdown token.
@@ -78,6 +82,7 @@ impl TestApp {
             pool,
             router,
             upstream,
+            modrinth,
             dir,
         }
     }

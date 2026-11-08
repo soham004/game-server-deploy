@@ -421,6 +421,62 @@ test('schedules: from a template, run now, by hand, disable, history', { skip, t
   assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
 }));
 
+test('mods: search Modrinth, install, update, turn off and on, remove', { skip, timeout: 300000 }, step('mods', async () => {
+  const rowFor = (name) => page.evaluate((n) => [...document.querySelectorAll('.c-content__table tbody tr')]
+    .find((tr) => tr.querySelector('.c-content__name')?.textContent === n)?.dataset.file ?? null, name);
+  const clickRow = (file, label) => page.evaluate((f, l) => {
+    const row = document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`);
+    [...row.querySelectorAll('button')].find((b) => b.textContent === l).click();
+  }, file, label);
+
+  await page.click('.c-tabs__tab', 'Mods');
+  await page.waitFor(() => document.querySelector('.c-content__summary')?.textContent, { message: 'the mods tab' });
+  await page.waitFor(() => document.querySelectorAll('.c-content-result').length > 0, { timeout: 30000, message: 'the first results from Modrinth' });
+  await page.fill('.c-content-browser__search input', 'lithium');
+  await page.evaluate(() => document.querySelector('.c-content-browser__search').requestSubmit());
+  await page.waitFor(() => [...document.querySelectorAll('.c-content-result__title')].some((a) => a.textContent === 'Lithium'), { timeout: 30000, message: 'Lithium in the results' });
+
+  page.answerDialogs(true); // the plan
+  await page.evaluate(() => {
+    const result = [...document.querySelectorAll('.c-content-result')].find((li) => li.querySelector('.c-content-result__title').textContent === 'Lithium');
+    [...result.querySelectorAll('button')].find((b) => b.textContent === 'Install').click();
+  });
+  await page.waitFor(() => [...document.querySelectorAll('.c-content__name')].some((n) => n.textContent === 'Lithium'), { timeout: 120000, message: 'Lithium installed' });
+  await page.waitFor(() => !document.querySelector('.c-content > .c-banner').hidden, { message: 'the restart notice (the server runs)' });
+  await shot('22-mods');
+
+  const file = await rowFor('Lithium');
+  await clickRow(file, 'Turn off');
+  await page.waitFor((f) => document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`)?.classList.contains('is-disabled'), { args: [file], message: 'turned off' });
+  await clickRow(file, 'Turn on');
+  await page.waitFor((f) => !document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`)?.classList.contains('is-disabled'), { args: [file], message: 'turned on' });
+  await page.waitFor(() => document.querySelector('.c-content-updates__status')?.textContent.includes('up to date'), { timeout: 30000, message: 'the newest Lithium is up to date' });
+
+  // An older Lithium (installed through the API): the updates panel offers the newest again.
+  const versions = await page.evaluate(async (id) => (await fetch(`/api/v1/instances/${id}/content/projects/gvQqBUqZ/versions`)).json(), serverId);
+  assert.ok(versions.length >= 2, `Lithium has an older version for this server: ${versions.length}`);
+  const older = await page.evaluate(async ({ id, version }) => (await fetch(`/api/v1/instances/${id}/content/install`, {
+    method: 'POST',
+    headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: 'gvQqBUqZ', version_id: version }),
+  })).status, { id: serverId, version: versions[1].id });
+  assert.equal(older, 202);
+  await page.waitFor((label) => [...document.querySelectorAll('.c-content-updates__item')].some((li) => li.textContent.includes('Lithium') && li.textContent.includes(label)),
+    { args: [`${versions[1].version_number} → ${versions[0].version_number}`], timeout: 60000, message: 'Lithium offered as an update, both versions as Modrinth numbers them' });
+  await shot('23-mods-update');
+  await page.click('.c-content-updates__actions button', 'Update selected');
+  await page.waitFor((f) => document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`), { args: [versions[0].file.filename], timeout: 180000, message: 'the newest Lithium back after the update' });
+  await page.waitFor(() => document.querySelector('.c-content-updates__status')?.textContent.includes('up to date'), { timeout: 30000, message: 'up to date after updating' });
+  const backups = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/backups`)).json()).backups.map((b) => b.kind), serverId);
+  assert.ok(backups.includes('pre_update'), `a backup before updating: ${backups}`);
+
+  page.answerDialogs(true);
+  await clickRow(versions[0].file.filename, 'Remove');
+  await page.waitFor(() => !document.querySelector('.c-content__table'), { message: 'nothing installed again' });
+  await page.waitFor(() => !document.querySelector('.c-content-updates'), { message: 'no updates panel with nothing installed' });
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
 test('the backups and schedules tabs fit a phone screen', { skip, timeout: 60000 }, step('phone', async () => {
   const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
   const schedule = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/schedules`, {
@@ -439,10 +495,14 @@ test('the backups and schedules tabs fit a phone screen', { skip, timeout: 60000
     assert.ok(await fits(), 'editor: no sideways scrolling');
     await shot('19-phone-schedule-editor');
     await page.click('.c-schedule-editor button', 'Cancel');
+    await page.click('.c-tabs__tab', 'Mods');
+    await page.waitFor(() => document.querySelectorAll('.c-content-result').length > 0, { timeout: 30000, message: 'Modrinth results' });
+    assert.ok(await fits(), 'mods: no sideways scrolling');
+    await shot('20-phone-mods');
     await page.click('.c-tabs__tab', 'Backups');
     await page.waitFor(() => document.querySelector('.c-backups__summary')?.textContent, { message: 'the backups tab' });
     assert.ok(await fits(), 'backups: no sideways scrolling');
-    await shot('20-phone-backups');
+    await shot('20-phone-backups-tab');
   } finally {
     await page.setViewport(1280, 900);
     await page.evaluate(async ({ id, schedule }) => fetch(`/api/v1/instances/${id}/schedules/${schedule}`, { method: 'DELETE', headers: { 'X-CSRF': '1' } }), { id: serverId, schedule });

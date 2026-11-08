@@ -123,3 +123,56 @@ fn restrict_permissions(path: &Path) -> Result<(), StoreError> {
     let _ = path;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use sqlx::Row;
+
+    use super::*;
+
+    /// Migration 0004 rebuilds the backups table: rows made under 0002 must survive it.
+    #[tokio::test]
+    async fn rebuilding_the_backups_table_keeps_existing_backups() {
+        // One connection: each connection to :memory: is its own database.
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for migration in [
+            include_str!("migrations/0001_auth_and_audit.sql"),
+            include_str!("migrations/0002_backups.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO backups (id, instance_id, kind, scope, file_name, size_bytes, sha256, pinned, created_at) \
+             VALUES ('b1', 'i1', 'manual', 'world', 'a.zip', 10, 'abc', 1, '2026-11-08T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!("migrations/0004_backup_kind_pre_update.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let row = sqlx::query("SELECT kind, file_name, pinned FROM backups WHERE id = 'b1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("kind"), "manual");
+        assert_eq!(row.get::<String, _>("file_name"), "a.zip");
+        assert!(row.get::<bool, _>("pinned"));
+        sqlx::query(
+            "INSERT INTO backups (id, instance_id, kind, scope, file_name, size_bytes, sha256, created_at) \
+             VALUES ('b2', 'i1', 'pre_update', 'full', 'b.zip', 10, 'abc', '2026-11-08T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+}

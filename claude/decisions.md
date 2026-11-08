@@ -392,3 +392,62 @@ Members manage only the instances they are granted. Member quotas (instance coun
   chosen Java runtime that is too old for the new version falls back to automatic. A failure after the backup reports
   "restore the backup <file> to go back".
 - Not built: the mod compatibility check (M4) and changing the loader.
+
+**D-039: Mods and plugins from Modrinth: target, resolver, packwiz index** · accepted · 2026-11-08
+- `gsd-mods`. A server's **target** (`target.rs`) decides everything: Fabric → mods with `fabric`; Quilt → `quilt`,
+  `fabric`; Forge → `forge`; NeoForge → `neoforge`; Paper → plugins with `paper`, `spigot`, `bukkit`; Purpur → `purpur`
+  first; vanilla runs neither (`no_content_for_loader`). Folders `mods/` and `plugins/`.
+- Modrinth API v2 (checked live 2026-11-08, fixtures recorded by `crates/gsd-mods/tests/fixtures/record.mjs`):
+  search with facets (type, the target's loaders as OR, the Minecraft version, server side required or optional);
+  versions filtered by loaders and game version and checked again locally; plugins are typed `mod` in search hits but
+  the `project_type:plugin` facet still selects them. A 429 waits for `X-Ratelimit-Reset` (≤ 60 s) and retries once;
+  410 means "update the app". Ids and slugs are checked before they go into a URL.
+- Resolver (`resolver.rs`, pure behind a `Catalog` trait): the project plus required dependencies, breadth first,
+  each at the pinned version if it fits, else the newest release, else the newest of any channel. Dependencies already
+  installed are kept; the requested project replaces its installed file. `incompatible` relations with anything
+  installed or planned stop the plan; cycles end; at most 64 projects. Optional and embedded dependencies are ignored.
+- Installing (a job holding the instance lock): download once into `<data>/cache/content/<sha512>.jar` (checked against
+  Modrinth's SHA-512), copy in through `ServerFiles` (owned by the server's user, symlink-safe), the replaced file to the
+  trash, and a packwiz entry `<folder>/.index/<slug>.pw.toml` (`[update.modrinth] mod-id`, `version`), the format
+  Prism and packwiz read. The UI shows the plan (what comes, why, what it replaces) before installing.
+- Installed list (`installed.rs`): every `*.jar` / `*.jar.disabled` joined with the index by file name, plus what the
+  jar says (`fabric.mod.json`, `quilt.mod.json`, `META-INF/neoforge.mods.toml` or `mods.toml` with the manifest's
+  `Implementation-Version` for `${file.jarVersion}`, `paper-plugin.yml` or `plugin.yml`), and its SHA-1. Read and hash
+  results are cached per server by file name, size and time. Unreadable jars are listed by file name.
+- Turning off = rename to `.jar.disabled` (as Prism); remove = the jar and its index entry to the server's trash.
+  `content_changed` event; the tab says to restart when the server runs.
+- API: `GET /instances/{id}/content`, `GET …/content/search?q&sort&offset`, `GET …/content/projects/{project}[/versions]`,
+  `POST …/content/plan|install {project_id, version_id?}`, `POST …/content/files/{file}/enable|disable`,
+  `DELETE …/content/files/{file}`. `instance.view` reads and searches; `content.manage` changes.
+- Not yet: the `ContentSource` trait (it comes with the second source, Hangar, so it fits two real ones), updates and
+  identifying unknown jars (D-040), CurseForge, modpacks, datapacks.
+
+**D-040: Content updates, identifying hand-added jars, `pre_update` backups** · accepted · 2026-11-08
+- `gsd-mods/src/updates.rs`. **Check**: one `POST /version_files/update` with the SHA-1 of every turned-on file that has
+  an index entry, filtered by the target's loaders and Minecraft version; an update is a newest version of the same
+  project with another version id. For the files with an update, a `POST /version_files` gives the installed version's
+  Modrinth number, so "old → new" reads alike (a jar's own version is often shorter). Turned-off files are not offered (updating one would turn it back on). Files without
+  an index entry are listed as `unknown`.
+- **Identify**: one `POST /version_files` with the unknown files' SHA-1s, then `GET /projects?ids=` for titles and slugs.
+  A match gets a packwiz entry pointing at the file as it is named (nothing is renamed or downloaded), so it is tracked
+  and updated from then on. A second copy of a project already tracked (or of one found earlier in the same run, by
+  file name) is reported as a duplicate and left alone: one project has one index entry. CurseForge fingerprints join
+  this when CurseForge comes.
+- **Update** (a `content.update` job holding the instance lock): a **full** `pre_update` backup first (a new backup
+  kind, migration 0004 rebuilds the table's CHECK; a safety kind like `pre_restore`, so it counts against the safety
+  limit and can't push the user's own backups out). This
+  departs from the feature plan's "mods folder only": mod updates migrate world data and rewrite configs, which a
+  mods-only backup can't undo. A failed backup stops the job before anything changes. Then the chosen files (all when
+  none are named) are replaced by their new versions through the install path (D-039), and required dependencies the
+  new versions need and the server lacks are resolved and installed too.
+- API: `GET /instances/{id}/content/updates` → `{updates: [{file, name, installed_version, project_id, version}],
+  unknown}` (`instance.view`); `POST …/content/identify` → `{identified, still_unknown, duplicates}`;
+  `POST …/content/update {files?}` → 202 `{job_id, updates}`, `409 up_to_date` when nothing fits (`content.manage`).
+  Audit: `content.update_requested`, `content.identified`.
+- UI (`components/content-updates.js`): checked when the tab opens and whenever the installed files change; each update
+  with its versions and a checkbox (all chosen), "Update selected", and a "Look them up on Modrinth" button for files
+  with no known source. Wording in `core/content-plan.js` (unit-tested).
+- Tested: API tests against the mock Modrinth (update after a backup, only chosen and turned-on files, a missing
+  dependency coming back, identify then update, duplicates, permissions), the browser suite (update through the UI on
+  live Modrinth), and `tests/e2e/content.e2e.mjs` on a real Fabric server (older Lithium updated, an untracked Fabric API
+  identified, the server loading them).

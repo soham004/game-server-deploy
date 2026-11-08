@@ -41,6 +41,8 @@ pub enum EventKind {
     BackupsChanged,
     /// The instance's schedules changed, or one of them ran.
     SchedulesChanged,
+    /// Mods or plugins were installed, removed, or turned on or off.
+    ContentChanged,
 }
 
 #[derive(Debug, Clone)]

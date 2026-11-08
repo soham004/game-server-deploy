@@ -19,6 +19,7 @@ const KIND_LABELS = {
   scheduled: 'Scheduled',
   pre_restore: 'Before a restore',
   pre_version_change: 'Before a version change',
+  pre_update: 'Before updating mods or plugins',
 };
 
 const SCOPE_LABELS = {

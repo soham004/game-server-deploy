@@ -1,0 +1,105 @@
+{
+ "hits": [
+  {
+   "project_id": "P7dR8mSH",
+   "project_type": "mod",
+   "slug": "fabric-api",
+   "author": "modmuss50",
+   "title": "Fabric API",
+   "description": "Lightweight and modular API providing common hooks and intercompatibility measures utilized by mods using the Fabric toolchain.",
+   "categories": [
+    "fabric",
+    "library"
+   ],
+   "downloads": 284323203,
+   "icon_url": "https://cdn.modrinth.com/data/P7dR8mSH/icon.png",
+   "date_modified": "2026-11-03T16:23:37.333443+00:00",
+   "client_side": "optional",
+   "server_side": "optional"
+  },
+  {
+   "project_id": "9s6osm5g",
+   "project_type": "mod",
+   "slug": "cloth-config",
+   "author": "shedaniel",
+   "title": "Cloth Config API",
+   "description": "Configuration Library for Minecraft Mods",
+   "categories": [
+    "fabric",
+    "forge",
+    "library",
+    "neoforge"
+   ],
+   "downloads": 184175922,
+   "icon_url": "https://cdn.modrinth.com/data/9s6osm5g/ed8a2316cbb6f4fc5f510e8e13a59a85cbbbff4d_96.webp",
+   "date_modified": "2026-09-23T07:00:50.158851+00:00",
+   "client_side": "optional",
+   "server_side": "optional"
+  },
+  {
+   "project_id": "uXXizFIs",
+   "project_type": "mod",
+   "slug": "ferrite-core",
+   "author": "malte0811",
+   "title": "FerriteCore",
+   "description": "Memory usage optimizations",
+   "categories": [
+    "fabric",
+    "forge",
+    "neoforge",
+    "optimization",
+    "quilt",
+    "utility"
+   ],
+   "downloads": 165784282,
+   "icon_url": "https://cdn.modrinth.com/data/uXXizFIs/222a126f26f8f9ae1eb339f3b767677f18bff31f_96.webp",
+   "date_modified": "2026-03-24T18:31:48.941879+00:00",
+   "client_side": "optional",
+   "server_side": "optional"
+  },
+  {
+   "project_id": "gvQqBUqZ",
+   "project_type": "mod",
+   "slug": "lithium",
+   "author": "jellysquid3",
+   "title": "Lithium",
+   "description": "No-compromises game logic optimization mod, useful for both single-player games and multi-player servers.",
+   "categories": [
+    "fabric",
+    "neoforge",
+    "optimization",
+    "quilt"
+   ],
+   "downloads": 141860249,
+   "icon_url": "https://cdn.modrinth.com/data/gvQqBUqZ/bcc8686c13af0143adf4285d741256af824f70b7_96.webp",
+   "date_modified": "2026-10-28T22:31:10.526811+00:00",
+   "client_side": "optional",
+   "server_side": "optional"
+  },
+  {
+   "project_id": "1eAoo2KR",
+   "project_type": "mod",
+   "slug": "yacl",
+   "author": "isxander",
+   "title": "YetAnotherConfigLib (YACL)",
+   "description": "A builder-based configuration library for Minecraft!",
+   "categories": [
+    "fabric",
+    "forge",
+    "library",
+    "management",
+    "neoforge",
+    "quilt",
+    "utility"
+   ],
+   "downloads": 134242329,
+   "icon_url": "https://cdn.modrinth.com/data/1eAoo2KR/08c0cd32515e260f4bb20bbc0696510041523f9a_96.webp",
+   "date_modified": "2026-11-03T16:30:19.085611+00:00",
+   "client_side": "optional",
+   "server_side": "optional"
+  }
+ ],
+ "offset": 0,
+ "limit": 5,
+ "total_hits": 6234
+}

@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod backups;
 pub mod catalog;
+pub mod content;
 pub mod files;
 pub mod imports;
 pub mod instances;

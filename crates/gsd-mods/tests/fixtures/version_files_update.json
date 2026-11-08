@@ -1,0 +1,34 @@
+{
+ "request_sha1": "dd5a4ec2c68d7601d8bce9076f789c55a5f8bef3",
+ "response": {
+  "dd5a4ec2c68d7601d8bce9076f789c55a5f8bef3": {
+   "id": "fWv5bnZk",
+   "project_id": "gvQqBUqZ",
+   "name": "Lithium 0.26.3 for Fabric",
+   "version_number": "mc26.3-0.26.3-fabric",
+   "version_type": "release",
+   "date_published": "2026-10-28T22:31:14.497352Z",
+   "game_versions": [
+    "26.3"
+   ],
+   "loaders": [
+    "fabric",
+    "quilt"
+   ],
+   "dependencies": [],
+   "changelog": "Lithium 0.26.3 for Minecraft 26.3.x fixes several issues.\n\nMake sure to take a backup of your world before using the mod and please report any bugs and mod compatibility issues at the [issue tracker](",
+   "files": [
+    {
+     "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/fWv5bnZk/lithium-fabric-0.26.3%2Bmc26.3.jar",
+     "filename": "lithium-fabric-0.26.3+mc26.3.jar",
+     "primary": true,
+     "size": 919892,
+     "hashes": {
+      "sha1": "2d3afe9d43bb2549e23479d8d93e644ff366bebf",
+      "sha512": "2ca92fb530135d2baddf0ba4cc4f93976234876a38c4aa02b487b2552400f005afcfbeebf5373fb4396fe2020537a42d7597b8da5a52b904355ef51d5fef07ad"
+     }
+    }
+   ]
+  }
+ }
+}

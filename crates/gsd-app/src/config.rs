@@ -144,6 +144,11 @@ impl Config {
         self.data_dir.join("runtimes").join("java")
     }
 
+    /// Mods and plugins downloaded for any server, by hash.
+    pub fn content_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("cache").join("content")
+    }
+
     /// Shared, content-addressed download cache (server jars).
     pub fn download_cache_dir(&self) -> PathBuf {
         self.data_dir.join("cache").join("downloads")

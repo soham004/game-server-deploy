@@ -6,7 +6,34 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# The mock Modrinth for other crates' tests.
+test-support = ["dep:wiremock"]
+
 [dependencies]
+gsd-core.workspace = true
+gsd-minecraft.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+toml.workspace = true
+tracing.workspace = true
+zip.workspace = true
+# Only with `test-support`:
+wiremock = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true

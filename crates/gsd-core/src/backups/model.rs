@@ -19,14 +19,17 @@ pub enum BackupKind {
     PreRestore,
     /// The state just before the server's version changed.
     PreVersionChange,
+    /// The state just before mods or plugins were updated.
+    PreUpdate,
 }
 
 impl BackupKind {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 5] = [
         Self::Manual,
         Self::Scheduled,
         Self::PreRestore,
         Self::PreVersionChange,
+        Self::PreUpdate,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -35,13 +38,14 @@ impl BackupKind {
             Self::Scheduled => "scheduled",
             Self::PreRestore => "pre_restore",
             Self::PreVersionChange => "pre_version_change",
+            Self::PreUpdate => "pre_update",
         }
     }
 
     /// Safety backups are taken automatically before a risky change; they have their own limit
     /// so a burst of restores can't push the user's own backups out.
     pub fn is_safety(self) -> bool {
-        matches!(self, Self::PreRestore | Self::PreVersionChange)
+        matches!(self, Self::PreRestore | Self::PreVersionChange | Self::PreUpdate)
     }
 }
 
@@ -171,6 +175,13 @@ mod tests {
     #[test]
     fn only_automatic_pre_change_backups_are_safety_backups() {
         let safety: Vec<_> = BackupKind::ALL.into_iter().filter(|k| k.is_safety()).collect();
-        assert_eq!(safety, [BackupKind::PreRestore, BackupKind::PreVersionChange]);
+        assert_eq!(
+            safety,
+            [
+                BackupKind::PreRestore,
+                BackupKind::PreVersionChange,
+                BackupKind::PreUpdate
+            ]
+        );
     }
 }

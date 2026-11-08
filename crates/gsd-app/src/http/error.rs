@@ -331,3 +331,46 @@ impl From<gsd_core::scheduler::ScheduleError> for ApiError {
         }
     }
 }
+
+impl From<gsd_mods::ContentError> for ApiError {
+    fn from(error: gsd_mods::ContentError) -> Self {
+        use gsd_mods::{ContentError, resolver::ResolveError};
+        let message = error.to_string();
+        let status = |status, code| Self::new(status, code, message.clone());
+        match error {
+            ContentError::NoContent => status(StatusCode::CONFLICT, "no_content_for_loader"),
+            ContentError::NotInstalled(_) => status(StatusCode::NOT_FOUND, "content_not_installed"),
+            ContentError::Resolve(ResolveError::Source(error)) | ContentError::Source(error) => error.into(),
+            ContentError::Resolve(_) => status(StatusCode::CONFLICT, "cannot_install"),
+            ContentError::Files(error) => error.into(),
+            ContentError::Instance(error) => error.into(),
+            ContentError::Job(error) => error.into(),
+            ContentError::NothingToUpdate => status(StatusCode::CONFLICT, "up_to_date"),
+            ContentError::Backup(error) => error.into(),
+            ContentError::NoChecksum(_)
+            | ContentError::Cancelled
+            | ContentError::Cache { .. }
+            | ContentError::Download(_) => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_mods::SourceError> for ApiError {
+    fn from(error: gsd_mods::SourceError) -> Self {
+        use gsd_mods::SourceError;
+        let message = error.to_string();
+        match error {
+            SourceError::NotFound => Self::new(StatusCode::NOT_FOUND, "project_not_found", message),
+            SourceError::RateLimited => {
+                Self::new(StatusCode::TOO_MANY_REQUESTS, "source_rate_limited", message)
+            }
+            SourceError::Request(_)
+            | SourceError::Status { .. }
+            | SourceError::Decode { .. }
+            | SourceError::ApiRetired => {
+                tracing::warn!(%error, "content source failed");
+                Self::new(StatusCode::BAD_GATEWAY, "source_unavailable", message)
+            }
+        }
+    }
+}

@@ -208,6 +208,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn every_kind_is_accepted_by_the_table() {
+        let repo = BackupRepo::new(store::open_in_memory().await.unwrap());
+        let instance = InstanceId::generate();
+        for (n, kind) in BackupKind::ALL.into_iter().enumerate() {
+            let backup = BackupRecord {
+                kind,
+                ..record(instance, i64::try_from(n).unwrap())
+            };
+            repo.insert(&backup).await.unwrap();
+        }
+        assert_eq!(repo.list(instance).await.unwrap().len(), BackupKind::ALL.len());
+    }
+
+    #[tokio::test]
     async fn pins_notes_and_deletes() {
         let repo = BackupRepo::new(store::open_in_memory().await.unwrap());
         let instance = InstanceId::generate();

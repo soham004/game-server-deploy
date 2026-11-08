@@ -44,6 +44,11 @@ pub mod actions {
     pub const SCHEDULE_UPDATED: &str = "schedule.updated";
     pub const SCHEDULE_DELETED: &str = "schedule.deleted";
     pub const SCHEDULE_RUN_REQUESTED: &str = "schedule.run_requested";
+    pub const CONTENT_INSTALL_REQUESTED: &str = "content.install_requested";
+    pub const CONTENT_TOGGLED: &str = "content.toggled";
+    pub const CONTENT_REMOVED: &str = "content.removed";
+    pub const CONTENT_UPDATE_REQUESTED: &str = "content.update_requested";
+    pub const CONTENT_IDENTIFIED: &str = "content.identified";
 }
 
 /// One event to record.

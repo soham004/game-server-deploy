@@ -83,6 +83,16 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/content/check-updates` → 202 · POST `/content/update` `{files:[…]}` → 202 |
 | POST | `/instances/{id}/content/manual-match` | upload blocked CurseForge files, matched by fingerprint |
 
+### Mods and plugins (built: Modrinth, D-039, D-040)
+| GET | `/instances/{id}/content` | installed `{kind, folder, target, items}` |
+| GET | `/instances/{id}/content/search?q=&sort=&offset=` | Modrinth, filtered to the server |
+| GET | `/instances/{id}/content/projects/{project}` · `…/versions` | project page, fitting versions |
+| POST | `/instances/{id}/content/plan` · `…/install` | `{project_id, version_id?}` → plan / 202 `{job_id, plan}` |
+| POST/DELETE | `/instances/{id}/content/files/{file}/enable` · `…/disable` · `DELETE …/files/{file}` | turn on, off, remove |
+| GET | `/instances/{id}/content/updates` | `{updates: [{file, name, installed_version, project_id, version}], unknown}` |
+| POST | `/instances/{id}/content/identify` | name hand-added jars by SHA-1 → `{identified, still_unknown, duplicates}` |
+| POST | `/instances/{id}/content/update` | `{files?}` (all when absent) → 202 `{job_id, updates}` after a full `pre_update` backup · `409 up_to_date` |
+
 ### Backups, schedules, updates, jobs, Java, notifications
 | GET/POST | `/instances/{id}/backups` | list `{backups, policy, total_bytes}` / create `{scope, note?}` (scope `world` or `full`) → 202 `{job_id}` (built) |
 | POST | `/instances/{id}/backups/{bid}/restore` `{safety_backup?=true}` → 202 `{job_id}` · PATCH `{pinned?, note?}` (empty note removes it) · DELETE → 204 · GET `…/download` (built) |

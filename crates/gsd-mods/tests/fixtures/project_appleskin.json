@@ -1,0 +1,29 @@
+{
+ "id": "EsAfCjCV",
+ "slug": "appleskin",
+ "project_type": "mod",
+ "title": "AppleSkin",
+ "description": "Food/hunger-related HUD improvements",
+ "body": "Adds various food-related HUD improvements. This is a mostly client-side mod, but it needs to be on the server in order to display accurate saturation/exhaustion values on the client.\n\n---\n\n*Note: AppleSkin provides information about some mechanics that are invisible by default (it does not add or c",
+ "client_side": "optional",
+ "server_side": "optional",
+ "categories": [
+  "food",
+  "utility"
+ ],
+ "loaders": [
+  "fabric",
+  "forge",
+  "neoforge",
+  "quilt"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/EsAfCjCV/icon.png",
+ "downloads": 98229345,
+ "source_url": "https://github.com/squeek502/AppleSkin",
+ "issues_url": "https://github.com/squeek502/AppleSkin/issues",
+ "license": {
+  "id": "Unlicense",
+  "name": "The Unlicense",
+  "url": null
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "id": "gvQqBUqZ",
+ "slug": "lithium",
+ "project_type": "mod",
+ "title": "Lithium",
+ "description": "No-compromises game logic optimization mod, useful for both single-player games and multi-player servers.",
+ "body": "Lithium is a modern, general-purpose optimization mod for Minecraft which works to improve a number of systems (game physics, mob AI, block ticking, etc) with the goal of **not changing any vanilla mechanics**. \n\n<br>\n\nThe mod works **on both the client and server**, and can be installed on servers ",
+ "client_side": "optional",
+ "server_side": "optional",
+ "categories": [
+  "optimization"
+ ],
+ "loaders": [
+  "fabric",
+  "neoforge",
+  "quilt"
+ ],
+ "icon_url": "https://cdn.modrinth.com/data/gvQqBUqZ/bcc8686c13af0143adf4285d741256af824f70b7_96.webp",
+ "downloads": 141964193,
+ "source_url": "https://github.com/caffeinemc/lithium-fabric",
+ "issues_url": "https://github.com/caffeinemc/lithium-fabric/issues",
+ "license": {
+  "id": "LGPL-3.0-only",
+  "name": "GNU Lesser General Public License v3.0 only",
+  "url": null
+ }
+}

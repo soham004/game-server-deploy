@@ -19,6 +19,7 @@ path = "src/main.rs"
 gsd-brand.workspace = true
 gsd-core.workspace = true
 gsd-minecraft.workspace = true
+gsd-mods.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
@@ -43,6 +44,7 @@ tracing-subscriber.workspace = true
 futures-util.workspace = true
 sqlx.workspace = true
 gsd-minecraft = { workspace = true, features = ["test-support"] }
+gsd-mods = { workspace = true, features = ["test-support"] }
 http-body-util.workspace = true
 tokio-tungstenite.workspace = true
 tower.workspace = true

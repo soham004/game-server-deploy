@@ -1,0 +1,160 @@
+{
+ "2e364989e3f6efb97e1dbd12d80d835c7ab8c26c": {
+  "id": "nJlcvFfj",
+  "project_id": "P7dR8mSH",
+  "name": "[26.3] Fabric API 0.165.2+26.3",
+  "version_number": "0.165.2+26.3",
+  "version_type": "release",
+  "date_published": "2026-11-03T09:28:14.677569Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [],
+  "changelog": "- Bump version (modmuss50)\n- Fix registry_contains creating unbound holders (#5676) (modmuss)\n- Fix custom damage handler break callbacks (#5675) (modmuss)\n- Fix item loss when extracting from bundles",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/nJlcvFfj/fabric-api-0.165.2%2B26.3.jar",
+    "filename": "fabric-api-0.165.2+26.3.jar",
+    "primary": true,
+    "size": 1779306,
+    "hashes": {
+     "sha512": "21ce87863ed73c4c871e072f13c5a7b00bd148a098c5064a5f381479d1ddd7c54b0f40ef7d17ce2ae5712deb647c5fcaf12cb72fb663fe8d958188e870b33de0",
+     "sha1": "2e364989e3f6efb97e1dbd12d80d835c7ab8c26c"
+    }
+   }
+  ]
+ },
+ "1ad238cf2e923a7dac91c93ae5c7681bcb96abda": {
+  "id": "RBuKjN4k",
+  "project_id": "fALzjamp",
+  "name": "Chunky 1.5.66",
+  "version_number": "1.5.66",
+  "version_type": "release",
+  "date_published": "2026-11-04T03:00:18.722959Z",
+  "game_versions": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ],
+  "loaders": [
+   "folia",
+   "paper"
+  ],
+  "dependencies": [],
+  "changelog": "",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/fALzjamp/versions/RBuKjN4k/Chunky-Paper-1.5.66.jar",
+    "filename": "Chunky-Paper-1.5.66.jar",
+    "primary": true,
+    "size": 396960,
+    "hashes": {
+     "sha512": "c67b14569b8624d8d4ca550f0a064703e144d388073b4c34a913c3bd34ea39351bef504542101d7f85b499b4de95c24d027a62ee64aad3f9a7051ae4bec80c52",
+     "sha1": "1ad238cf2e923a7dac91c93ae5c7681bcb96abda"
+    }
+   }
+  ]
+ },
+ "2d3afe9d43bb2549e23479d8d93e644ff366bebf": {
+  "id": "fWv5bnZk",
+  "project_id": "gvQqBUqZ",
+  "name": "Lithium 0.26.3 for Fabric",
+  "version_number": "mc26.3-0.26.3-fabric",
+  "version_type": "release",
+  "date_published": "2026-10-28T22:31:14.497352Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric",
+   "quilt"
+  ],
+  "dependencies": [],
+  "changelog": "Lithium 0.26.3 for Minecraft 26.3.x fixes several issues.\n\nMake sure to take a backup of your world before using the mod and please report any bugs and mod compatibility issues at the [issue tracker](",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/gvQqBUqZ/versions/fWv5bnZk/lithium-fabric-0.26.3%2Bmc26.3.jar",
+    "filename": "lithium-fabric-0.26.3+mc26.3.jar",
+    "primary": true,
+    "size": 919892,
+    "hashes": {
+     "sha1": "2d3afe9d43bb2549e23479d8d93e644ff366bebf",
+     "sha512": "2ca92fb530135d2baddf0ba4cc4f93976234876a38c4aa02b487b2552400f005afcfbeebf5373fb4396fe2020537a42d7597b8da5a52b904355ef51d5fef07ad"
+    }
+   }
+  ]
+ },
+ "8c5f566e32bd47fbb80be4932b9be1cfa97c4e3a": {
+  "id": "1pMaB6So",
+  "project_id": "lhGA9TYQ",
+  "name": "[Fabric 26.3] v22.0.5",
+  "version_number": "22.0.5+fabric",
+  "version_type": "release",
+  "date_published": "2026-10-09T19:30:17.890431Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ],
+  "changelog": "## Architectury v22.0.5 for 26.3\nUpdated at **2026-10-09 19:29**.\n[Click here for changelog](https://www.github.com/architectury/architectury/commits/26.3)\n- Add back particle register method",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/lhGA9TYQ/versions/1pMaB6So/architectury-fabric-22.0.5.jar",
+    "filename": "architectury-fabric-22.0.5.jar",
+    "primary": true,
+    "size": 622542,
+    "hashes": {
+     "sha1": "8c5f566e32bd47fbb80be4932b9be1cfa97c4e3a",
+     "sha512": "14c61af2088b80b465f06edd3b3005038fa5be1c95a2161ce712c8da408a358038b7cd7ae4acf3198f6d47c693e4fdf65d646dac7e124f7cdd7f32bbc0dcd0ce"
+    }
+   }
+  ]
+ },
+ "3d19e40c5f97186857db98e622c01c2cd0030497": {
+  "id": "PHjDtQay",
+  "project_id": "EsAfCjCV",
+  "name": "appleskin-fabric-mc26.3-3.0.10",
+  "version_number": "3.0.10+mc26.3",
+  "version_type": "release",
+  "date_published": "2026-09-17T23:59:34.368560Z",
+  "game_versions": [
+   "26.3"
+  ],
+  "loaders": [
+   "fabric"
+  ],
+  "dependencies": [
+   {
+    "version_id": null,
+    "project_id": "P7dR8mSH",
+    "file_name": null,
+    "dependency_type": "required"
+   }
+  ],
+  "changelog": "Updated for Minecraft 26.3",
+  "files": [
+   {
+    "url": "https://cdn.modrinth.com/data/EsAfCjCV/versions/PHjDtQay/appleskin-fabric-mc26.3-3.0.10.jar",
+    "filename": "appleskin-fabric-mc26.3-3.0.10.jar",
+    "primary": true,
+    "size": 180194,
+    "hashes": {
+     "sha512": "17d257af419b7530aa8617c2e8c0e4bbfabcf888f26655790e0188e7957e0bcd931f85f9a4c69fd27e889dee5082cf7b2b8741a14a6ed4425e9ef4bfe13a8b8c",
+     "sha1": "3d19e40c5f97186857db98e622c01c2cd0030497"
+    }
+   }
+  ]
+ }
+}

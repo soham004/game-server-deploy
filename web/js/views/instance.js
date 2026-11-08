@@ -1,6 +1,6 @@
 /**
  * One server: header with state and lifecycle buttons, then tabs (Console, Overview, Properties,
- * Files, Backups, Schedules, Settings).
+ * Files, Mods or Plugins, Backups, Schedules, Settings).
  * Live updates come from the "instances" and "jobs" topics.
  */
 import { api } from '../core/api.js';
@@ -12,6 +12,7 @@ import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
 import { createBackups } from '../components/backups.js';
 import { createConsole } from '../components/console.js';
+import { createContent } from '../components/content.js';
 import { createFileBrowser } from '../components/file-browser.js';
 import { createInstanceSettings } from '../components/instance-settings.js';
 import { createPropertiesEditor } from '../components/properties-editor.js';
@@ -48,6 +49,11 @@ export async function mount(root, { id }) {
     ? createPropertiesEditor({ instanceId: id, onRestart: () => lifecycle('restart') })
     : null;
   const files = can('files.read') ? createFileBrowser({ instanceId: id, canWrite: can('files.write') }) : null;
+  const loader = instance.server?.loader;
+  const content = isMinecraft && loader && loader !== 'vanilla'
+    ? createContent({ instanceId: id, can, isRunning: () => ['starting', 'running'].includes(instance.state.status) })
+    : null;
+  const contentLabel = ['paper', 'purpur'].includes(loader) ? 'Plugins' : 'Mods';
   const backups = createBackups({ instanceId: id, can, software: () => instance.software });
   const schedules = createSchedules({ instanceId: id, can });
   const settings = createInstanceSettings({ instanceId: id, onSaved: () => refresh(), onRestart: () => lifecycle('restart') });
@@ -58,6 +64,7 @@ export async function mount(root, { id }) {
     { id: 'overview', label: 'Overview', panel: overview },
     properties ? { id: 'properties', label: 'Properties', panel: properties.element, onFirstOpen: properties.load } : null,
     files ? { id: 'files', label: 'Files', panel: files.element, onFirstOpen: files.load } : null,
+    content ? { id: 'content', label: contentLabel, panel: content.element, onFirstOpen: content.load } : null,
     { id: 'backups', label: 'Backups', panel: backups.element, onFirstOpen: backups.load },
     { id: 'schedules', label: 'Schedules', panel: schedules.element, onFirstOpen: schedules.load },
     { id: 'settings', label: 'Settings', panel: settingsPanel, onFirstOpen: () => Promise.all([settings.load(), version?.load()]) },
@@ -266,6 +273,7 @@ export async function mount(root, { id }) {
     offResync();
     terminal?.destroy();
     backups.destroy();
+    content?.destroy();
     schedules.destroy();
   };
 }

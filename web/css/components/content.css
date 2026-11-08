@@ -1,0 +1,226 @@
+/* Mods / Plugins tab (components/content.js, content-updates.js, content-browser.js). */
+
+.c-content {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-content__heading {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-lg);
+}
+
+.c-content__summary {
+  margin: 0;
+}
+
+.c-content__updates:empty {
+  display: none;
+}
+
+.c-content-updates {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-content-updates__bar,
+.c-content-updates__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.c-content-updates__bar {
+  justify-content: space-between;
+}
+
+.c-content-updates__status,
+.c-content-updates__unknown {
+  margin: 0;
+}
+
+.c-content-updates__list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c-content-updates__list:empty,
+.c-content-updates__actions[hidden],
+.c-content-updates__unknown[hidden] {
+  display: none;
+}
+
+.c-content-updates__item,
+.c-content-updates__choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+}
+
+.c-content-updates__choice {
+  cursor: pointer;
+}
+
+.c-content-updates__name {
+  font-weight: 600;
+}
+
+.c-content-updates__versions {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.c-content__installed {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow-x: auto;
+}
+
+.c-content__installed:empty {
+  display: none;
+}
+
+.c-content__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.c-content__table th,
+.c-content__table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.c-content__table th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.c-content__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.c-content__table tr.is-disabled td:not(.c-content__actions) {
+  opacity: 0.55;
+}
+
+.c-content__name,
+.c-content__file {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.c-content__file {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.c-content__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.c-content__actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.c-content__row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.c-content-browser {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-content-browser__search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c-content-browser__search > .c-input[type="search"] {
+  flex: 1 1 14rem;
+  width: auto;
+}
+
+.c-content-browser__search > select.c-input {
+  flex: 0 1 12rem;
+  width: auto;
+}
+
+.c-content-browser__results {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c-content-result {
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-content-result__icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  object-fit: cover;
+}
+
+.c-content-result__title {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.c-content-result__description,
+.c-content-result__meta {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.c-content-browser__actions,
+.c-content-result__versions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+/* On narrow screens the buttons go under the text. */
+@media (max-width: 40rem) {
+  .c-content-result {
+    grid-template-columns: 3rem minmax(0, 1fr);
+  }
+
+  .c-content-browser__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

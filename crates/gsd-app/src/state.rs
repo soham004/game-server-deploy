@@ -21,6 +21,7 @@ use gsd_core::{
     },
 };
 use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService};
+use gsd_mods::{ContentService, Modrinth, modrinth};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
@@ -39,6 +40,7 @@ pub struct AppState {
     pub backups: BackupService,
     pub scheduler: Scheduler,
     pub minecraft: MinecraftService,
+    pub content: ContentService,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
 }
@@ -63,6 +65,8 @@ pub struct BuildOptions {
     pub probe_ports: Option<bool>,
     /// How long a backup waits for a running server to confirm its save.
     pub backup_save_timeout: Option<std::time::Duration>,
+    /// Where the Modrinth API is (a mock in tests).
+    pub modrinth_api: Option<String>,
 }
 
 impl AppState {
@@ -131,6 +135,19 @@ impl AppState {
             events.clone(),
         );
 
+        let content = ContentService::new(
+            Modrinth::new(
+                client.clone(),
+                options
+                    .modrinth_api
+                    .unwrap_or_else(|| modrinth::DEFAULT_API.to_owned()),
+            ),
+            instances.clone(),
+            jobs.clone(),
+            events.clone(),
+            config.content_cache_dir(),
+        );
+
         let catalog = Catalog::new(
             client,
             options.endpoints.unwrap_or_default(),
@@ -160,6 +177,7 @@ impl AppState {
             backups,
             scheduler,
             minecraft,
+            content,
             shutdown: CancellationToken::new(),
         })
     }
