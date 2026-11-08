@@ -14,7 +14,8 @@ use crate::instances::{Instance, InstanceLayout, definition::tests::sample};
 struct Fixture {
     files: ServerFiles,
     layout: InstanceLayout,
-    /// A directory next to the instance that must stay untouched.
+    /// A directory next to the instance that must stay untouched (the symlink tests aim at it).
+    #[cfg_attr(not(unix), allow(dead_code))]
     outside: std::path::PathBuf,
     _dir: tempfile::TempDir,
 }

@@ -61,12 +61,16 @@ jobs:
             cgroup::tests::kernel explains_when_the_memory_ceiling_stopped_the_server
 
   windows:
-    name: Windows (build, unit tests)
+    name: Windows (clippy, unit tests)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+      # Code behind #[cfg(unix)] differs here, so lints that pass on Linux can still fire.
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # No dev machine runs these on Windows, so report every failing test target in one run
       # instead of stopping at the first.
       - run: cargo test --workspace --locked --no-fail-fast

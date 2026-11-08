@@ -233,6 +233,7 @@ pub struct CgroupSlot {
     dir: PathBuf,
     /// Opened by the app, written by the child before exec (`0` = "move me"). The kernel checks
     /// permissions with the opener's credentials, so this works after the child dropped root.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     procs: File,
     oom_kills_before: u64,
     limits: CgroupLimits,
@@ -240,6 +241,7 @@ pub struct CgroupSlot {
 
 impl CgroupSlot {
     /// A handle for the child process (closed on exec).
+    #[cfg(target_os = "linux")]
     pub(crate) fn procs_file(&self) -> io::Result<File> {
         self.procs.try_clone()
     }

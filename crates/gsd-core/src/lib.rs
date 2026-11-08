@@ -10,6 +10,10 @@
 //! Flow rule (see `claude/plan/01-architecture.md` §3): HTTP handlers call one service
 //! method; services orchestrate; repositories and adapters do the IO.
 
+// Ownership, permissions and the sandbox are Unix/Linux work. Elsewhere those functions keep their
+// `Result` signature but do nothing, which this pedantic lint would flag one by one.
+#![cfg_attr(not(target_os = "linux"), allow(clippy::unnecessary_wraps))]
+
 pub mod audit;
 pub mod auth;
 pub mod events;

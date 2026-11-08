@@ -134,6 +134,10 @@ pub fn catalog_for(server: &MockServer, cache: &Path) -> Catalog {
 ///   would create those files (built from the real installers' `run.sh`). A `fail-installer`
 ///   file in `java_home` makes it fail with exit code 3.
 /// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`).
+///
+/// The script needs `sh`, so only Unix tests run it. On Windows it is still found as Java 25
+/// (detection reads the `release` file without running the binary), which is enough for
+/// installs that only download.
 pub fn install_fake_java(java_home: &Path) {
     std::fs::create_dir_all(java_home.join("bin")).unwrap();
     std::fs::write(
@@ -141,7 +145,9 @@ pub fn install_fake_java(java_home: &Path) {
         "JAVA_VERSION=\"25.0.1\"\nIMPLEMENTOR=\"Test\"\n",
     )
     .unwrap();
-    let java = java_home.join("bin/java");
+    let java = java_home
+        .join("bin")
+        .join(if cfg!(windows) { "java.exe" } else { "java" });
     std::fs::write(&java, FAKE_JAVA).unwrap();
     #[cfg(unix)]
     {
