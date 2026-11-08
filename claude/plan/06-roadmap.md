@@ -61,6 +61,11 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 ## M3: Safety net
 - [ ] Backups: manual, world and full scope, quiesce, retention, restore with a pre-restore backup (re-chown on restore).
 - [ ] Scheduler: cron, interval, once and event triggers; actions; conditions; run history; runs with the creator's captured permissions.
+- [ ] Change version (upgrade/downgrade MC or loader): world-conversion warning, typed confirmation for downgrades,
+      mandatory `pre_version_change` backup, remove only the old loader's files, update `instance.toml`
+      (`features/instances-and-installers.md` → Change version; the mod compatibility check comes with M4).
+- [ ] Trash: purge deleted servers and files after a retention period (setting, default 7 days, as a scheduled task);
+      "keep backups" option when deleting a server. Until then `trash/` only grows (server delete since M1; files, D-031).
 
 ## M4: Content: mods **and** plugins together
 - [ ] `ContentSource` abstraction; Modrinth search/install for **mods (Fabric/Quilt/Forge/NeoForge) and plugins
@@ -69,12 +74,20 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [ ] Identify unknown jars (Modrinth SHA-1, CF fingerprint, `plugin.yml`/mod metadata); bulk update check + apply.
 - [ ] CurseForge (user-pasted API key, server-side only): mods + Bukkit plugins, fingerprints, blocked-download flow.
 - [ ] Modpacks: `.mrpack` server install; CurseForge server packs.
+- [ ] Import from an uploaded zip / server pack (extract into a new instance with the archive limits, then the same loader
+      detection as folder import), and identify the imported `mods/*.jar` into the packwiz index.
 
 ## M5: Minecraft-aware admin
 - [ ] Log history + crash report viewer.
 - [ ] RCON auto-setup (loopback, random password); MCSMP client for 1.21.9+.
 - [ ] Players (online, heads, op/whitelist/ban/kick, lookup, history), gamerules editor, worlds manager.
 - [ ] Command autocomplete (datagen tree + help parsing + dynamic values).
+- [ ] Code editor: CodeMirror 6 vendored as one ESM file (D-008; deferred in D-031) for the file manager, the raw
+      `server.properties` view and the log viewer: syntax highlighting (json, yaml, toml, properties, cfg/ini, mcfunction,
+      snbt, log), line numbers, search. Check it works under the strict CSP (`style-src 'self'`).
+- [ ] Editor checks: JSON/YAML/TOML validation on save with the error location; diff view before saving (P2).
+- [ ] File manager extras (`features/file-manager.md` → UI): folder tree pane, multi-select, context menu, shortcuts
+      (F2, Del, Ctrl+C/V), image preview, "set server icon" helper (resize to 64×64).
 
 ## M6: Updates, observability, release
 - [ ] Update checker + apply with backup and rollback.
@@ -84,4 +97,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 
 ## Later (P2/P3)
 DockerBackend (container per server) · remote backup targets (S3/SFTP/rclone) · TOTP / passkeys · UPnP · mclo.gs share ·
-datapack manager · Chunky · Velocity · Geyser · multi-node agents · other games · self-update · Windows release packaging.
+datapack manager · Chunky · Velocity · Geyser · multi-node agents · other games · self-update · Windows release packaging ·
+member quotas: server count, RAM, disk (D-023) · import "adopt in place" (`server_root` outside `instances/`; needs a
+sandbox and ownership review) · opt-out of the network-filesystem refusal for the data dir (D-026) · real product name
+(placeholders until the user picks one, D-021).
