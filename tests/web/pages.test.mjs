@@ -1,4 +1,4 @@
-// Static checks of the server-rendered HTML pages. Run: node --test tests/web/
+// Static checks of the server-rendered HTML pages. Run: node --test 'tests/web/*.test.mjs'
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

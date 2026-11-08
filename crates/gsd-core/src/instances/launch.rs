@@ -200,12 +200,8 @@ mod tests {
             &process.args[process.args.len() - 3..],
             ["-jar", "server.jar", "nogui"]
         );
-        assert!(
-            process
-                .env
-                .iter()
-                .any(|(k, v)| k == "HOME" && v.ends_with("/home"))
-        );
+        let home = layout.home_dir().display().to_string();
+        assert!(process.env.iter().any(|(k, v)| k == "HOME" && *v == home));
 
         // Hard caps follow the heap: 4096 MB heap + half again for the JVM itself.
         let cgroup = process.sandbox.unwrap().cgroup.unwrap();

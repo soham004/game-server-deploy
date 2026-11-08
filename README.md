@@ -38,7 +38,7 @@ the game servers print, run with `GSD_LOG=info,gsd_core::supervisor=debug`.
 ```bash
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 bash scripts/check-branding.sh
-node --test tests/web/   # frontend unit tests (Node 22+, no npm install)
+node --test 'tests/web/*.test.mjs'   # frontend unit tests (Node 22+, no npm install)
 ```
 
 ## Commands

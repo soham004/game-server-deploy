@@ -1,4 +1,4 @@
-// Tests for web/js/core/format.js. Run: node --test tests/web/
+// Tests for web/js/core/format.js. Run: node --test 'tests/web/*.test.mjs'
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

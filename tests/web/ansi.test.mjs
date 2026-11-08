@@ -1,4 +1,4 @@
-// Tests for web/js/core/ansi.js. Run: node --test tests/web/
+// Tests for web/js/core/ansi.js. Run: node --test 'tests/web/*.test.mjs'
 // Uses a minimal DOM stand-in (text nodes and spans are all the module creates).
 
 import assert from 'node:assert/strict';

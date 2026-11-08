@@ -51,7 +51,7 @@ web/
 - **Security**: server-derived strings always go through `textContent` or `dom.text()`. Console lines with colour codes are
   parsed into spans built with text nodes (`core/ansi.js`); 256/24-bit colours are set through CSSOM (`el.style.color`),
   which the strict CSP allows, never through `style` attributes.
-- **Tests**: pure modules get unit tests in `tests/web/*.test.mjs`, run with `node --test tests/web/` (no dependencies;
+- **Tests**: pure modules get unit tests in `tests/web/*.test.mjs`, run with `node --test 'tests/web/*.test.mjs'` (no dependencies;
   a minimal DOM stand-in where needed). Kept outside `web/` so they aren't embedded in the binary.
 - **Progressive enhancement**: links are real `<a href>`; forms are real `<form>`s, enhanced with JS.
 - **Accessibility**: keyboard navigation everywhere, visible focus, ARIA for tabs, dialogs and live regions (console

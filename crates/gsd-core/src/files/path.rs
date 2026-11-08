@@ -172,11 +172,43 @@ mod tests {
             ("a/./b/.", "a/b"),
             ("name with spaces.txt", "name with spaces.txt"),
             ("caf\u{e9}/\u{4e2d}\u{6587}", "caf\u{e9}/\u{4e2d}\u{6587}"),
-            ("..hidden/...", "..hidden/..."),
+            ("..hidden/x", "..hidden/x"),
         ];
         for (input, expected) in cases {
             assert_eq!(SafeRelPath::parse(input).unwrap().as_str(), expected, "{input:?}");
         }
+    }
+
+    /// Dots are only special as a whole name; Windows can't store a name ending in one at all.
+    #[cfg(not(windows))]
+    #[test]
+    fn keeps_names_made_of_dots() {
+        assert_eq!(
+            SafeRelPath::parse("..hidden/...").unwrap().as_str(),
+            "..hidden/..."
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_names_windows_cannot_store() {
+        for name in [
+            "...",
+            "trailing.",
+            "trailing ",
+            "C:",
+            "file.txt:stream",
+            "con",
+            "NUL.txt",
+            "lpt1",
+        ] {
+            assert_eq!(
+                SafeRelPath::parse(name),
+                Err(PathError::ForbiddenName(name.to_owned())),
+                "{name:?}"
+            );
+        }
+        assert!(SafeRelPath::parse("console.log").is_ok());
     }
 
     #[test]
