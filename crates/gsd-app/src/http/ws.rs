@@ -9,7 +9,9 @@
 //! `{"type": "resync"}` when events were dropped (the client should refetch over REST).
 //!
 //! Every event is checked against the user's permissions. The session is re-validated
-//! periodically, so revoked sessions lose their stream.
+//! periodically, so revoked sessions lose their stream. The upgrade must come from this site
+//! (`Origin`), so another site can't open a stream with the user's cookie (the cookie's
+//! `SameSite=Strict` already stops browsers from sending it; this doesn't rely on that alone).
 
 use std::{collections::HashSet, time::Duration};
 
@@ -20,7 +22,7 @@ use axum::{
         ws::{Message, Utf8Bytes, WebSocket},
     },
     http::HeaderMap,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use gsd_core::{
@@ -32,6 +34,8 @@ use tokio::sync::broadcast::error::RecvError;
 
 use crate::{
     http::{
+        csrf::origin_matches_host,
+        error::ApiError,
         routes::jobs::can_view,
         session::{CurrentActor, session_token},
     },
@@ -53,6 +57,10 @@ async fn upgrade(
     CurrentActor(actor): CurrentActor,
     headers: HeaderMap,
 ) -> Response {
+    if !origin_matches_host(&headers) {
+        return ApiError::forbidden("csrf_failed", "Request origin does not match this site.")
+            .into_response();
+    }
     let token = session_token(&headers).unwrap_or_default();
     ws.max_message_size(MAX_CLIENT_MESSAGE)
         .on_upgrade(move |socket| session(socket, state, actor, token))

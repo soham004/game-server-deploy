@@ -6,6 +6,9 @@ Conventions:
 - Long operations return **202** with `{"job_id": "…"}`. Progress arrives over the WebSocket (`job:<id>` topic) and via `GET /jobs/{id}`.
 - Auth: session cookie (name from `gsd_brand`; `HttpOnly; SameSite=Strict; Secure` behind https). State-changing requests also need the
   generic header `X-CSRF: 1` (brand-neutral on purpose, so the frontend stays name-free).
+- Deny by default (D-041): without a valid session every request is refused before routing (`401 unauthenticated`, the
+  same for paths that don't exist); pages redirect to `/login.html`. Open: `POST /auth/login`, `POST /auth/logout`,
+  `GET /health`, the sign-in page's files, and, only until the first account exists, setup.
 - Authorisation: every route declares its `Permission` (see `features/security-and-auth.md`); `403 missing_permission` otherwise.
 - Pagination: `?limit=&cursor=`.
 
@@ -17,10 +20,10 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | liveness (no auth) |
-| GET | `/setup/status` | has an admin been created? (first-run wizard) |
-| POST | `/setup` | create the first owner `{username, password, setup_token?}` |
+| GET | `/setup/status` | has an admin been created? (first-run wizard; no auth only until the first account exists) |
+| POST | `/setup` | create the first owner `{username, password, setup_token?}` (same) |
 | POST | `/auth/login` · `/auth/logout` · `/me/password` | session; change own password |
-| GET | `/meta` | `{name, slug, version}` from `gsd_brand` (no auth; the frontend never hard-codes the name) |
+| GET | `/meta` | `{name, slug, version}` from `gsd_brand` (signed in; the frontend never hard-codes the name) |
 | GET | `/me` | current user + global role + effective permissions per instance |
 | GET/POST | `/users` | list (with active session counts) · create `{username, role}` → `{user, temporary_password}` (owner, D-033) |
 | PATCH/DELETE | `/users/{id}` | `{role?, disabled?}` · delete; never your own account, never the last active owner |

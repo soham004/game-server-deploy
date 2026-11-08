@@ -12,7 +12,10 @@ use chrono::TimeDelta;
 use gsd_brand::SESSION_COOKIE;
 use gsd_core::auth::Actor;
 
-use crate::{http::error::ApiError, state::AppState};
+use crate::{
+    http::{access::Authenticated, error::ApiError},
+    state::AppState,
+};
 
 /// A signed-in user, even one who still has to change their password.
 #[derive(Debug)]
@@ -26,6 +29,10 @@ impl FromRequestParts<AppState> for SignedIn {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        // Normally the access layer has checked the session already.
+        if let Some(Authenticated(actor)) = parts.extensions.get::<Authenticated>() {
+            return Ok(Self(actor.clone()));
+        }
         let token = session_token(&parts.headers).ok_or_else(ApiError::unauthenticated)?;
         let actor = state.auth.authenticate(&token).await?;
         Ok(Self(actor))

@@ -69,6 +69,34 @@ async fn requires_a_session() {
 }
 
 #[tokio::test]
+async fn only_pages_of_this_site_may_open_a_stream() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let addr = serve(&app).await;
+    let with_origin = |origin: String| {
+        let mut request = format!("ws://{addr}/api/v1/ws").into_client_request().unwrap();
+        let headers = request.headers_mut();
+        headers.insert("cookie", cookie.parse().unwrap());
+        headers.insert("origin", origin.parse().unwrap());
+        request
+    };
+
+    let foreign = tokio_tungstenite::connect_async(with_origin("http://evil.test".into())).await;
+    match foreign {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+        other => panic!("a stream opened from another site: {:?}", other.map(|_| ())),
+    }
+    assert!(
+        tokio_tungstenite::connect_async(with_origin(format!("http://{addr}")))
+            .await
+            .is_ok(),
+        "the app's own pages"
+    );
+}
+
+#[tokio::test]
 async fn streams_instance_state_jobs_and_console() {
     let app = TestApp::new().await;
     let cookie = app.setup_owner().await;

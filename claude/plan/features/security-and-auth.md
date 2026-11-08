@@ -11,12 +11,17 @@ compromised panel is a compromised machine. Security defaults matter.
 - `gsd reset-password <user>` CLI for recovery.
 
 ## Sessions
-- Passwords hashed with Argon2id (default params tuned to ~50 ms).
+- Deny by default (D-041, `http/access.rs`): one layer in front of every route and file requires a valid session. Open
+  without one: the sign-in page and its files, `POST /api/v1/auth/login` and `…/auth/logout`, `GET /api/v1/health`;
+  until the first account exists also setup. Everything else gets `401` (pages: a redirect to sign-in), before routing,
+  so outsiders can't map the API. Handler extractors still check permissions.
+- Passwords hashed with Argon2id (default params tuned to ~50 ms); at most 4 hashes at once, so a flood of sign-in
+  attempts can't use up the host's memory.
 - Session token = 32 random bytes; only its SHA-256 is stored. Cookie `gsd_session`: `HttpOnly`, `SameSite=Strict`,
   `Secure` when served over TLS, `Path=/`. 30-day sliding expiry; "log out other sessions".
 - CSRF: SameSite=Strict + a required custom header `X-CSRF: 1` on non-GET requests, plus an `Origin` check.
 - Login rate limiting: per IP + per username exponential backoff.
-- WebSocket upgrade checks the session cookie and `Origin`.
+- WebSocket upgrade checks the session cookie and `Origin` (built, D-041).
 
 ## Hardening
 - Strict CSP: `default-src 'self'; img-src 'self' data: https://cdn.modrinth.com https://media.forgecdn.net; connect-src 'self'; script-src 'self'; style-src 'self'`

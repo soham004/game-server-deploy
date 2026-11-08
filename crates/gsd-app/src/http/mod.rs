@@ -2,8 +2,9 @@
 //!
 //! Handlers are thin (parse → call one service → map the result); see
 //! `claude/plan/01-architecture.md` §3. API routes live under `/api/v1`; everything else is
-//! the embedded web UI.
+//! the embedded web UI. Every request needs a session except the few `access.rs` lets through.
 
+pub mod access;
 pub mod authorize;
 pub mod client;
 pub mod csrf;
@@ -46,11 +47,17 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::java::routes())
         .merge(ws::routes())
         .fallback(routes::not_found)
+        .method_not_allowed_fallback(routes::method_not_allowed)
         .layer(middleware::from_fn(csrf::require_csrf_header));
 
     Router::new()
         .nest("/api/v1", api)
         .fallback(assets::serve)
+        // Before anything else: no session, no route (see `access.rs`).
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            access::require_session,
+        ))
         .layer(middleware::from_fn(headers::add_security_headers))
         // WHY: downloads (`application/octet-stream`) go out as they are: jars and archives don't
         // compress further, and an unencoded file keeps its Content-Length (download progress).

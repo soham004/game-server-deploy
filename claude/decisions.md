@@ -451,3 +451,28 @@ Members manage only the instances they are granted. Member quotas (instance coun
   dependency coming back, identify then update, duplicates, permissions), the browser suite (update through the UI on
   live Modrinth), and `tests/e2e/content.e2e.mjs` on a real Fabric server (older Lithium updated, an untracked Fabric API
   identified, the server loading them).
+
+**D-041: Deny by default: only signing in is open** · accepted · 2026-11-08
+- Before: each handler opted in to authentication through its extractor (`CurrentActor`, `Authorized<P>`), and every
+  file of the web UI was served to anyone. An audit found all 67 authenticated handlers correct, but one forgotten
+  extractor would have made a route public, unknown API paths answered `404` while real ones answered `401` (outsiders
+  could map the API), wrong methods got an empty non-JSON `405`, `/meta` (the version) and the setup endpoints stayed
+  open after setup, the WebSocket upgrade didn't check `Origin`, and `login.js` accepted `?next=/\evil.test` (browsers
+  read it as `//evil.test`: an open redirect after signing in).
+- Now `http/access.rs` sits in front of every route and file and needs a valid session (it passes the session on in the
+  request's extensions, so extractors don't look it up twice). Open without one: the sign-in page and exactly the files it
+  loads (`SIGN_IN_FILES`), `POST /api/v1/auth/login`, `POST /api/v1/auth/logout` (it only clears a cookie; it must work
+  for an expired session) and `GET /api/v1/health` (Docker's healthcheck and load balancers; it says only "ok"). Until
+  the first account exists: the setup page and its files (`SETUP_FILES`), `GET /api/v1/setup/status`, `POST /api/v1/setup`;
+  every page then leads to setup. Everything else: `401 unauthenticated` for anything under `/api/` (whether or not it
+  exists, whatever the method), `303` to `/login.html?next=…` for pages (`no-store`), `401` for other files.
+- Signed in: wrong methods get JSON `405 method_not_allowed`. The WebSocket upgrade refuses another site's `Origin`
+  (`403`), on top of the cookie's `SameSite=Strict`. `safeNext` parses `next` as the browser will and keeps only same-origin
+  paths. Views load on demand, so `main.js` sends you to sign in when one fails to load because the session ended.
+- Argon2 runs at most 4 at once (about 19 MiB each); sign-in is open to anyone, so a flood of attempts now waits instead
+  of using up memory. Per-IP and per-username login rate limiting is still M6 (`plan/06-roadmap.md`).
+- Tested: unit tests of every rule (including path tricks); a test that the open file lists are exactly what
+  `login.html` and `setup.html` load (following imports); an API test that reads the route table from the source and
+  sends every route all five methods without a session (a route added later is covered automatically); before and after
+  setup; garbage and signed-out cookies; the WebSocket `Origin`; the browser suite (a deep link signed out → sign-in →
+  back; the closed files refuse; `next` can't leave the site).

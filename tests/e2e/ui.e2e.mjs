@@ -65,9 +65,13 @@ after(async () => {
   await browser?.close();
 });
 
-test('signs in and lists the servers', { skip }, step('sign-in', async () => {
-  await page.goto(`${BASE}/`);
-  await page.waitFor(() => location.pathname === '/login.html', { message: 'redirect to the login page' });
+test('signs in (only the sign-in page is open) and lists the servers', { skip }, step('sign-in', async () => {
+  // Signed out, a deep link leads to the sign-in page, which brings you back afterwards.
+  await page.goto(`${BASE}/users`);
+  await page.waitFor(() => location.pathname === '/login.html' && new URLSearchParams(location.search).get('next') === '/users', { message: 'redirect to the login page' });
+  const closed = await page.evaluate(async () => Promise.all(['/js/main.js', '/js/views/users.js', '/api/v1/meta', '/api/v1/instances']
+    .map(async (path) => `${path} ${(await fetch(path)).status}`)));
+  assert.deepEqual(closed, ['/js/main.js 401', '/js/views/users.js 401', '/api/v1/meta 401', '/api/v1/instances 401']);
   // The button is enabled only once the page script handles the form (see core/forms.js).
   await page.waitFor(() => document.querySelector('form[data-form="login"] button[type="submit"]')?.disabled === false, {
     message: 'the sign-in form to be ready',
@@ -75,6 +79,12 @@ test('signs in and lists the servers', { skip }, step('sign-in', async () => {
   await page.fill('#login-username', process.env.E2E_USER ?? 'admin');
   await page.fill('#login-password', process.env.E2E_PASSWORD ?? 'correct horse battery');
   await page.click('form[data-form="login"] button[type="submit"]');
+  await page.waitFor(() => location.pathname === '/users' && document.querySelector('.l-page-header__title')?.textContent, { message: 'back on the users page' });
+
+  // `next` never leaves this site (`/\evil.test` is how browsers spell `//evil.test`).
+  await page.goto(`${BASE}/login.html?next=/%5Cevil.test/x`);
+  await page.waitFor(() => location.pathname === '/' && document.querySelector('.c-server-card'), { message: 'the dashboard, not another site' });
+  assert.equal(await page.evaluate(() => location.origin), new URL(BASE).origin);
   await page.waitFor((name) => [...document.querySelectorAll('.c-server-card')].some((c) => c.textContent.includes(name)), {
     args: [SERVER],
     message: `a card for ${SERVER}`,

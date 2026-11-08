@@ -1,9 +1,9 @@
 /**
- * App shell boot sequence:
- *   1. first-run setup pending  → /setup.html
- *   2. not signed in            → /login.html?next=…
- *   3. must change password     → /login.html?change=1
- *   4. otherwise show the shell, connect the live stream and start the router.
+ * App shell boot sequence. The server only hands this page to signed-in users (it sends anyone
+ * else to the sign-in or setup page), but the session can still end before `/me` answers:
+ *   1. not signed in            → /login.html?next=…
+ *   2. must change password     → /login.html?change=1
+ *   3. otherwise show the shell, connect the live stream and start the router.
  */
 import { api, ApiError } from './core/api.js';
 import { $ } from './core/dom.js';
@@ -15,20 +15,28 @@ import { mountJobTray } from './components/job-tray.js';
 
 // Order matters: "/servers/new" must match before "/servers/:id".
 const routes = [
-  { path: '/', view: () => import('./views/dashboard.js') },
-  { path: '/servers/new', view: () => import('./views/instance-create.js') },
-  { path: '/servers/import', view: () => import('./views/instance-import.js') },
-  { path: '/servers/:id', view: () => import('./views/instance.js') },
-  { path: '/users', view: () => import('./views/users.js') },
+  { path: '/', view: () => loadView(() => import('./views/dashboard.js')) },
+  { path: '/servers/new', view: () => loadView(() => import('./views/instance-create.js')) },
+  { path: '/servers/import', view: () => loadView(() => import('./views/instance-import.js')) },
+  { path: '/servers/:id', view: () => loadView(() => import('./views/instance.js')) },
+  { path: '/users', view: () => loadView(() => import('./views/users.js')) },
 ];
 
-async function boot() {
-  const setup = await api.get('/setup/status');
-  if (setup.setup_required) {
-    window.location.replace('/setup.html');
-    return;
+/**
+ * Views load when first opened, and the server only hands out the app's files to signed-in
+ * users. So a view that fails to load may mean the session ended: then go to the sign-in page
+ * (and come back here afterwards) instead of showing an error.
+ */
+async function loadView(importView) {
+  try {
+    return await importView();
+  } catch (error) {
+    if (!(await loadCurrentUser())) return new Promise(() => {}); // leaving for the sign-in page
+    throw error;
   }
+}
 
+async function boot() {
   const me = await loadCurrentUser();
   if (!me) return;
   session.setMe(me);
@@ -39,7 +47,7 @@ async function boot() {
   const router = createRouter({
     root: $('#view'),
     routes,
-    notFound: () => import('./views/not-found.js'),
+    notFound: () => loadView(() => import('./views/not-found.js')),
     onNavigate: highlightNav,
   });
   setNavigator(router.navigate);

@@ -4,6 +4,7 @@ use std::{fmt, net::IpAddr, sync::OnceLock};
 
 use chrono::{TimeDelta, Utc};
 use sqlx::SqlitePool;
+use tokio::sync::Semaphore;
 
 use crate::{
     auth::{
@@ -232,17 +233,28 @@ impl AuthService {
     }
 }
 
+/// Argon2 runs at most this many at once. Each takes about 19 MiB and a core for a moment; the sign-in
+/// endpoint is open to anyone, so without a bound a flood of attempts could use up the host's
+/// memory. More attempts wait their turn instead.
+const CONCURRENT_HASHES: usize = 4;
+static HASHING: Semaphore = Semaphore::const_new(CONCURRENT_HASHES);
+
 async fn hash_in_background(password: &str) -> Result<String, AuthError> {
     let password = password.to_owned();
-    tokio::task::spawn_blocking(move || passwords::hash(&password))
-        .await
-        .map_err(|_| AuthError::BackgroundTask)?
-        .map_err(AuthError::from)
+    in_background(move || passwords::hash(&password)).await
 }
 
 async fn verify_in_background(password: &str, stored_hash: &str) -> Result<bool, AuthError> {
     let (password, stored_hash) = (password.to_owned(), stored_hash.to_owned());
-    tokio::task::spawn_blocking(move || passwords::verify(&password, &stored_hash))
+    in_background(move || passwords::verify(&password, &stored_hash)).await
+}
+
+/// Runs a password hash or check on the blocking pool, within [`CONCURRENT_HASHES`].
+async fn in_background<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, passwords::PasswordError> + Send + 'static,
+) -> Result<T, AuthError> {
+    let _permit = HASHING.acquire().await.map_err(|_| AuthError::BackgroundTask)?;
+    tokio::task::spawn_blocking(work)
         .await
         .map_err(|_| AuthError::BackgroundTask)?
         .map_err(AuthError::from)

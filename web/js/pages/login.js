@@ -38,13 +38,10 @@ function showChangeForm() {
   changeForm.elements.new_password.focus();
 }
 
+// The server sends visitors to the setup page while there is no account yet, so this page only
+// has to handle signing in.
 async function redirectIfAlreadySignedIn() {
   try {
-    const setup = await api.get('/setup/status');
-    if (setup.setup_required) {
-      window.location.replace('/setup.html');
-      return;
-    }
     const me = await api.get('/me');
     if (!me.user.must_change_password) window.location.replace(next);
   } catch {
@@ -52,7 +49,13 @@ async function redirectIfAlreadySignedIn() {
   }
 }
 
-/** Only allow same-site relative paths, so `?next=` can't send users elsewhere. */
+/**
+ * Only a path on this site, so `?next=` can't send users elsewhere. Parsed the way the browser
+ * will follow it: `/\evil.test` and `/%5Cevil.test` look like paths but browsers treat the
+ * first as `//evil.test`.
+ */
 function safeNext(raw) {
-  return raw && raw.startsWith('/') && !raw.startsWith('//') ? raw : '/';
+  if (!raw || !raw.startsWith('/')) return '/';
+  const url = new URL(raw, window.location.origin);
+  return url.origin === window.location.origin ? url.pathname + url.search + url.hash : '/';
 }

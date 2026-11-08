@@ -39,6 +39,15 @@ pub async fn not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "not_found", "No such API endpoint.")
 }
 
+/// A known `/api/v1/*` path with the wrong method: JSON like every other API error.
+pub async fn method_not_allowed() -> ApiError {
+    ApiError::new(
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method_not_allowed",
+        "This endpoint doesn't take that method.",
+    )
+}
+
 /// Response for any endpoint that signs a user in: sets the session cookie, returns the user.
 fn signed_in(
     status: StatusCode,

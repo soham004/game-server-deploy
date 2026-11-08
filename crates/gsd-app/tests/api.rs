@@ -25,11 +25,16 @@ use gsd_core::{
 use serde_json::json;
 
 #[tokio::test]
-async fn health_and_meta_are_public() {
+async fn health_is_public_and_meta_needs_a_session() {
     let app = TestApp::new().await;
     assert_eq!(app.get("/api/v1/health", None).await.status(), StatusCode::OK);
+    let cookie = app.setup_owner().await;
+    assert_eq!(
+        app.get("/api/v1/meta", None).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
 
-    let meta = json_body(app.get("/api/v1/meta", None).await).await;
+    let meta = json_body(app.get("/api/v1/meta", Some(&cookie)).await).await;
     assert_eq!(meta["name"], gsd_brand::NAME);
     assert_eq!(meta["slug"], gsd_brand::SLUG);
 }
@@ -53,11 +58,20 @@ async fn first_run_setup_signs_the_owner_in_once() {
             .contains(&json!("users.manage"))
     );
 
-    let again = app
+    // Closed to strangers once done; and even the owner can't run it twice.
+    let stranger = app
         .post(
             "/api/v1/setup",
             json!({ "username": "x2", "password": PASSWORD }),
             None,
+        )
+        .await;
+    assert_eq!(stranger.status(), StatusCode::UNAUTHORIZED);
+    let again = app
+        .post(
+            "/api/v1/setup",
+            json!({ "username": "x2", "password": PASSWORD }),
+            Some(&cookie),
         )
         .await;
     assert_eq!(again.status(), StatusCode::CONFLICT);
@@ -275,8 +289,10 @@ async fn authorized_extractor_enforces_instance_grants() {
 #[tokio::test]
 async fn web_ui_is_served_and_templated() {
     let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let get = |path: &'static str| app.get(path, Some(&cookie));
 
-    let index = app.get("/", None).await;
+    let index = get("/").await;
     assert_eq!(index.status(), StatusCode::OK);
     assert!(
         index.headers()[header::CONTENT_SECURITY_POLICY]
@@ -289,21 +305,12 @@ async fn web_ui_is_served_and_templated() {
     assert!(!html.contains("{{APP_NAME}}"));
 
     // Client-side routes fall back to the shell; missing files are real 404s.
-    assert_eq!(app.get("/instances/abc", None).await.status(), StatusCode::OK);
-    assert_eq!(
-        app.get("/js/missing.js", None).await.status(),
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        app.get("/api/v1/nope", None).await.status(),
-        StatusCode::NOT_FOUND
-    );
-    assert_eq!(
-        app.get("/../Cargo.toml", None).await.status(),
-        StatusCode::NOT_FOUND
-    );
+    assert_eq!(get("/instances/abc").await.status(), StatusCode::OK);
+    assert_eq!(get("/js/missing.js").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(get("/api/v1/nope").await.status(), StatusCode::NOT_FOUND);
+    assert_eq!(get("/../Cargo.toml").await.status(), StatusCode::NOT_FOUND);
 
-    let script = app.get("/js/main.js", None).await;
+    let script = get("/js/main.js").await;
     assert!(
         script.headers()[header::CONTENT_TYPE]
             .to_str()
@@ -314,6 +321,7 @@ async fn web_ui_is_served_and_templated() {
     let cached = app
         .send(
             Request::get("/js/main.js")
+                .header(header::COOKIE, &cookie)
                 .header(header::IF_NONE_MATCH, etag)
                 .body(Body::empty())
                 .unwrap(),

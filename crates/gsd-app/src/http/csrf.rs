@@ -35,7 +35,7 @@ pub async fn require_csrf_header(request: Request, next: Next) -> Result<Respons
 
 /// No `Origin` (same-origin GETs, non-browser clients) passes; otherwise its authority must
 /// equal the `Host` header.
-fn origin_matches_host(headers: &HeaderMap) -> bool {
+pub(crate) fn origin_matches_host(headers: &HeaderMap) -> bool {
     let Some(origin) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
         return true;
     };

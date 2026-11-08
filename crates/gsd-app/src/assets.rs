@@ -19,7 +19,14 @@ struct WebAssets;
 
 const INDEX: &str = "index.html";
 
-/// Fallback handler for every non-API path.
+/// The contents of a web UI file, by its path under `web/`.
+#[cfg(test)]
+pub(crate) fn contents(path: &str) -> Option<Vec<u8>> {
+    WebAssets::get(path).map(|file| file.data.into_owned())
+}
+
+/// Fallback handler for every non-API path. Signed-out visitors only get here for the files
+/// `http::access` lets through.
 pub async fn serve(method: Method, uri: Uri, headers: HeaderMap) -> Response {
     if method != Method::GET && method != Method::HEAD {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
