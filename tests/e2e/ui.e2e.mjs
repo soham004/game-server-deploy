@@ -14,7 +14,7 @@ import { after, before, test } from 'node:test';
 
 import { Browser } from './cdp.mjs';
 import { until } from './lib/client.mjs';
-import { download, smallModpack } from './lib/small-modpack.mjs';
+import { download, modpackWithTwoVersions, smallModpack } from './lib/small-modpack.mjs';
 
 const BASE = process.env.E2E_URL;
 const SERVER = process.env.E2E_SERVER ?? 'E2E neoforge';
@@ -904,7 +904,7 @@ test('modpacks: upload a real .mrpack, confirm, and it becomes a server', { skip
   await page.waitFor(() => document.querySelector('.c-content__table tr[data-file]'), { timeout: 30000, message: 'the pack\'s mods listed' });
   await shot('32-modpack-installed');
   assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
-  await deleteOpenServer('E2E pack', true);
+  await deleteOpenServer('E2E pack'); // no backups, so no question about them
 }));
 
 test('modpacks: find one on Modrinth, and it comes back ready to create a server', { skip, timeout: 300000 }, step('modpack-search', async (t) => {
@@ -931,6 +931,40 @@ test('modpacks: find one on Modrinth, and it comes back ready to create a server
   assert.match(await page.evaluate(() => document.querySelector('form[data-pack] .c-import__notes').textContent), /Minecraft/);
   await shot('34-modpack-found');
   assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('modpacks: the Mods tab offers a newer version, shows what changes, and updates', { skip, timeout: 900000 }, step('modpack-update', async (t) => {
+  const pack = await modpackWithTwoVersions('fabric');
+  if (!pack) {
+    t.skip('Modrinth has no Fabric modpack with two versions to update between');
+    return;
+  }
+  const call = (method, path, body) => page.evaluate(async (m, p, b) => {
+    const response = await fetch(`/api/v1${p}`, { method: m, headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' }, body: b === null ? undefined : JSON.stringify(b) });
+    return response.json();
+  }, method, path, body ?? null);
+  const finished = (jobId) => until('the job', async () => {
+    const job = await call('GET', `/jobs/${jobId}`);
+    return job.status === 'running' ? null : job;
+  }, 600);
+  const fetched = await call('POST', '/modpacks/fetch', { source: 'modrinth', project_id: pack.id, version_id: pack.older });
+  assert.equal((await finished(fetched.job_id)).status, 'succeeded');
+  const created = await call('POST', '/modpacks/install', { upload_id: fetched.upload_id, name: 'E2E moved pack', max_memory_mb: 2048, eula_accepted: true });
+  assert.equal((await finished(created.job_id)).status, 'succeeded');
+
+  await page.goto(`${BASE}/servers/${created.instance.id}`);
+  await page.waitFor(() => [...document.querySelectorAll('.c-tabs__tab')].some((tab) => tab.textContent === 'Mods'), { message: 'the server page' });
+  await page.click('.c-tabs__tab', 'Mods');
+  await page.click('.c-pack__actions .c-button--primary', 'Review the update', { timeout: 30000 });
+  await page.waitFor(() => document.querySelector('.c-pack__plan'), { timeout: 180000, message: 'the plan' });
+  assert.match(await page.evaluate(() => document.querySelector('.c-pack__plan').textContent), /to add, \d+ to replace/);
+  await shot('35-modpack-update-plan');
+
+  await page.click('.c-pack__plan .c-button--primary', 'Update now');
+  await page.waitFor(() => document.querySelector('.c-pack__status')?.textContent.includes('Up to date'), { timeout: 600000, message: 'the pack up to date' });
+  await shot('36-modpack-updated');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+  await deleteOpenServer('E2E moved pack', true); // it has a backup now: delete that too
 }));
 
 test('an owner adds a member who then sees only the server they were given', { skip, timeout: 90000 }, step('users', async () => {

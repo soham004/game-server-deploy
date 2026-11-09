@@ -19,8 +19,8 @@ D-035 … D-038 (M3).
 
 **M4 in progress:** Modrinth, Hangar and CurseForge are done: search, install with dependencies, packwiz index, on/off,
 remove, updates after a full backup, identify (Modrinth, CurseForge) and installing several at once (D-039, D-040, D-042,
-D-043, D-044), CurseForge checked against the real API (D-046). Modpacks found on Modrinth or CurseForge, or uploaded, and zipped servers become servers (D-045, D-049); pack updates are
-next. Every route needs a session except signing in (D-041). Servers stop by themselves if the app is killed (D-047), and our code has
+D-043, D-044), CurseForge checked against the real API (D-046). Modpacks found on Modrinth or CurseForge, or uploaded, and zipped servers become servers, and packs update in place (D-045,
+D-049, D-050). M5 is next. Every route needs a session except signing in (D-041). Servers stop by themselves if the app is killed (D-047), and our code has
 no `unsafe`: a launcher applies the sandbox (D-048).
 
 CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.

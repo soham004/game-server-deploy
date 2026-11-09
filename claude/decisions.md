@@ -684,3 +684,50 @@ Members manage only the instances they are granted. Member quotas (instance coun
   loading, and a server started after its binary was deleted. As root: the isolation check at level Strong (server as UID 30999),
   the 5 kernel tests on five runs in a row. Also `app-killed.e2e.mjs` in both, and the Docker suite. Not run:
   `cgroup-systemd.sh`, so hard limits under real systemd are covered only by the kernel tests.
+
+**D-049: Finding modpacks on a source** · accepted · 2026-11-09
+- **Search and versions** for Modrinth (`project_type:modpack`, server-side only) and `CurseForge` (class 4471, which can't say what runs on
+  a server), with an optional Minecraft version. Hangar has no packs. A search result leads to the same confirm-and-create step as an upload.
+- **Fetching is a job:** a pack can be gigabytes, longer than a reverse proxy keeps a request open. `POST /modpacks/fetch` answers at once with
+  an upload id, and `GET /modpacks/uploads/{id}` says what it is once the job has succeeded. Hashes are checked; an unknown version and a file
+  only downloadable by hand are refused before anything downloads.
+- **A `CurseForge` server pack doesn't go through the import, unlike the plan.** The plan was to import it and detect the loader. The first real
+  one (The Vanilla Experience, 26.3) holds `mods/`, `config/` and `server.properties`, with no loader or jar, so it couldn't start and no version
+  could be detected. So both files come down: `manifest.json` says which loader to install, and the server pack's files replace the pack's list
+  and overrides. A server pack only downloadable by hand falls back to the pack's own files. A pack's own file only downloadable by hand is
+  refused even with a good server pack, since nothing else names the loader.
+- **A pack can't undo what is settled for this server** (a fix for uploads too, wrong since D-045). Its `server.properties` keeps everything but the
+  ports, because the sandbox wouldn't let the server bind the default one, and its `eula.txt` is ignored: the EULA was accepted when it was created.
+- **`[modpack]`** in `instance.toml` records source, project, version and names (`file` for an upload). It is saved after the files, and failing to
+  save it only logs: the server works either way.
+- Real API (2026-11-09): class 4471 is right, and 6 of the 10 most downloaded packs for 1.20.1 have a server pack.
+- Tested: API with both mocks (search facets, versions, release over a newer beta, a changed download, server pack with no top folder, its fallback,
+  by hand, port and EULA kept, rights); real Modrinth pack found, installed and started; a real `CurseForge` pack with no server pack (Xray Pack) and
+  one with (The Vanilla Experience: 150 mods tracked, started), both also as root with the server as UID 20000; the browser suite, whose screenshot
+  showed a layout bug its assertions couldn't see.
+
+**D-050: Updating a server's modpack** · accepted · 2026-11-09
+- **The lock:** `.modpack-files.json` in the server's folder lists what the pack last installed, with SHA-1s, and its version. In the server's
+  folder so that a backup and its restore carry it: after a restore it still describes the files that are there, while `[modpack]` may be ahead, so the
+  status reads the version from the lock. The server can edit it, which gains nothing: its paths only reach its own files through the file manager. A
+  pack can't bring its own. Without one, an update is refused (`pack_update_unavailable`), since it can't tell whose files are whose.
+- **The rule, one pure function (`changes::compare`):** a file changes only if the pack installed it and it still has that hash. A file changed since is
+  kept and named; so is one removed since, one turned off, and one that didn't come from the pack. Files the pack doesn't list are never touched.
+  This is the plan's v1: no three-way merge. Since mods rewrite their configs on first run, a config can count as changed with no user involved, so the
+  review offers "replace these too" (`replace_changed`). That never brings back a turned-off file.
+- **An install is the same thing from nothing,** with `replace_changed` so a pack's files replace what the loader seeded, so there is one code path.
+- **Review, then apply:** the new version comes from the source (a job on the server, so members who can see it can follow it) or an upload; `plan` changes
+  nothing. Applying needs a stopped server, and takes a full `pre_update` backup first. If it fails after that, the error names the backup.
+- **The pack decides the versions:** a different Minecraft or loader version is installed as part of the job, with the version change's own code and checks,
+  so going to an older Minecraft version is refused. Another loader is refused (`pack_changes_loader`): that is a new server.
+- Index entries of removed and replaced jars go, and the lookup afterwards names what is there.
+- **A fault found while testing:** a file kept for not being the pack's was first recorded in the lock, so a later "replace" would have deleted it.
+- **What is offered:** the newest version for the server's Minecraft that is newer than what is installed and at least as mature. Both parts come from one real pack
+  (Adrenaline): it publishes each version for six Minecraft versions, so taking the newest overall offered `26.5.1+mc26.2` to a 26.3 server, a downgrade; and all its 26.3
+  builds are `beta`, so "releases only" offered nothing. A server on a release isn't moved to a beta. A pack's move to a newer Minecraft isn't offered; fetching that
+  version by id through the API, or uploading it, still works, and the update then installs that Minecraft.
+- **Known limits:** servers made before the lock existed can't be updated. Uploading a different pack is allowed and then counts as that pack; the review shows
+  its name. No "changelog" is shown. A pack's override that the user changed stays old until they choose to replace it.
+- Tested: `compare` table tests; API (owned files, kept with reasons, replace, source and upload, downloaded mod re-tracked, loader version change, another
+  loader, not a pack, no source, running server, missing lock, a pack bringing a lock, rights); a real pack already run once and updated (Adrenaline 26.5.0 to
+  26.5.1: 9 added, 1 replaced, 8 removed), started afterwards; browser scenario for the Mods tab.

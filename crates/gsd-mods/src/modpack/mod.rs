@@ -11,7 +11,10 @@
 //! format allows, since otherwise an upload could aim the app's requests anywhere.
 
 pub mod browse;
+pub mod changes;
+mod desired;
 pub mod format;
+pub mod update;
 
 use std::{
     collections::HashSet,
@@ -29,15 +32,13 @@ use gsd_core::{
     jobs::{JobContext, JobFailure, error_chain},
     random,
 };
-use gsd_minecraft::{
-    CreateError, CreateRequest, MinecraftService, install::point_at_port, settings::MinecraftServer,
-};
+use gsd_minecraft::{CreateError, CreateRequest, LoaderKind, MinecraftService, install::point_at_port};
 use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
 
-use crate::{error::ContentError, install, model::ContentFile, service::ContentService, target::Target};
-use format::{CurseForgeFile, MrpackFile, Pack, PackContents, PackInfo};
+use crate::{error::ContentError, service::ContentService};
+use format::{Pack, PackContents, PackInfo};
 
 /// The largest archive accepted.
 const MAX_UPLOAD_BYTES: u64 = 4 * 1024 * 1024 * 1024;
@@ -89,6 +90,14 @@ pub enum ModpackError {
     NoPacksThere,
     #[error("{name} can only be downloaded by hand: get it from {url}, then upload it here")]
     ByHand { name: String, url: String },
+    #[error("this server wasn't made from a modpack")]
+    NotAPackServer,
+    #[error("this server doesn't record which files its pack installed, so it can't be updated in place")]
+    NoLock,
+    #[error("this pack came from a file, so there is no source to ask: upload the new version instead")]
+    NoSourceToAsk,
+    #[error("this pack runs on {to:?}, and this server on {from:?}: make a new server for it")]
+    ChangesLoader { from: LoaderKind, to: LoaderKind },
     #[error(transparent)]
     Pack(#[from] format::PackError),
     #[error(transparent)]
@@ -117,9 +126,19 @@ impl ContentService {
     pub async fn upload_modpack<S, E>(
         &self,
         file_name: &str,
-        mut body: S,
+        body: S,
         imports_dir: &Path,
     ) -> Result<Uploaded, ModpackError>
+    where
+        S: Stream<Item = Result<Bytes, E>> + Unpin + Send,
+        E: std::fmt::Display,
+    {
+        let (upload_id, path) = self.store_upload(body).await?;
+        classify(&upload_id, &path, file_name, imports_dir).await
+    }
+
+    /// Streams an archive to disk: its upload id and where it is.
+    async fn store_upload<S, E>(&self, mut body: S) -> Result<(String, PathBuf), ModpackError>
     where
         S: Stream<Item = Result<Bytes, E>> + Unpin + Send,
         E: std::fmt::Display,
@@ -143,7 +162,7 @@ impl ContentService {
         }
         file.flush().await?;
         drop(file);
-        classify(&upload_id, &path, file_name, imports_dir).await
+        Ok((upload_id, path))
     }
 
     /// Creates a server for an uploaded pack; one job installs the server and then the pack.
@@ -163,6 +182,7 @@ impl ContentService {
             return Err(ContentError::Source(crate::SourceError::NoKey).into());
         }
         let origin = browse::FetchNote::read(&path).await.map(|note| note.origin);
+        let version_id = origin.as_ref().map(|origin| origin.version_id.clone());
         let record = modpack_record(&pack.info, origin);
         let create = CreateRequest {
             name: request.name,
@@ -175,10 +195,8 @@ impl ContentService {
         let service = self.clone();
         Ok(minecraft
             .create_then(create, move |instance, job| async move {
-                let result = service.fill(&instance, &pack, &path, &job).await;
-                let _ = tokio::fs::remove_file(&path).await;
-                let _ = tokio::fs::remove_file(browse::FetchNote::path(&path)).await;
-                let _ = tokio::fs::remove_file(server_pack_path(&path)).await;
+                let result = service.fill(&instance, &pack, &path, version_id, &job).await;
+                service.forget_upload(&path).await;
                 result.map_err(|error| JobFailure::msg(error_chain(&error)))?;
                 // Only for showing and updating it: the server works either way.
                 let saved = service
@@ -195,149 +213,45 @@ impl ContentService {
             .await?)
     }
 
-    /// The pack's part of the job: its files and overrides, or instead its author's server version
-    /// when there is one; then what the sources recognise.
+    /// The pack's part of the job: everything it brings, as an update from nothing, then what the
+    /// sources recognise. What the loader's install seeded (`server.properties`) gets replaced.
     async fn fill(
         &self,
         instance: &Instance,
         pack: &Pack,
         archive: &Path,
+        version_id: Option<String>,
         job: &JobContext,
     ) -> Result<(), ModpackError> {
         let files = ServerFiles::open(instance).await.map_err(ContentError::from)?;
-        let server_pack = server_pack_path(archive);
-        let has_server_pack = tokio::fs::try_exists(&server_pack).await.unwrap_or(false);
-        if !has_server_pack {
-            job.step(format!(
-                "Downloading {} files for {}",
-                pack.info.files, pack.info.name
-            ));
-            match &pack.contents {
-                PackContents::Mrpack(wanted) => self.fetch_mrpack(&files, wanted, job).await?,
-                PackContents::Curseforge(wanted) => self.fetch_curseforge(&files, wanted, job).await?,
-            }
-        }
-        job.step(if has_server_pack {
-            "Copying the server pack"
-        } else {
-            "Copying the pack's own files"
-        });
+        job.step(format!("Downloading the files of {}", pack.info.name));
         let staging = archive.with_extension("staging");
-        let to = staging.clone();
-        let port = instance.definition.ports.game;
-        let (from, overrides) = (archive.to_owned(), pack.overrides.clone());
-        tokio::task::spawn_blocking(move || {
-            if has_server_pack {
-                let top = single_top_folder(&server_pack)?;
-                unpack_folders(&server_pack, std::slice::from_ref(&top), &to)?;
-            } else {
-                unpack_folders(&from, &overrides, &to)?;
-            }
-            keep_settings_of_this_server(&to, port)
-        })
-        .await
-        .map_err(io::Error::other)??;
-        let copied = copy_tree(&files, &staging).await;
-        let _ = tokio::fs::remove_dir_all(&staging).await;
-        job.log(format!("Copied {} files from the pack", copied?));
-
-        job.step("Looking up what was installed");
-        let server = MinecraftServer::from_table(&instance.definition.server).ok();
-        if let Some(target) = server.as_ref().and_then(Target::for_server) {
-            // Only tracking: a lookup that fails leaves working files, not a failed install.
-            match self.identify_on(instance, &target).await {
-                Ok(found) => job.log(format!(
-                    "Tracking {}; not found on any source: {}",
-                    found.identified.len(),
-                    found.still_unknown.len()
-                )),
-                Err(error) => job.log(format!("Could not look the files up: {error}")),
-            }
-        }
-        Ok(())
-    }
-
-    async fn fetch_mrpack(
-        &self,
-        files: &ServerFiles,
-        wanted: &[MrpackFile],
-        job: &JobContext,
-    ) -> Result<(), ModpackError> {
-        let allowed = self.allowed_download_origin();
-        for (position, file) in wanted.iter().enumerate() {
-            job.check_cancelled().map_err(|_| ContentError::Cancelled)?;
-            let name = file.path.rsplit('/').next().unwrap_or(&file.path).to_owned();
-            let url = file
-                .downloads
-                .iter()
-                .find(|url| download_allowed(url, allowed.as_deref()))
-                .ok_or_else(|| {
-                    format::PackError::Invalid(format!(
-                        "{name} is hosted somewhere packs may not download from"
-                    ))
-                })?;
-            let content = ContentFile {
-                url: url.clone(),
-                filename: name,
-                size: file.size,
-                sha1: file.sha1.clone(),
-                sha256: None,
-                sha512: file.sha512.clone(),
-                manual_url: None,
-            };
-            let cached =
-                install::download(self.inner.sources.client(), &content, &self.inner.cache_dir, job).await?;
-            place(files, &file.path, &cached).await?;
-            job.log(format!("{}/{} {}", position + 1, wanted.len(), file.path));
-        }
-        Ok(())
-    }
-
-    /// A blocked file is logged and left out, and the rest still comes: the server's Mods tab then
-    /// shows what is there, and the file can be added once downloaded.
-    async fn fetch_curseforge(
-        &self,
-        files: &ServerFiles,
-        wanted: &[CurseForgeFile],
-        job: &JobContext,
-    ) -> Result<(), ModpackError> {
-        let ids: Vec<u64> = wanted.iter().map(|file| file.file).collect();
-        let versions = self
-            .inner
-            .sources
-            .curseforge
-            .files(&ids)
-            .await
-            .map_err(ContentError::from)?;
-        for version in &versions {
-            job.check_cancelled().map_err(|_| ContentError::Cancelled)?;
-            let name = &version.file.filename;
-            if version.file.url.is_empty() {
-                job.log(format!(
-                    "Not installed: {name}: its author only allows downloading it by hand"
-                ));
-                continue;
-            }
-            // Packs also list resource packs and the like, which a server has no use for.
-            if !name.to_ascii_lowercase().ends_with(".jar") {
-                job.log(format!("Left out: {name} (not a mod)"));
-                continue;
-            }
-            let cached = install::download(
-                self.inner.sources.client(),
-                &version.file,
-                &self.inner.cache_dir,
-                job,
+        let result = async {
+            let desired = self.desired(pack, archive, &staging, instance).await?;
+            let new = desired.new_files();
+            let nothing = std::collections::BTreeMap::new();
+            let changes = changes::compare(&nothing, &new, |_| changes::Local::Missing, true);
+            let hashes = self.apply_changes(&files, &desired, &changes, job).await?;
+            update::write_lock(
+                &files,
+                &changes::PackLock {
+                    version_id,
+                    version: pack.info.version.clone(),
+                    files: hashes,
+                },
             )
             .await?;
-            place(files, &format!("mods/{name}"), &cached).await?;
-            job.log(format!("Installed {name}"));
+            Ok::<_, ModpackError>(())
         }
+        .await;
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        result?;
+        self.track_installed(instance, job).await;
         Ok(())
     }
 
     /// The configured Modrinth API's own origin may serve downloads too, which is where tests' stand-in lives.
-    fn allowed_download_origin(&self) -> Option<String> {
+    pub(super) fn allowed_download_origin(&self) -> Option<String> {
         reqwest::Url::parse(self.inner.sources.modrinth.api())
             .ok()
             .map(|url| url.origin().ascii_serialization())
@@ -399,6 +313,21 @@ fn modpack_record(info: &PackInfo, origin: Option<browse::PackOrigin>) -> Modpac
         version_id,
         name: info.name.clone(),
         version: info.version.clone(),
+    }
+}
+
+/// The pack in an archive that must be one. Anything else is removed and refused.
+async fn classify_pack(path: PathBuf) -> Result<Pack, ModpackError> {
+    match read_pack(path.clone()).await {
+        Ok(Some(pack)) => Ok(pack),
+        Ok(None) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            Err(format::PackError::Invalid("it isn't a modpack".into()).into())
+        }
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            Err(error)
+        }
     }
 }
 
@@ -609,32 +538,6 @@ async fn ensure_parents(files: &ServerFiles, path: &SafeRelPath) -> Result<(), F
         }
     }
     Ok(())
-}
-
-/// Copies everything under `staging` into the server, replacing what is there. Returns how many files.
-async fn copy_tree(files: &ServerFiles, staging: &Path) -> Result<u64, ContentError> {
-    let mut count = 0;
-    let mut folders = vec![staging.to_owned()];
-    while let Some(folder) = folders.pop() {
-        let cache_error = |source| ContentError::Cache {
-            path: folder.clone(),
-            source,
-        };
-        let mut entries = tokio::fs::read_dir(&folder).await.map_err(cache_error)?;
-        while let Some(entry) = entries.next_entry().await.map_err(cache_error)? {
-            let path = entry.path();
-            if entry.file_type().await.map_err(cache_error)?.is_dir() {
-                folders.push(path);
-                continue;
-            }
-            let Some(relative) = path.strip_prefix(staging).ok().and_then(Path::to_str) else {
-                continue;
-            };
-            place(files, &relative.replace('\\', "/"), &path).await?;
-            count += 1;
-        }
-    }
-    Ok(count)
 }
 
 #[cfg(test)]

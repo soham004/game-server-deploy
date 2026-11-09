@@ -83,7 +83,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [x] Modpacks by upload: `.mrpack` and CurseForge manifest packs become a server in one job (D-045).
 - [x] Modpacks by search: browsing Modrinth and CurseForge packs, following CurseForge's `serverPackFileId`, recording the
       pack in `instance.toml` (D-049).
-- [ ] Pack updates.
+- [x] Pack updates: from the pack's source or an upload, reviewed first, after a full backup, changing only what the pack owns (D-050).
 - [x] Import from an uploaded zip / server pack (unpacked into the imports folder, then the usual folder import), and identify
       the imported `mods/*.jar` into the packwiz index (D-045).
 

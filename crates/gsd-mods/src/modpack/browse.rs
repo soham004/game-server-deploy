@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use gsd_core::{
-    ids::JobId,
+    ids::{InstanceId, JobId},
     jobs::{JobContext, JobFailure, JobSpec, error_chain},
 };
 use serde::{Deserialize, Serialize};
@@ -27,12 +27,14 @@ use crate::{
     service::ContentService,
 };
 
-/// Which pack to fetch: the given version, or else its newest release.
+/// Which pack to fetch: the given version, or else its newest release, for `mc_version` if one is
+/// given. A pack's newest version overall can be for a much older Minecraft.
 #[derive(Debug, Clone)]
 pub struct FetchPack {
     pub source: SourceKind,
     pub project_id: String,
     pub version_id: Option<String>,
+    pub mc_version: Option<String>,
 }
 
 /// A fetch under way.
@@ -125,6 +127,17 @@ impl ContentService {
         request: FetchPack,
         imports_dir: PathBuf,
     ) -> Result<Fetching, ModpackError> {
+        self.fetch_modpack_for(request, imports_dir, None).await
+    }
+
+    /// Like [`Self::fetch_modpack`]; with an `instance`, the job belongs to that server, so whoever
+    /// may see the server may follow it, and nothing else happens on the server meanwhile.
+    pub(super) async fn fetch_modpack_for(
+        &self,
+        request: FetchPack,
+        imports_dir: PathBuf,
+        instance: Option<InstanceId>,
+    ) -> Result<Fetching, ModpackError> {
         let chosen = self.choose(&request).await?;
         let upload_id = new_upload_id()?;
         let origin = PackOrigin {
@@ -135,7 +148,7 @@ impl ContentService {
         let spec = JobSpec {
             kind: "modpack.fetch",
             title: format!("Downloading {}", chosen.version.name),
-            instance_id: None,
+            instance_id: instance,
         };
         let (service, id) = (self.clone(), upload_id.clone());
         let job_id = self
@@ -147,7 +160,7 @@ impl ContentService {
                     .await
                     .map_err(|error| JobFailure::msg(error_chain(&error)))
             })
-            .map_err(|error| ModpackError::Io(std::io::Error::other(error.to_string())))?;
+            .map_err(ContentError::from)?;
         Ok(Fetching { upload_id, job_id })
     }
 
@@ -170,9 +183,20 @@ impl ContentService {
 
     async fn choose(&self, request: &FetchPack) -> Result<Chosen, ModpackError> {
         let versions = self.modpack_versions(request.source, &request.project_id).await?;
-        let version = match &request.version_id {
-            Some(id) => versions.iter().find(|version| version.id == *id),
-            None => newest_release(&versions),
+        let version = match (&request.version_id, &request.mc_version) {
+            (Some(id), _) => versions.iter().find(|version| version.id == *id),
+            (None, Some(mc_version)) => {
+                let fitting: Vec<ContentVersion> = versions
+                    .iter()
+                    .filter(|version| version.game_versions.contains(mc_version))
+                    .cloned()
+                    .collect();
+                let newest = newest_release(&fitting).map(|version| version.id.clone());
+                versions
+                    .iter()
+                    .find(|version| Some(&version.id) == newest.as_ref())
+            }
+            (None, None) => newest_release(&versions),
         }
         .ok_or_else(|| ContentError::from(SourceError::NotFound))?
         .clone();
@@ -257,7 +281,7 @@ impl ContentService {
 }
 
 /// The newest release, or the newest of anything when a pack has no releases.
-fn newest_release(versions: &[ContentVersion]) -> Option<&ContentVersion> {
+pub(super) fn newest_release(versions: &[ContentVersion]) -> Option<&ContentVersion> {
     versions
         .iter()
         .find(|version| version.channel == Channel::Release)

@@ -10,9 +10,9 @@ import { debounce } from '../core/debounce.js';
 import { h } from '../core/dom.js';
 import { relativeTime } from '../core/format.js';
 import { navigate } from '../core/navigation.js';
+import { finishedJob } from '../core/wait-job.js';
 
 const TYPING_PAUSE_MS = 200;
-const JOB_POLL_MS = 1000;
 const PAGE_SIZE = 20;
 const SORTS = [
   ['downloads', 'Most downloaded'],
@@ -85,7 +85,8 @@ export async function mount(root) {
   async function chooseVersion(hit, button) {
     button.disabled = true;
     try {
-      const versions = await api.get(`/modpacks/projects/${encodeURIComponent(hit.id)}/versions?source=${hit.source}`);
+      const all = await api.get(`/modpacks/projects/${encodeURIComponent(hit.id)}/versions?source=${hit.source}`);
+      const versions = version.value ? all.filter((v) => v.game_versions.includes(version.value)) : all;
       if (versions.length === 0) {
         chosen.replaceChildren(failure(`${hit.title} has no versions to download.`));
         button.disabled = false;
@@ -106,8 +107,8 @@ export async function mount(root) {
     chosen.replaceChildren(h('p', { class: 'c-muted', role: 'status' }, `Downloading ${hit.title}…`));
     chosen.scrollIntoView({ block: 'nearest' });
     try {
-      const { upload_id: uploadId, job_id: jobId } = await api.post('/modpacks/fetch', { source: hit.source, project_id: hit.id, version_id: versionId });
-      const job = await finished(jobId);
+      const { upload_id: uploadId, job_id: jobId } = await api.post('/modpacks/fetch', { source: hit.source, project_id: hit.id, version_id: versionId, mc_version: version.value });
+      const job = await finishedJob(jobId, () => chosen.isConnected);
       if (!job) return; // left the page
       if (job.status !== 'succeeded') {
         chosen.replaceChildren(failure(job.error ?? `The download ${job.status === 'cancelled' ? 'was cancelled' : 'failed'}.`));
@@ -119,16 +120,6 @@ export async function mount(root) {
     } catch (error) {
       chosen.replaceChildren(failure(error.message));
     }
-  }
-
-  /** The finished job, or nothing once this page is gone. */
-  async function finished(jobId) {
-    while (chosen.isConnected) {
-      const job = await api.get(`/jobs/${jobId}`);
-      if (job.status !== 'running') return job;
-      await new Promise((resolve) => { setTimeout(resolve, JOB_POLL_MS); });
-    }
-    return null;
   }
 
   const failure = (message) => h('p', { class: 'c-form__error', role: 'alert' }, message);

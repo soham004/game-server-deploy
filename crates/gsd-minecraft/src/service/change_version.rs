@@ -38,6 +38,13 @@ pub struct ChangeVersionRequest {
     pub by: Option<UserId>,
 }
 
+/// A version change checked against the catalog, to make later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedVersionChange {
+    target: MinecraftServer,
+    java_major: u32,
+}
+
 impl MinecraftService {
     /// Checks the change against the catalog, then makes it in a job.
     pub async fn change_version(
@@ -85,6 +92,41 @@ impl MinecraftService {
                     ))
                 })
         })?)
+    }
+
+    /// Checks moving `instance` to these versions, for a caller with its own job and its own backup (a
+    /// pack update). `None` when it is on them already; no `loader_version` means any will do.
+    pub async fn prepare_version_change(
+        &self,
+        instance: &Instance,
+        mc_version: &str,
+        loader_version: Option<&str>,
+    ) -> Result<Option<PreparedVersionChange>, CreateError> {
+        let current = MinecraftServer::from_table(&instance.definition.server)?;
+        let same_loader = loader_version.is_none() || loader_version == current.loader_version.as_deref();
+        if current.mc_version == mc_version && same_loader {
+            return Ok(None);
+        }
+        let request = ChangeVersionRequest {
+            mc_version: mc_version.to_owned(),
+            loader_version: loader_version.map(str::to_owned),
+            allow_downgrade: false,
+            by: None,
+        };
+        let target = self.target(&current, &request).await?;
+        let java_major = self.catalog.version_detail(mc_version).await?.java_major();
+        Ok(Some(PreparedVersionChange { target, java_major }))
+    }
+
+    /// Makes a prepared change, as part of the caller's job.
+    pub async fn apply_version_change(
+        &self,
+        instance: &Instance,
+        change: &PreparedVersionChange,
+        job: &JobContext,
+    ) -> Result<(), JobFailure> {
+        self.install_version(instance, &change.target, change.java_major, job)
+            .await
     }
 
     /// The validated new `[server]` table: same loader, the new versions.

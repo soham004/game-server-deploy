@@ -333,7 +333,7 @@ mod change_version;
 mod clone;
 mod import;
 
-pub use change_version::ChangeVersionRequest;
+pub use change_version::{ChangeVersionRequest, PreparedVersionChange};
 pub use clone::CloneRequest;
 pub use import::{ImportCandidate, ImportRequest};
 #[cfg(test)]

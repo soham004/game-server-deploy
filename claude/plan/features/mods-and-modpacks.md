@@ -52,8 +52,8 @@ narrows one to a server for the resolver. Lookups by hash stay on the clients th
 - Tests use the real API with a key from `CURSEFORGE_API_KEY` or `.env`, which never ships (D-046).
 
 ## Modpacks
-Built so far: uploads (D-045), search, fetching and `[modpack]` records (D-049). Below is the full plan; pack updates and
-checking client-only mods against Modrinth are still to come.
+Built so far: uploads (D-045), search, fetching and `[modpack]` records (D-049), updates (D-050). Below is the full plan;
+checking client-only mods against Modrinth and the three-way merge are still to come.
 - **Modrinth `.mrpack`** (from search or file upload): read `modrinth.index.json` → required MC + loader → create the instance
   via the installer → download files where `env.server != unsupported` (files with no env go in and get flagged) →
   extract `overrides/` then `server-overrides/` → record `[modpack]` in instance.toml.
