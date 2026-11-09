@@ -13,18 +13,8 @@
 Hangar (plugins), CurseForge (mods + Bukkit plugins, user-supplied key). SpigotMC/Spiget is P3.
 
 ## Source abstraction (gsd-mods)
-```rust
-#[async_trait]
-pub trait ContentSource {
-    fn id(&self) -> SourceId;                                  // modrinth | curseforge
-    async fn search(&self, q: &SearchQuery) -> Result<SearchPage, SourceError>;
-    async fn project(&self, id: &ProjectId) -> Result<Project, SourceError>;
-    async fn versions(&self, id: &ProjectId, filter: &CompatFilter) -> Result<Vec<ContentVersion>, SourceError>;
-    async fn identify(&self, files: &[LocalFileHashes]) -> Result<Vec<Identified>, SourceError>;
-    async fn latest_for(&self, files: &[LocalFileHashes], filter: &CompatFilter) -> Result<Vec<UpdateCandidate>, SourceError>;
-}
-pub struct CompatFilter { mc: McVersion, loaders: Vec<LoaderTag>, side: Side /* server */ }
-```
+`source::Source` is an enum over the clients, with `search`, `project`, `projects` and `versions` (D-043). `ForServer`
+narrows one to a server for the resolver. Lookups by hash stay on the clients that have them.
 - Normalised `Project` has `server_side: SideSupport` (Modrinth gives it; CurseForge doesn't, so it is `Unknown`, and
   we can cross-check by Modrinth slug match or hash when the same file exists on both).
 - A shared rate limiter per source (Modrinth 300/min), retry with jitter on 429/5xx, cache search pages for 60 s.
@@ -56,12 +46,13 @@ pub struct CompatFilter { mc: McVersion, loaders: Vec<LoaderTag>, side: Side /* 
 
 ## CurseForge specifics
 - API key from Settings, stored server-side, never sent to the browser; all CF calls are proxied.
-- **Blocked distribution** (`allowModDistribution=false` or `downloadUrl=null`): the job pauses at "Manual downloads
-  required" and the UI lists files with "Open on CurseForge" links and a drop zone. Uploaded files are fingerprinted
-  and matched, then the job resumes. (Same as Prism.)
+- **Blocked distribution** (`downloadUrl=null`): the job installs everything else and leaves these out; the UI lists them
+  with "Open on CurseForge" links and a drop zone. Uploaded files are fingerprinted and matched (D-044: no paused job).
 - Show CF attribution and links per their terms.
+- Tests use the real API with a key from `CURSEFORGE_API_KEY` or `.env`, which never ships (D-046).
 
 ## Modpacks
+Built so far: uploads only (D-045). Below is the full plan; search and `[modpack]` records are still to come.
 - **Modrinth `.mrpack`** (from search or file upload): read `modrinth.index.json` → required MC + loader → create the instance
   via the installer → download files where `env.server != unsupported` (files with no env go in and get flagged) →
   extract `overrides/` then `server-overrides/` → record `[modpack]` in instance.toml.

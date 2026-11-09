@@ -1,4 +1,4 @@
-/* Mods / Plugins tab (components/content.js, content-updates.js, content-browser.js). */
+/* Mods / Plugins tab (components/content.js, content-updates.js, content-browser.js, content-install-list.js). */
 
 .c-content {
   display: grid;
@@ -16,6 +16,37 @@
 
 .c-content__updates:empty {
   display: none;
+}
+
+.c-manual {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-manual__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.c-manual__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.c-manual__drop {
+  display: block;
+  padding: var(--space-3);
+  border: var(--border-width) dashed var(--color-border);
+  border-radius: var(--radius-md);
 }
 
 .c-content-updates {
@@ -176,7 +207,8 @@
 
 .c-content-result {
   display: grid;
-  grid-template-columns: 3rem minmax(0, 1fr) auto;
+  /* checkbox, icon, text, buttons */
+  grid-template-columns: 1.25rem 3rem minmax(0, 1fr) auto;
   gap: var(--space-3);
   align-items: start;
   padding: var(--space-3);
@@ -216,11 +248,42 @@
 /* On narrow screens the buttons go under the text. */
 @media (max-width: 40rem) {
   .c-content-result {
-    grid-template-columns: 3rem minmax(0, 1fr);
+    grid-template-columns: 1.25rem 3rem minmax(0, 1fr);
   }
 
   .c-content-browser__actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
   }
+}
+
+.c-content-result__pick {
+  display: flex;
+  align-items: center;
+  height: 3rem;
+}
+
+.c-content-result__pick input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* The "To be installed" list: the installed list's table (above), plus its buttons. */
+.c-install-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-install-list[hidden] {
+  display: none;
+}
+
+.c-install-list__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }

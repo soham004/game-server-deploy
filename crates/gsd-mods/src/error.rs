@@ -24,6 +24,10 @@ pub enum SourceError {
     NotFound,
     #[error("the content source is busy (rate limit); try again in a minute")]
     RateLimited,
+    #[error("CurseForge needs an API key; an owner can add one in Settings")]
+    NoKey,
+    #[error("the content source refused the API key; an owner can check it in Settings")]
+    KeyRefused,
     /// Modrinth retires old API versions with HTTP 410.
     #[error("this version of the app uses an API the content source no longer offers; update the app")]
     ApiRetired,
@@ -45,6 +49,8 @@ pub enum ContentError {
     NotInstalled(String),
     #[error("{0} has no checksum, so it can't be checked after downloading")]
     NoChecksum(String),
+    #[error("{0} is not a jar file")]
+    NotAJar(String),
     #[error("cancelled")]
     Cancelled,
     #[error("everything is up to date")]

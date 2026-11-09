@@ -3,7 +3,10 @@
 //! through the file manager (so it belongs to the server's user and can't be redirected by a
 //! planted symlink), and recorded in the packwiz index. A replaced file goes to the trash.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use gsd_core::{
     files::{FilesError, SafeRelPath, ServerFiles},
@@ -15,8 +18,8 @@ use tokio_util::io::ReaderStream;
 use crate::{
     error::ContentError,
     index::{self, INDEX_FOLDER, IndexEntry},
-    installed::DISABLED,
-    model::ContentVersion,
+    installed::{DISABLED, read_entries},
+    model::{ContentFile, HashFormat},
     resolver::{InstallPlan, PlannedInstall},
 };
 
@@ -33,31 +36,65 @@ pub async fn run(
     let index_folder = folder.join(INDEX_FOLDER)?;
     ensure_folder(files, &folder).await?;
     ensure_folder(files, &index_folder).await?;
+    let existing = read_entries(files, &index_folder).await;
     for step in &plan.steps {
         job.check_cancelled().map_err(|_| ContentError::Cancelled)?;
+        if step.version.file.manual_url.is_some() {
+            job.log(format!(
+                "{}: its author only allows downloading it by hand, so upload {} yourself",
+                step.project.title, step.version.file.filename
+            ));
+            continue;
+        }
         job.step(format!(
             "Installing {} {}",
             step.project.title, step.version.version_number
         ));
-        let cached = download(client, &step.version, cache_dir, job).await?;
+        let cached = download(client, &step.version.file, cache_dir, job).await?;
         place(files, &folder, step, &cached).await?;
         write_index(files, &index_folder, step).await?;
+        remove_old_entries(files, &index_folder, step, &existing).await?;
         job.log(format!("Installed {}", step.version.file.filename));
     }
     Ok(())
 }
 
+/// One file has one index entry. The entry of a replaced file (or of another project with the same
+/// file name) may have another name than the one just written: the plugin came from another
+/// source, or its slug changed. Left behind, it would claim the file.
+async fn remove_old_entries(
+    files: &ServerFiles,
+    index_folder: &SafeRelPath,
+    step: &PlannedInstall,
+    existing: &HashMap<String, (String, IndexEntry)>,
+) -> Result<(), ContentError> {
+    let current = index::file_name(&step.project.slug);
+    let described = [Some(&step.version.file.filename), step.replaces.as_ref()];
+    for file in described.into_iter().flatten() {
+        if let Some((entry_name, _)) = existing.get(file).filter(|(name, _)| *name != current) {
+            match files.delete(vec![index_folder.join(entry_name)?]).await {
+                Ok(()) | Err(FilesError::NotFound(_)) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The file in the content cache (downloaded now if it isn't there yet).
-async fn download(
+pub(crate) async fn download(
     client: &reqwest::Client,
-    version: &ContentVersion,
+    file: &ContentFile,
     cache_dir: &Path,
     job: &JobContext,
 ) -> Result<PathBuf, ContentError> {
-    let (expected, key) = match (&version.file.sha512, &version.file.sha1) {
-        (Some(sha512), _) => (ExpectedHash::Sha512(sha512.clone()), sha512),
-        (None, Some(sha1)) => (ExpectedHash::Sha1(sha1.clone()), sha1),
-        (None, None) => return Err(ContentError::NoChecksum(version.file.filename.clone())),
+    let Some((format, key)) = file.best_hash() else {
+        return Err(ContentError::NoChecksum(file.filename.clone()));
+    };
+    let expected = match format {
+        HashFormat::Sha512 => ExpectedHash::Sha512(key.to_owned()),
+        HashFormat::Sha256 => ExpectedHash::Sha256(key.to_owned()),
+        HashFormat::Sha1 => ExpectedHash::Sha1(key.to_owned()),
     };
     let cached = cache_dir.join(format!("{key}.jar"));
     if tokio::fs::try_exists(&cached).await.unwrap_or(false) {
@@ -77,7 +114,7 @@ async fn download(
     };
     download_verified(
         client,
-        &version.file.url,
+        &file.url,
         &cached,
         &expected,
         job.cancel_token(),
@@ -125,7 +162,7 @@ async fn write_index(
     index_folder: &SafeRelPath,
     step: &PlannedInstall,
 ) -> Result<(), ContentError> {
-    let entry = IndexEntry::modrinth(&step.project.title, &step.version, step.project.client_side);
+    let entry = IndexEntry::new(&step.project, &step.version);
     write_entry(files, index_folder, &step.project.slug, &entry).await
 }
 

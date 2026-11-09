@@ -1,0 +1,23 @@
+{
+ "id": 4,
+ "name": "Chunky",
+ "namespace": {
+  "owner": "pop4959",
+  "slug": "Chunky"
+ },
+ "stats": {
+  "downloads": 81093
+ },
+ "category": "world_management",
+ "description": "Pre-generates chunks, quickly and efficiently",
+ "lastUpdated": "2026-11-04T03:08:16.596507Z",
+ "createdAt": "2022-12-22T20:52:18.999416Z",
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/4.webp?v=1",
+ "supportedPlatforms": {
+  "PAPER": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ]
+ }
+}

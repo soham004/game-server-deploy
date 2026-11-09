@@ -2,6 +2,7 @@
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
+use gsd_core::settings::{AppSettings, CURSEFORGE_API_KEY};
 use gsd_core::{
     audit::AuditLog,
     auth::{AuthError, AuthService},
@@ -21,7 +22,7 @@ use gsd_core::{
     },
 };
 use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService};
-use gsd_mods::{ContentService, Modrinth, modrinth};
+use gsd_mods::{ContentService, SourceApis, Sources};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::Config;
@@ -41,6 +42,7 @@ pub struct AppState {
     pub scheduler: Scheduler,
     pub minecraft: MinecraftService,
     pub content: ContentService,
+    pub settings: AppSettings,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
 }
@@ -65,8 +67,8 @@ pub struct BuildOptions {
     pub probe_ports: Option<bool>,
     /// How long a backup waits for a running server to confirm its save.
     pub backup_save_timeout: Option<std::time::Duration>,
-    /// Where the Modrinth API is (a mock in tests).
-    pub modrinth_api: Option<String>,
+    /// Where the content sources' APIs are (mocks in tests).
+    pub source_apis: Option<SourceApis>,
 }
 
 impl AppState {
@@ -136,17 +138,14 @@ impl AppState {
         );
 
         let content = ContentService::new(
-            Modrinth::new(
-                client.clone(),
-                options
-                    .modrinth_api
-                    .unwrap_or_else(|| modrinth::DEFAULT_API.to_owned()),
-            ),
+            Sources::new(client.clone(), source_apis(&config, options.source_apis)),
             instances.clone(),
             jobs.clone(),
             events.clone(),
             config.content_cache_dir(),
         );
+        let settings = AppSettings::new(pool.clone());
+        load_curseforge_key(&settings, &content).await;
 
         let catalog = Catalog::new(
             client,
@@ -178,8 +177,36 @@ impl AppState {
             scheduler,
             minecraft,
             content,
+            settings,
             shutdown: CancellationToken::new(),
         })
+    }
+}
+
+/// Where the content sources are: what a test says, else the real ones (with the configured
+/// `CurseForge`, if any).
+fn source_apis(config: &Config, chosen: Option<SourceApis>) -> SourceApis {
+    chosen.unwrap_or_else(|| {
+        let mut apis = SourceApis::default();
+        if let Some(curseforge) = &config.curseforge_api {
+            apis.curseforge.clone_from(curseforge);
+        }
+        apis
+    })
+}
+
+/// Starts using the saved `CurseForge` key. A key that can't be used leaves `CurseForge` off, and the
+/// app running: it is one optional source.
+async fn load_curseforge_key(settings: &AppSettings, content: &ContentService) {
+    let key = match settings.get(CURSEFORGE_API_KEY).await {
+        Ok(key) => key,
+        Err(error) => {
+            tracing::error!(%error, "could not read the CurseForge key; CurseForge stays off");
+            return;
+        }
+    };
+    if let Err(error) = content.set_curseforge_key(key.as_deref()) {
+        tracing::error!(%error, "the saved CurseForge key can't be used; CurseForge stays off");
     }
 }
 

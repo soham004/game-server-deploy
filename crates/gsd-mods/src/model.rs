@@ -5,16 +5,27 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Where a project comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
+    #[default]
     Modrinth,
+    /// The Paper project's plugin repository (plugins only).
+    Hangar,
+    /// Mods and Bukkit plugins, with the user's own API key.
+    #[serde(rename = "curseforge")]
+    CurseForge,
 }
 
 impl SourceKind {
+    /// Every source, in the order the UI offers them.
+    pub const ALL: [Self; 3] = [Self::Modrinth, Self::Hangar, Self::CurseForge];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Modrinth => "modrinth",
+            Self::Hangar => "hangar",
+            Self::CurseForge => "curseforge",
         }
     }
 }
@@ -44,6 +55,8 @@ pub struct ProjectSummary {
     pub updated: Option<DateTime<Utc>>,
     pub server_side: SideSupport,
     pub client_side: SideSupport,
+    /// The project's page on its source's website.
+    pub page_url: String,
 }
 
 /// One page of search results.
@@ -121,7 +134,43 @@ pub struct ContentFile {
     pub filename: String,
     pub size: u64,
     pub sha1: Option<String>,
+    /// Hangar publishes only this one.
+    pub sha256: Option<String>,
     pub sha512: Option<String>,
+    /// Set when the author doesn't allow other apps to download the file: where the user can get
+    /// it by hand. `url` is empty then, and installing leaves the file for the user to upload.
+    pub manual_url: Option<String>,
+}
+
+/// A checksum algorithm, named as packwiz names it in `hash-format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HashFormat {
+    Sha1,
+    Sha256,
+    Sha512,
+}
+
+impl HashFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sha1 => "sha1",
+            Self::Sha256 => "sha256",
+            Self::Sha512 => "sha512",
+        }
+    }
+}
+
+impl ContentFile {
+    /// The strongest checksum the source gave, to check the download and to record in the index.
+    pub fn best_hash(&self) -> Option<(HashFormat, &str)> {
+        [
+            (HashFormat::Sha512, &self.sha512),
+            (HashFormat::Sha256, &self.sha256),
+            (HashFormat::Sha1, &self.sha1),
+        ]
+        .into_iter()
+        .find_map(|(format, hash)| hash.as_deref().map(|hash| (format, hash)))
+    }
 }
 
 /// What another project means to this version.
@@ -140,7 +189,10 @@ pub enum DependencyKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Dependency {
+    /// `None` for one hosted outside this source, which can't be installed from here.
     pub project_id: Option<String>,
+    /// What it is called, when the source says (so such a dependency can be named to the user).
+    pub name: Option<String>,
     /// A specific version, when the dependent pins one.
     pub version_id: Option<String>,
     pub kind: DependencyKind,

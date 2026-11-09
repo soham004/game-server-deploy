@@ -1,0 +1,69 @@
+{
+ "pagination": {
+  "count": 2,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "id": 33344,
+   "projectId": 4,
+   "name": "1.5.66",
+   "createdAt": "2026-11-04T03:08:16.596507Z",
+   "channel": {
+    "name": "Release"
+   },
+   "pluginDependencies": {
+    "PAPER": []
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "Chunky-Paper-1.5.66.jar",
+      "sizeBytes": 396960,
+      "sha256Hash": "a2c7877eaacf52605f5d2b08000656fbc43f7bec1eaf6ef9e71b6b9103a9c14f"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/pop4959/Chunky/versions/1.5.66/PAPER/Chunky-Paper-1.5.66.jar"
+    }
+   }
+  },
+  {
+   "id": 24967,
+   "projectId": 4,
+   "name": "1.5.3",
+   "createdAt": "2026-05-04T05:29:43.697953Z",
+   "channel": {
+    "name": "Release"
+   },
+   "pluginDependencies": {
+    "PAPER": []
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "Chunky-Bukkit-1.5.3.jar",
+      "sizeBytes": 304616,
+      "sha256Hash": "530d2c7430a96a39957391b7088be144daa3108f7665896d1c23aa8dd4af32f3"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/pop4959/Chunky/versions/1.5.3/PAPER/Chunky-Bukkit-1.5.3.jar"
+    }
+   }
+  }
+ ]
+}

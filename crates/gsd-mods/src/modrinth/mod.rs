@@ -4,22 +4,18 @@
 
 mod wire;
 
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
-use reqwest::{RequestBuilder, StatusCode};
-use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use crate::{
     error::SourceError,
+    http::{segment, send_json},
     model::{ContentVersion, Project, SearchPage, SearchQuery, SearchSort},
     target::{ContentKind, Target},
 };
 
 pub const DEFAULT_API: &str = "https://api.modrinth.com/v2";
-
-/// The longest a rate-limited request waits before its one retry.
-const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct Modrinth {
@@ -38,6 +34,11 @@ impl Modrinth {
     /// The HTTP client (downloads use it too).
     pub fn client(&self) -> &reqwest::Client {
         &self.client
+    }
+
+    /// Where the API is.
+    pub(crate) fn api(&self) -> &str {
+        &self.api
     }
 
     /// Projects that fit `target`, and run on a server.
@@ -70,13 +71,13 @@ impl Modrinth {
             ("offset", &query.offset.to_string()),
             ("limit", &query.limit.to_string()),
         ]);
-        let response: wire::SearchResponse = self.send(request).await?;
+        let response: wire::SearchResponse = send_json(request).await?;
         Ok(response.into())
     }
 
     pub async fn project(&self, id: &str) -> Result<Project, SourceError> {
         let request = self.client.get(format!("{}/project/{}", self.api, segment(id)?));
-        let response: wire::ProjectResponse = self.send(request).await?;
+        let response: wire::ProjectResponse = send_json(request).await?;
         Ok(response.into())
     }
 
@@ -92,7 +93,7 @@ impl Modrinth {
             .client
             .get(format!("{}/projects", self.api))
             .query(&[("ids", json!(ids).to_string())]);
-        let response: Vec<wire::ProjectResponse> = self.send(request).await?;
+        let response: Vec<wire::ProjectResponse> = send_json(request).await?;
         Ok(response.into_iter().map(Project::from).collect())
     }
 
@@ -109,7 +110,7 @@ impl Modrinth {
                 ("loaders", json!(target.loaders).to_string()),
                 ("game_versions", json!([target.mc_version]).to_string()),
             ]);
-        let response: Vec<wire::VersionResponse> = self.send(request).await?;
+        let response: Vec<wire::VersionResponse> = send_json(request).await?;
         Ok(response
             .into_iter()
             .filter_map(wire::VersionResponse::into_version)
@@ -126,7 +127,7 @@ impl Modrinth {
             .client
             .post(format!("{}/version_files", self.api))
             .json(&json!({ "hashes": sha1s, "algorithm": "sha1" }));
-        let response: HashMap<String, wire::VersionResponse> = self.send(request).await?;
+        let response: HashMap<String, wire::VersionResponse> = send_json(request).await?;
         Ok(versions_by_hash(response))
     }
 
@@ -148,45 +149,9 @@ impl Modrinth {
                 "loaders": target.loaders,
                 "game_versions": [target.mc_version],
             }));
-        let response: HashMap<String, wire::VersionResponse> = self.send(request).await?;
+        let response: HashMap<String, wire::VersionResponse> = send_json(request).await?;
         Ok(versions_by_hash(response))
     }
-
-    /// Sends, waiting out a rate limit once, and decodes the JSON body.
-    async fn send<T: DeserializeOwned>(&self, request: RequestBuilder) -> Result<T, SourceError> {
-        let retry = request.try_clone();
-        let mut response = request.send().await.map_err(SourceError::request)?;
-        if response.status() == StatusCode::TOO_MANY_REQUESTS
-            && let Some(retry) = retry
-        {
-            tokio::time::sleep(rate_limit_wait(&response)).await;
-            response = retry.send().await.map_err(SourceError::request)?;
-        }
-        let url = response.url().to_string();
-        match response.status() {
-            status if status.is_success() => response.json().await.map_err(|error| SourceError::Decode {
-                url,
-                detail: error.to_string(),
-            }),
-            StatusCode::NOT_FOUND => Err(SourceError::NotFound),
-            StatusCode::GONE => Err(SourceError::ApiRetired),
-            StatusCode::TOO_MANY_REQUESTS => Err(SourceError::RateLimited),
-            status => Err(SourceError::Status {
-                url,
-                status: status.as_u16(),
-            }),
-        }
-    }
-}
-
-/// How long Modrinth says to wait (`X-Ratelimit-Reset`, seconds), capped.
-fn rate_limit_wait(response: &reqwest::Response) -> Duration {
-    response
-        .headers()
-        .get("x-ratelimit-reset")
-        .and_then(|value| value.to_str().ok()?.parse::<u64>().ok())
-        .map_or(Duration::from_secs(1), Duration::from_secs)
-        .min(MAX_RATE_LIMIT_WAIT)
 }
 
 fn versions_by_hash(response: HashMap<String, wire::VersionResponse>) -> HashMap<String, ContentVersion> {
@@ -194,16 +159,6 @@ fn versions_by_hash(response: HashMap<String, wire::VersionResponse>) -> HashMap
         .into_iter()
         .filter_map(|(hash, version)| version.into_version().map(|version| (hash, version)))
         .collect()
-}
-
-/// A Modrinth id or slug as one URL path segment (they are base62 or kebab-case).
-fn segment(id: &str) -> Result<&str, SourceError> {
-    let valid = !id.is_empty()
-        && id.len() <= 64
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if valid { Ok(id) } else { Err(SourceError::NotFound) }
 }
 
 #[cfg(test)]

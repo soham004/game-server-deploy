@@ -111,6 +111,8 @@ export class Page {
     this.errors = [];
     /** Answers for upcoming alert/confirm/prompt dialogs (see `answerDialogs`). */
     this.dialogAnswers = [];
+    /** The text of every dialog answered so far, oldest first. */
+    this.dialogs = [];
     browser.listeners.add((message) => {
       if (message.sessionId !== sessionId) return;
       if (message.method === 'Page.javascriptDialogOpening') {
@@ -228,6 +230,7 @@ export class Page {
       this.send('Page.handleJavaScriptDialog', { accept: false }).catch(() => {});
       return;
     }
+    this.dialogs.push(message);
     const accept = answer !== false;
     const promptText = typeof answer === 'string' ? answer : undefined;
     this.send('Page.handleJavaScriptDialog', { accept, promptText }).catch(() => {});

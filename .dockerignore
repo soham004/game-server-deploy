@@ -6,3 +6,7 @@ claude
 deploy/docker/data
 **/*.sqlite
 **/*.sqlite-*
+.env
+**/.env
+.env.*
+**/.env.*

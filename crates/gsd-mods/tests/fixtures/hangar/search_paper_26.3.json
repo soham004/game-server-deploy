@@ -1,0 +1,129 @@
+{
+ "pagination": {
+  "count": 758,
+  "limit": 5,
+  "offset": 0
+ },
+ "result": [
+  {
+   "id": 12,
+   "name": "ViaBackwards",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaBackwards"
+   },
+   "stats": {
+    "downloads": 769009
+   },
+   "category": "misc",
+   "description": "Allow Java Edition clients with older versions to connect to your Minecraft server",
+   "lastUpdated": "2026-11-06T13:10:22.218313Z",
+   "createdAt": "2022-12-23T20:47:00.582094Z",
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1",
+   "supportedPlatforms": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "# ViaBackwards\n## Installation\nThis plugin requires to have [**ViaVersion**](https://hangar.papermc.io/ViaVersion/ViaVersion) installed.\nDrag and drop both plugins in your plugin folder, and you are good to go.\n\nRequires Java 17. See [here](https://docs.papermc.io/misc/java-install) how to update yo"
+  },
+  {
+   "id": 31,
+   "name": "ViaVersion",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaVersion"
+   },
+   "stats": {
+    "downloads": 527505
+   },
+   "category": "misc",
+   "description": "Allow newer Java Edition versions to connect, why lose players after a Minecraft update?",
+   "lastUpdated": "2026-11-07T09:38:30.877163Z",
+   "createdAt": "2022-12-31T20:04:25.895662Z",
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/31.webp?v=1",
+   "supportedPlatforms": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "<center>\n  \n**For ViaVersion updates, consider joining our Discord.**\n  \n**Donate via [GitHub Sponsors](https://github.com/sponsors/kennytv/sponsorships?sponsor=kennytv&tier_id=385613&preview=false) to get new updates early.**\n\n  \n  [![https://ci.viaversion.com/userContent/images/D.png](https://ci.v"
+  },
+  {
+   "id": 112,
+   "name": "ViaRewind",
+   "namespace": {
+    "owner": "ViaVersion",
+    "slug": "ViaRewind"
+   },
+   "stats": {
+    "downloads": 252796
+   },
+   "category": "misc",
+   "description": "ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.",
+   "lastUpdated": "2026-10-18T02:00:37.62333Z",
+   "createdAt": "2023-02-16T15:38:38.719409Z",
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/112.webp?v=1",
+   "supportedPlatforms": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "# ViaRewind\n**ViaVersion addon to allow 1.8.x and 1.7.x clients on newer server versions.** <br>\nRuns on 1.9-latest servers or 1.8 clients and lower.\n\n**Important: Do not put Via\\* plugins on both proxy and backend servers, but only on either one**\n\nNote: When your server is running Java 8, you need"
+  },
+  {
+   "id": 6,
+   "name": "WorldEdit",
+   "namespace": {
+    "owner": "EngineHub",
+    "slug": "WorldEdit"
+   },
+   "stats": {
+    "downloads": 98773
+   },
+   "category": "admin_tools",
+   "description": "A Minecraft Map Editor... that runs in-game! With selections, schematics, copy and paste, brushes, and scripting",
+   "lastUpdated": "2026-10-15T03:56:33.124712Z",
+   "createdAt": "2022-12-23T06:58:21.584949Z",
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/6.webp?v=1",
+   "supportedPlatforms": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "<center>\n\n![WorldEdit Logo](https://raw.githubusercontent.com/EngineHub/WorldEdit/master/worldedit-logo.svg==93x345)\n\n**A Minecraft Map Editor... that runs in-game!**\nWith selections, schematics, copy and paste, brushes, and scripting.\nUse it in creative, or use it temporarily in survival.\n\nJava Edi"
+  },
+  {
+   "id": 4,
+   "name": "Chunky",
+   "namespace": {
+    "owner": "pop4959",
+    "slug": "Chunky"
+   },
+   "stats": {
+    "downloads": 81091
+   },
+   "category": "world_management",
+   "description": "Pre-generates chunks, quickly and efficiently",
+   "lastUpdated": "2026-11-04T03:08:16.596507Z",
+   "createdAt": "2022-12-22T20:52:18.999416Z",
+   "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/4.webp?v=1",
+   "supportedPlatforms": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "mainPageContent": "<h2>Chunky</h2>\n\nPre-generates chunks, quickly, efficiently, and safely\n\n<h3>Features</h3>\n\n- Start one or several chunk generation tasks at the same time (if you want to leverage your CPU more)\n- Pause chunk generation tasks, saving them for later\n- Shows detailed information such as chunks process"
+  }
+ ]
+}

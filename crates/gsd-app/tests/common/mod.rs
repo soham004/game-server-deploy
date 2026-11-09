@@ -43,6 +43,10 @@ pub struct TestApp {
     pub upstream: MockServer,
     /// Modrinth, from recorded responses (`gsd_mods::test_support`).
     pub modrinth: MockServer,
+    /// Hangar, likewise.
+    pub hangar: MockServer,
+    /// `CurseForge`, made up from its documented schema; no key is set until a test sets one.
+    pub curseforge: MockServer,
     pub dir: tempfile::TempDir,
 }
 
@@ -60,6 +64,8 @@ impl TestApp {
         let dir = tempfile::tempdir().unwrap();
         let upstream = mock_upstream().await;
         let modrinth = gsd_mods::test_support::mock_modrinth().await;
+        let hangar = gsd_mods::test_support::mock_hangar().await;
+        let curseforge = gsd_mods::test_support::mock_curseforge().await;
         let pool = store::open_in_memory().await.unwrap();
         let mut config = Config::with_data_dir(dir.path().to_owned());
         config.game_ports = "41000-41009".parse().unwrap();
@@ -71,7 +77,11 @@ impl TestApp {
             sandbox: Some(HostSandbox::new(SandboxSupport::none(), sandbox_problem)),
             probe_ports: Some(false),
             backup_save_timeout: Some(Duration::from_secs(2)),
-            modrinth_api: Some(modrinth.uri()),
+            source_apis: Some(gsd_mods::SourceApis {
+                modrinth: modrinth.uri(),
+                hangar: hangar.uri(),
+                curseforge: curseforge.uri(),
+            }),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();
         // As `serve` does; it stops with the app's shutdown token.
@@ -83,6 +93,8 @@ impl TestApp {
             router,
             upstream,
             modrinth,
+            hangar,
+            curseforge,
             dir,
         }
     }
@@ -118,6 +130,15 @@ impl TestApp {
 
     pub async fn patch(&self, path: &str, body: Value, cookie: Option<&str>) -> Response {
         self.write("PATCH", path, body, cookie).await
+    }
+
+    /// A `PUT` whose body is a file, as uploads are.
+    pub async fn put_bytes(&self, path: &str, body: Vec<u8>, cookie: Option<&str>) -> Response {
+        let mut builder = Request::builder().method("PUT").uri(path).header("x-csrf", "1");
+        if let Some(cookie) = cookie {
+            builder = builder.header(header::COOKIE, cookie);
+        }
+        self.send(builder.body(Body::from(body)).unwrap()).await
     }
 
     async fn write(&self, verb: &str, path: &str, body: Value, cookie: Option<&str>) -> Response {

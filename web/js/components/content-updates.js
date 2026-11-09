@@ -8,11 +8,11 @@
  *   updates.check();          // on opening, and whenever the installed files change
  */
 import { api } from '../core/api.js';
-import { describeIdentified, updateLabel } from '../core/content-plan.js';
+import { describeIdentified, manualDownloads, updateLabel } from '../core/content-plan.js';
 import { h } from '../core/dom.js';
 import { toast } from '../core/toast.js';
 
-export function createContentUpdates({ instanceId, canManage, noun }) {
+export function createContentUpdates({ instanceId, canManage, noun, onManual }) {
   const base = `/instances/${instanceId}/content`;
   const status = h('p', { class: 'c-muted c-content-updates__status' }, 'Checking for updates…');
   const checkButton = button('Check again', check, 'c-button--ghost');
@@ -50,7 +50,7 @@ export function createContentUpdates({ instanceId, canManage, noun }) {
 
   function render({ updates, unknown: unknownFiles }) {
     status.textContent = updates.length === 0
-      ? 'Everything from Modrinth is up to date.'
+      ? 'Everything with a known source is up to date.'
       : `${updates.length} ${updates.length === 1 ? 'update' : 'updates'} available.`;
     list.replaceChildren(...updates.map(item));
     setActionsHidden(updates.length === 0);
@@ -71,7 +71,7 @@ export function createContentUpdates({ instanceId, canManage, noun }) {
     if (files.length === 0) return;
     const what = files.length === 1 ? `1 ${noun} has` : `${files.length} ${noun}s have`;
     unknown.replaceChildren(`${what} no known source, so ${files.length === 1 ? 'it isn’t' : 'they aren’t'} checked. `,
-      canManage ? button('Look them up on Modrinth', identify, 'c-button--ghost') : '');
+      canManage ? button('Look them up', identify, 'c-button--ghost') : '');
   }
 
   function setActionsHidden(hidden) {
@@ -86,8 +86,9 @@ export function createContentUpdates({ instanceId, canManage, noun }) {
     }
     updateButton.disabled = true;
     try {
-      await api.post(`${base}/update`, { files });
+      const { updates } = await api.post(`${base}/update`, { files });
       toast('Backing up, then updating…', { kind: 'info' });
+      onManual(manualDownloads(updates.map((chosen) => ({ project: { title: chosen.name }, version: chosen.version }))));
     } catch (error) {
       toast(error.message, { kind: 'error' });
     } finally {

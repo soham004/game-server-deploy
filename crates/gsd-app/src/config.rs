@@ -70,6 +70,9 @@ pub struct Config {
     /// Deleted servers, files and backups are removed from the trash after this many days;
     /// 0 keeps them until removed by hand.
     pub trash_retention_days: u32,
+    /// Where the `CurseForge` API is, when not the real one: the browser tests' stand-in, since they
+    /// have no key for the real API. Environment only (`GSD_CURSEFORGE_API`).
+    pub curseforge_api: Option<String>,
 }
 
 /// Settings that may appear in `config.toml` (all optional).
@@ -95,6 +98,7 @@ impl Config {
             internal_ports: port_range(DEFAULT_INTERNAL_PORTS),
             session_ttl: TimeDelta::days(i64::from(DEFAULT_SESSION_TTL_DAYS)),
             trash_retention_days: DEFAULT_TRASH_RETENTION_DAYS,
+            curseforge_api: None,
         }
     }
 
@@ -114,6 +118,7 @@ impl Config {
         let mut config = Self::with_data_dir(data_dir);
         config.apply_file(file)?;
         config.apply_env(&env)?;
+        config.curseforge_api = env(&env_var("CURSEFORGE_API"));
         config.apply_overrides(overrides);
         config.validate()?;
         Ok(config)

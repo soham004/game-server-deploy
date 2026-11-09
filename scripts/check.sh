@@ -10,6 +10,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 bash scripts/check-branding.sh
+bash scripts/check-secrets.sh
 find web/js -name '*.js' -print0 | xargs -0 -n1 node --check
 node --test 'tests/web/*.test.mjs'
 echo "All checks passed."

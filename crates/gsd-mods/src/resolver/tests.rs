@@ -61,7 +61,9 @@ fn version(project: &str, id: &str, channel: Channel, dependencies: Vec<Dependen
             filename: format!("{id}.jar"),
             size: 1,
             sha1: None,
+            sha256: None,
             sha512: None,
+            manual_url: None,
         },
     }
 }
@@ -69,6 +71,7 @@ fn version(project: &str, id: &str, channel: Channel, dependencies: Vec<Dependen
 fn requires(project: &str) -> Dependency {
     Dependency {
         project_id: Some(project.into()),
+        name: None,
         version_id: None,
         kind: DependencyKind::Required,
     }
@@ -77,6 +80,7 @@ fn requires(project: &str) -> Dependency {
 fn depends(project: &str, version: &str, kind: DependencyKind) -> Dependency {
     Dependency {
         project_id: Some(project.into()),
+        name: None,
         version_id: Some(version.into()),
         kind,
     }
@@ -287,5 +291,215 @@ async fn dependency_cycles_end() {
     assert_eq!(
         steps(&plan(&catalog, &Installed::new(), "a", None).await.unwrap()).len(),
         2
+    );
+}
+
+/// Two mods that both need `api` (which needs `kotlin`), and `api` in two versions.
+fn shared_catalog() -> FakeCatalog {
+    FakeCatalog::default()
+        .with(
+            "skin",
+            vec![version("skin", "skin-1", Channel::Release, vec![requires("api")])],
+        )
+        .with(
+            "arch",
+            vec![version("arch", "arch-1", Channel::Release, vec![requires("api")])],
+        )
+        .with(
+            "api",
+            vec![
+                version("api", "api-9", Channel::Release, vec![requires("kotlin")]),
+                version("api", "api-8", Channel::Release, vec![requires("kotlin")]),
+            ],
+        )
+        .with(
+            "kotlin",
+            vec![version("kotlin", "kt-1", Channel::Release, vec![])],
+        )
+}
+
+fn asked(project_id: &str, version_id: Option<&str>) -> Requested {
+    Requested {
+        source: SourceKind::Modrinth,
+        project_id: project_id.into(),
+        version_id: version_id.map(Into::into),
+    }
+}
+
+#[tokio::test]
+async fn several_asked_for_together_share_their_dependencies() {
+    let plan = plan_many(
+        &shared_catalog(),
+        &Installed::new(),
+        &[asked("skin", None), asked("arch", None)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        steps(&plan),
+        [
+            ("skin", "skin-1", None),
+            ("arch", "arch-1", None),
+            ("api", "api-9", Some("skin title")),
+            ("kotlin", "kt-1", Some("api title"))
+        ],
+        "api once, for whoever needed it first"
+    );
+}
+
+#[tokio::test]
+async fn a_dependency_asked_for_as_well_comes_as_asked_for() {
+    let plan = plan_many(
+        &shared_catalog(),
+        &Installed::new(),
+        &[asked("skin", None), asked("api", Some("api-8"))],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        steps(&plan),
+        [
+            ("skin", "skin-1", None),
+            ("api", "api-8", None),
+            ("kotlin", "kt-1", Some("api title"))
+        ],
+        "the chosen version, not the newest"
+    );
+}
+
+#[tokio::test]
+async fn an_installed_dependency_of_several_is_kept_and_named_once() {
+    let installed = Installed::from([(
+        "api".to_owned(),
+        InstalledVersion {
+            filename: "api-9.jar".into(),
+            version_id: Some("api-9".into()),
+        },
+    )]);
+    let plan = plan_many(
+        &shared_catalog(),
+        &installed,
+        &[asked("skin", None), asked("arch", None)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(steps(&plan), [("skin", "skin-1", None), ("arch", "arch-1", None)]);
+    assert_eq!(plan.already_installed, ["api title"]);
+}
+
+/// What the server has from elsewhere: the file `api.jar`, going by the name "API title".
+fn api_from_elsewhere() -> Installed {
+    let mut installed = Installed::new();
+    installed.add_untracked("api.jar", &["API title", "other-id"]);
+    installed
+}
+
+#[tokio::test]
+async fn a_file_from_elsewhere_with_the_same_name_counts_as_the_dependency() {
+    let plan = plan(&shared_catalog(), &api_from_elsewhere(), "skin", None)
+        .await
+        .unwrap();
+    assert_eq!(steps(&plan), [("skin", "skin-1", None)], "no second copy");
+    assert_eq!(plan.already_installed, ["api title"]);
+}
+
+#[tokio::test]
+async fn asking_for_a_project_replaces_its_file_from_elsewhere() {
+    let plan = plan(&shared_catalog(), &api_from_elsewhere(), "api", None)
+        .await
+        .unwrap();
+    assert_eq!(plan.steps[0].replaces.as_deref(), Some("api.jar"));
+}
+
+#[tokio::test]
+async fn names_only_match_files_the_source_does_not_track() {
+    // Two projects on one source may share a name; ids tell them apart there.
+    let mut installed = Installed::new();
+    installed.add_tracked(
+        "fork".into(),
+        InstalledVersion {
+            filename: "fork.jar".into(),
+            version_id: None,
+        },
+        &["api title"],
+    );
+    let plan = plan(&shared_catalog(), &installed, "api", None).await.unwrap();
+    assert_eq!(plan.steps[0].replaces, None);
+}
+
+#[tokio::test]
+async fn what_an_earlier_source_brings_satisfies_a_dependency_but_not_a_request() {
+    let catalog = shared_catalog();
+    let mut installed = Installed::new();
+    installed.add_planned_elsewhere(&catalog.project("api").await.unwrap());
+
+    let plan_skin = plan(&catalog, &installed, "skin", None).await.unwrap();
+    assert_eq!(steps(&plan_skin), [("skin", "skin-1", None)]);
+
+    let error = plan(&catalog, &installed, "api", None).await.unwrap_err();
+    assert!(matches!(error, ResolveError::FromTwoSources(_)), "{error}");
+}
+
+#[tokio::test]
+async fn a_required_dependency_hosted_elsewhere_is_named_unless_it_is_there() {
+    let hosted_elsewhere = |required| Dependency {
+        project_id: None,
+        name: Some("Vault".into()),
+        version_id: None,
+        kind: if required {
+            DependencyKind::Required
+        } else {
+            DependencyKind::Optional
+        },
+    };
+    let catalog = FakeCatalog::default().with(
+        "shop",
+        vec![version(
+            "shop",
+            "shop-1",
+            Channel::Release,
+            vec![hosted_elsewhere(true), hosted_elsewhere(false)],
+        )],
+    );
+    let missing = plan(&catalog, &Installed::new(), "shop", None).await.unwrap();
+    assert_eq!(
+        missing.not_available,
+        [UnavailableDependency {
+            name: "Vault".into(),
+            required_by: "shop title".into()
+        }],
+        "the required one, once"
+    );
+
+    let mut installed = Installed::new();
+    installed.add_untracked("Vault.jar", &["Vault"]);
+    let there = plan(&catalog, &installed, "shop", None).await.unwrap();
+    assert_eq!(there.not_available, []);
+}
+
+#[tokio::test]
+async fn dependencies_of_an_update_come_as_dependencies() {
+    let plan = plan_required(
+        &shared_catalog(),
+        &api_from_elsewhere(),
+        vec![
+            RequiredDependency {
+                project_id: "api".into(),
+                version_id: None,
+                required_by: "skin title".into(),
+            },
+            RequiredDependency {
+                project_id: "kotlin".into(),
+                version_id: None,
+                required_by: "skin title".into(),
+            },
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        steps(&plan),
+        [("kotlin", "kt-1", Some("skin title"))],
+        "what is there is kept"
     );
 }

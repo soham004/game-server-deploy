@@ -16,8 +16,9 @@ use sha1::{Digest, Sha1};
 use tokio::io::AsyncReadExt;
 
 use crate::{
-    index::{self, INDEX_FOLDER, IndexEntry},
+    index::{self, INDEX_FOLDER, IndexEntry, Origin},
     metadata::{self, JarInfo},
+    model::SourceKind,
     resolver::{Installed, InstalledVersion},
 };
 
@@ -44,14 +45,6 @@ pub struct InstalledItem {
     /// The index entry's file name (inside `.index/`), when there is one.
     #[serde(skip)]
     pub index_file: Option<String>,
-}
-
-/// Where an installed file came from, per the index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Origin {
-    pub source: &'static str,
-    pub project_id: String,
-    pub version_id: String,
 }
 
 /// Remembers what was read from each jar (its metadata and SHA-1).
@@ -101,7 +94,7 @@ pub async fn list(
             modified: entry.modified,
             version: info.version,
             mod_id: info.id,
-            source: indexed.and_then(|(_, entry)| origin(entry)),
+            source: indexed.and_then(|(_, entry)| entry.origin()),
             sha1,
             index_file: indexed.map(|(name, _)| name.clone()),
         });
@@ -110,21 +103,26 @@ pub async fn list(
     Ok(items)
 }
 
-/// What the resolver needs: installed projects (from the index) by id.
-pub fn by_project(items: &[InstalledItem]) -> Installed {
-    items
-        .iter()
-        .filter_map(|item| {
-            let origin = item.source.as_ref()?;
-            Some((
+/// What the resolver needs, as `source` sees the server: what it tracks (from the index) by id,
+/// and everything else by name.
+pub fn by_project(items: &[InstalledItem], source: SourceKind) -> Installed {
+    let mut installed = Installed::new();
+    for item in items {
+        let mut names = vec![item.name.as_str()];
+        names.extend(item.mod_id.as_deref());
+        match &item.source {
+            Some(origin) if origin.source == source => installed.add_tracked(
                 origin.project_id.clone(),
                 InstalledVersion {
                     filename: item.file.clone(),
                     version_id: Some(origin.version_id.clone()),
                 },
-            ))
-        })
-        .collect()
+                &names,
+            ),
+            _ => installed.add_untracked(&item.file, &names),
+        }
+    }
+    installed
 }
 
 /// `x.jar` → (`x.jar`, enabled); `x.jar.disabled` → (`x.jar`, disabled); anything else → none.
@@ -138,20 +136,19 @@ pub fn jar_name(name: &str) -> Option<(&str, bool)> {
         .then_some((file, enabled))
 }
 
-fn origin(entry: &IndexEntry) -> Option<Origin> {
-    let update = entry.update.modrinth.as_ref()?;
-    Some(Origin {
-        source: "modrinth",
-        project_id: update.mod_id.clone(),
-        version_id: update.version.clone(),
-    })
-}
-
 /// The index entries of `folder`, by the jar file they describe.
 async fn read_index(files: &ServerFiles, folder: &SafeRelPath) -> HashMap<String, (String, IndexEntry)> {
     let Ok(index_folder) = folder.join(INDEX_FOLDER) else {
         return HashMap::new();
     };
+    read_entries(files, &index_folder).await
+}
+
+/// The entries of the index folder, by the jar file they describe, with their own file names.
+pub(crate) async fn read_entries(
+    files: &ServerFiles,
+    index_folder: &SafeRelPath,
+) -> HashMap<String, (String, IndexEntry)> {
     let Ok(entries) = files.list(index_folder.clone()).await else {
         return HashMap::new();
     };
@@ -205,8 +202,27 @@ async fn read_jar(
     (info, Some(sha1))
 }
 
+/// `CurseForge`'s fingerprint of an installed file (`None` when it can't be read). Only identifying
+/// needs it, so unlike the SHA-1 it isn't worked out for every listing.
+pub(crate) async fn fingerprint_of(files: &ServerFiles, folder: &str, item: &InstalledItem) -> Option<u32> {
+    let name = if item.enabled {
+        item.file.clone()
+    } else {
+        format!("{}{DISABLED}", item.file)
+    };
+    let path = SafeRelPath::parse(folder).ok()?.join(&name).ok()?;
+    let bytes = read_path(files, path).await?;
+    tokio::task::spawn_blocking(move || crate::fingerprint::fingerprint(&bytes))
+        .await
+        .ok()
+}
+
 async fn read_bytes(files: &ServerFiles, entry: &Entry) -> Option<Vec<u8>> {
-    let (file, size) = files.open_file(entry.path.clone()).await.ok()?;
+    read_path(files, entry.path.clone()).await
+}
+
+async fn read_path(files: &ServerFiles, path: SafeRelPath) -> Option<Vec<u8>> {
+    let (file, size) = files.open_file(path).await.ok()?;
     if size > MAX_READ_BYTES {
         return None;
     }

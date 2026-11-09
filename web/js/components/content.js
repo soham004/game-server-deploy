@@ -8,11 +8,13 @@
  *   await content.load();
  */
 import { api } from '../core/api.js';
+import { installedProjects, sourceName } from '../core/content-plan.js';
 import { h } from '../core/dom.js';
 import { sizeLabel } from '../core/format.js';
 import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
 import { createContentBrowser } from './content-browser.js';
+import { createManualDownloads } from './content-manual.js';
 import { createContentUpdates } from './content-updates.js';
 
 export function createContent({ instanceId, can, isRunning }) {
@@ -22,12 +24,15 @@ export function createContent({ instanceId, can, isRunning }) {
   const notice = h('p', { class: 'c-banner is-info', hidden: true }, 'Restart the server to load the changes.');
   const summary = h('p', { class: 'c-muted c-content__summary' });
   const installed = h('div', { class: 'c-content__installed' });
-  const browser = createContentBrowser({ instanceId, canInstall: canManage });
+  const manual = createManualDownloads({ instanceId });
+  const browser = createContentBrowser({ instanceId, canInstall: canManage, noun: () => (list?.kind === 'plugins' ? 'plugin' : 'mod'), onManual: manual.add });
   let updates = null;
   const updatesSlot = h('div', { class: 'c-content__updates' });
   const element = h('section', { class: 'c-content' },
     notice,
     h('h2', { class: 'c-content__heading' }, 'Installed'), summary, updatesSlot, installed,
+    manual.element,
+    browser.installList,
     h('h2', { class: 'c-content__heading' }, 'Find more'), browser.element);
   let changedWhileRunning = false;
   let searched = false;
@@ -35,6 +40,8 @@ export function createContent({ instanceId, can, isRunning }) {
   async function load() {
     try {
       list = await api.get(base);
+      browser.setSources(list.sources);
+      browser.setInstalled(installedProjects(list.items));
       render();
       checkUpdates();
       if (!searched) {
@@ -54,7 +61,7 @@ export function createContent({ instanceId, can, isRunning }) {
       return;
     }
     if (!updates) {
-      updates = createContentUpdates({ instanceId, canManage, noun: list.kind === 'plugins' ? 'plugin' : 'mod' });
+      updates = createContentUpdates({ instanceId, canManage, noun: list.kind === 'plugins' ? 'plugin' : 'mod', onManual: manual.add });
       updatesSlot.replaceChildren(updates.element);
     }
     updates.check();
@@ -84,9 +91,7 @@ export function createContent({ instanceId, can, isRunning }) {
   }
 
   function row(item) {
-    const source = item.source
-      ? h('a', { href: `https://modrinth.com/project/${item.source.project_id}`, target: '_blank', rel: 'noopener noreferrer' }, 'Modrinth')
-      : h('span', { class: 'c-muted', title: 'Added by hand or from another source' }, 'Unknown');
+    const source = sourceCell(item.source);
     return h('tr', { class: item.enabled ? null : 'is-disabled', dataset: { file: item.file } },
       h('td', null, h('span', { class: 'c-content__name' }, item.name), h('span', { class: 'c-muted c-content__file' }, item.file)),
       h('td', null, item.version ?? ''),
@@ -97,6 +102,13 @@ export function createContent({ instanceId, can, isRunning }) {
         h('button', { class: 'c-button c-button--danger-ghost', type: 'button', onClick: () => remove(item) }, 'Remove'),
       ) : null),
     );
+  }
+
+  /** Where a file came from: a link to its page when known. */
+  function sourceCell(origin) {
+    if (!origin) return h('span', { class: 'c-muted', title: 'Added by hand or from another source' }, 'Unknown');
+    const name = sourceName(origin.source);
+    return origin.page_url ? h('a', { href: origin.page_url, target: '_blank', rel: 'noopener noreferrer' }, name) : h('span', null, name);
   }
 
   async function toggle(item) {

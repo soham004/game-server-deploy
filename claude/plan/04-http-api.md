@@ -32,7 +32,8 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | PUT/DELETE | `/users/{id}/grants/{instance_id}` | `{grant: viewer|moderator|operator|manager|custom, permissions?}` · remove |
 | GET/DELETE | `/me/sessions` | list and revoke own sessions (planned) |
 | POST | `/system/isolation-check` | sandbox self-test, including the hard memory limit (D-034) |
-| GET/PATCH | `/settings` | app settings (CurseForge key write-only) (planned) |
+| GET | `/settings` | app settings: `{curseforge_key_set}` (`settings.manage`) |
+| PUT/DELETE | `/settings/curseforge-key` | `{key}`, write-only, tried on CurseForge first → `422 curseforge_key_refused`, nothing saved (D-044) |
 | GET | `/system` | version, OS, isolation level, `sandbox_problem` (D-026), `hard_limits` + `hard_limits_problem` (D-034), game ports |
 
 ### Catalog (version pickers, built)
@@ -87,13 +88,16 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/content/manual-match` | upload blocked CurseForge files, matched by fingerprint |
 
 ### Mods and plugins (built: Modrinth, D-039, D-040)
-| GET | `/instances/{id}/content` | installed `{kind, folder, target, items}` |
-| GET | `/instances/{id}/content/search?q=&sort=&offset=` | Modrinth, filtered to the server |
-| GET | `/instances/{id}/content/projects/{project}` · `…/versions` | project page, fitting versions |
-| POST | `/instances/{id}/content/plan` · `…/install` | `{project_id, version_id?}` → plan / 202 `{job_id, plan}` |
+| GET | `/instances/{id}/content` | installed `{kind, folder, target, sources, items}`; `sources`: where more can be found for this server |
+| GET | `/instances/{id}/content/search?source=&q=&sort=&offset=` | one source (default `modrinth`), filtered to the server |
+| GET | `/instances/{id}/content/projects/{project}?source=` · `…/versions?source=` | project page, fitting versions |
+| POST | `/instances/{id}/content/plan` · `…/install` | `{source?, project_id, version_id?}` or `{projects: [{source?, project_id, version_id?}]}` (1–32, D-042, D-043) → plan `{steps, already_installed, not_available}` / 202 `{job_id, plan}`; `422 invalid_install_request` otherwise; `409 cannot_install` when it can't work |
 | POST/DELETE | `/instances/{id}/content/files/{file}/enable` · `…/disable` · `DELETE …/files/{file}` | turn on, off, remove |
-| GET | `/instances/{id}/content/updates` | `{updates: [{file, name, installed_version, project_id, version}], unknown}` |
-| POST | `/instances/{id}/content/identify` | name hand-added jars by SHA-1 → `{identified, still_unknown, duplicates}` |
+| GET | `/instances/{id}/content/updates` | `{updates: [{file, name, installed_version, source, project_id, version}], unknown}` |
+| POST | `/instances/{id}/content/identify` | name hand-added jars (Modrinth by SHA-1, then CurseForge by fingerprint) → `{identified, still_unknown, duplicates}` |
+| PUT | `/modpacks/upload?file=` | body is an archive (`instance.create`) → 201 `{kind: "pack", upload_id, pack}` or `{kind: "server_folder", folder}`; `422 invalid_modpack`, `413 upload_too_big` (D-045) |
+| POST | `/modpacks/install` | `{upload_id, name, max_memory_mb, eula_accepted}` → 202 `{instance, job_id}`; `404 upload_not_found` |
+| PUT | `/instances/{id}/content/upload?file=` | body is a jar the user brought (never replaces a file): put in the folder and identified → 201, as identify; `422 not_a_jar` (D-044) |
 | POST | `/instances/{id}/content/update` | `{files?}` (all when absent) → 202 `{job_id, updates}` after a full `pre_update` backup · `409 up_to_date` |
 
 ### Backups, schedules, updates, jobs, Java, notifications

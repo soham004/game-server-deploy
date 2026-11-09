@@ -17,6 +17,11 @@ in `tests/e2e/`, see its README; `scripts/check.sh` runs what CI runs). Next ste
 `plan/06-roadmap.md`. Implementation log: `decisions.md` D-024 (M0), D-025/D-026 (M1), D-027 … D-034 (M2),
 D-035 … D-038 (M3).
 
+**M4 in progress:** Modrinth, Hangar and CurseForge are done: search, install with dependencies, packwiz index, on/off,
+remove, updates after a full backup, identify (Modrinth, CurseForge) and installing several at once (D-039, D-040, D-042,
+D-043, D-044), CurseForge checked against the real API (D-046). Uploaded modpacks and zipped servers become servers (D-045); browsing for packs is
+next. Every route needs a session except signing in (D-041).
+
 CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.
 
 ### How to build and test (dev machine)

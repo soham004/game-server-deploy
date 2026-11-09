@@ -1,0 +1,23 @@
+{
+ "id": 31,
+ "name": "ViaVersion",
+ "namespace": {
+  "owner": "ViaVersion",
+  "slug": "ViaVersion"
+ },
+ "stats": {
+  "downloads": 527508
+ },
+ "category": "misc",
+ "description": "Allow newer Java Edition versions to connect, why lose players after a Minecraft update?",
+ "lastUpdated": "2026-11-07T09:38:30.877163Z",
+ "createdAt": "2022-12-31T20:04:25.895662Z",
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/31.webp?v=1",
+ "supportedPlatforms": {
+  "PAPER": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ]
+ }
+}

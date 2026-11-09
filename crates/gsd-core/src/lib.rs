@@ -28,6 +28,7 @@ pub mod net;
 pub mod ports;
 pub mod random;
 pub mod scheduler;
+pub mod settings;
 pub mod store;
 pub mod supervisor;
 pub mod trash;

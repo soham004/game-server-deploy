@@ -1,7 +1,7 @@
-// Real mods and plugins from the live Modrinth API on real servers ("E2E fabric" and "E2E paper"
-// from loaders.e2e.mjs): install with dependencies, start the server, check the game loaded
-// them, update an older version (after a backup), name a file whose index entry is gone, then
-// remove them again.
+// Real mods and plugins from the live Modrinth and Hangar APIs on real servers ("E2E fabric" and
+// "E2E paper" from loaders.e2e.mjs): install with dependencies, start the server, check the game
+// loaded them, update an older version (after a backup), name a file whose index entry is gone,
+// then remove them again.
 //
 //   node --test tests/e2e/loaders.e2e.mjs   # once, to have the servers
 //   node --test tests/e2e/content.e2e.mjs
@@ -35,9 +35,9 @@ test('Fabric: mods with their dependencies load in the real server', { skip, tim
   const lithium = await projectId(server.id, 'lithium');
   const appleskin = await projectId(server.id, 'appleskin');
 
-  await install(server.id, lithium);
-  const plan = await install(server.id, appleskin);
-  assert.ok(plan.steps.some((step) => step.project.slug === 'fabric-api'), 'AppleSkin brings Fabric API');
+  // Both in one go (one plan, one job); AppleSkin brings Fabric API.
+  const plan = await installAll(server.id, [lithium, appleskin]);
+  assert.deepEqual(plan.steps.map((step) => [step.project.slug, step.required_by]), [['lithium', null], ['appleskin', null], ['fabric-api', 'AppleSkin']]);
   const items = (await client.call('GET', `/instances/${server.id}/content`)).body.items;
   assert.equal(items.length, 3, items.map((item) => item.name).join(', '));
   assert.ok(items.every((item) => item.source?.source === 'modrinth'), 'all recorded in the index');
@@ -99,6 +99,52 @@ test('Paper: a plugin from Modrinth enables in the real server', { skip, timeout
   await removeAll(server.id);
 });
 
+test('Paper: plugins from Hangar install with their dependencies, enable, and update', { skip, timeout: 15 * 60_000 }, async (t) => {
+  const server = await ready(t, 'E2E paper');
+  if (!server) return;
+  const search = await client.call('GET', `/instances/${server.id}/content/search?source=hangar&q=chunky`);
+  assert.equal(search.status, 200, JSON.stringify(search.body));
+  const chunky = search.body.hits.find((hit) => hit.title === 'Chunky');
+  assert.ok(chunky, `Chunky on Hangar: ${search.body.hits.map((hit) => hit.title).join(', ')}`);
+  assert.equal(chunky.source, 'hangar');
+
+  // On the server from Modrinth first: taking it from Hangar replaces the file, it doesn't add one.
+  await install(server.id, await projectId(server.id, 'chunky'));
+  const replacing = await installFrom(server.id, 'hangar', chunky.id);
+  assert.ok(replacing.steps[0].replaces, `the Modrinth file is replaced: ${JSON.stringify(replacing.steps[0].replaces)}`);
+  const [only, ...others] = (await client.call('GET', `/instances/${server.id}/content`)).body.items;
+  assert.deepEqual(others, [], 'one Chunky');
+  assert.equal(only.source.source, 'hangar');
+
+  // ViaBackwards needs ViaVersion, also on Hangar.
+  const viaBackwards = await hangarProject(server.id, 'ViaBackwards');
+  const plan = await installFrom(server.id, 'hangar', viaBackwards.id);
+  assert.deepEqual(plan.steps.map((step) => [step.project.title, step.required_by]), [['ViaBackwards', null], ['ViaVersion', 'ViaBackwards']]);
+
+  const lines = await runAndRead(server.id);
+  for (const plugin of ['Chunky', 'ViaVersion', 'ViaBackwards']) {
+    assert.ok(lines.some((line) => line.includes(`Enabling ${plugin}`)), `${plugin} enabled`);
+  }
+
+  // Back to an older Chunky: the check (one request per Hangar project) offers the newest again.
+  const versions = (await client.call('GET', `/instances/${server.id}/content/projects/${chunky.id}/versions?source=hangar`)).body;
+  assert.ok(versions.length >= 2, `an older Chunky for this server: ${versions.length}`);
+  await installFrom(server.id, 'hangar', chunky.id, versions[1].id);
+  const check = (await client.call('GET', `/instances/${server.id}/content/updates`)).body;
+  const offered = check.updates.find((update) => update.name === 'Chunky');
+  assert.equal(offered?.version.id, versions[0].id, JSON.stringify(check));
+  assert.equal(offered.source, 'hangar');
+  const started = await client.call('POST', `/instances/${server.id}/content/update`, { files: [offered.file] });
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const job = await client.waitForJob(started.body.job_id, 600);
+  assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.join('\n')}`);
+  const items = (await client.call('GET', `/instances/${server.id}/content`)).body.items;
+  assert.equal(items.find((item) => item.name === 'Chunky').source.version_id, versions[0].id, 'the newest Chunky');
+  const backups = (await client.call('GET', `/instances/${server.id}/backups`)).body.backups;
+  await client.call('DELETE', `/instances/${server.id}/backups/${backups.find((backup) => backup.kind === 'pre_update').id}`);
+  await removeAll(server.id);
+});
+
 /** The installed, stopped server named `name`, or a skip when loaders.e2e.mjs hasn't run. */
 async function ready(t, name) {
   const server = await client.findInstance(name);
@@ -110,10 +156,34 @@ async function ready(t, name) {
   return server;
 }
 
+async function hangarProject(id, name) {
+  const { status, body } = await client.call('GET', `/instances/${id}/content/projects/${name}?source=hangar`);
+  assert.equal(status, 200, JSON.stringify(body));
+  return body;
+}
+
+/** Installs from a named source and waits; returns the plan. */
+async function installFrom(id, source, projectId, versionId = undefined) {
+  const started = await client.call('POST', `/instances/${id}/content/install`, { source, project_id: projectId, version_id: versionId });
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const job = await client.waitForJob(started.body.job_id, 600);
+  assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.join('\n')}`);
+  return started.body.plan;
+}
+
 async function projectId(id, slug) {
   const { status, body } = await client.call('GET', `/instances/${id}/content/projects/${slug}`);
   assert.equal(status, 200, JSON.stringify(body));
   return body.id;
+}
+
+/** Installs several projects in one request and waits; returns the plan. */
+async function installAll(id, projectIds) {
+  const started = await client.call('POST', `/instances/${id}/content/install`, { projects: projectIds.map((project_id) => ({ project_id })) });
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const job = await client.waitForJob(started.body.job_id, 600);
+  assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.join('\n')}`);
+  return started.body.plan;
 }
 
 async function install(id, projectId, versionId = undefined) {

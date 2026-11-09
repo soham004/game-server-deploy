@@ -129,6 +129,7 @@ impl From<SearchHit> for ProjectSummary {
     fn from(hit: SearchHit) -> Self {
         Self {
             source: SourceKind::Modrinth,
+            page_url: format!("https://modrinth.com/project/{}", hit.slug),
             id: hit.project_id,
             slug: hit.slug,
             title: hit.title,
@@ -200,7 +201,9 @@ impl VersionResponse {
                 filename: file.filename,
                 size: file.size,
                 sha1: file.hashes.get("sha1").cloned(),
+                sha256: None,
                 sha512: file.hashes.get("sha512").cloned(),
+                manual_url: None,
             },
         })
     }
@@ -217,6 +220,7 @@ impl DependencyResponse {
         };
         Some(Dependency {
             project_id: self.project_id,
+            name: None,
             version_id: self.version_id,
             kind,
         })

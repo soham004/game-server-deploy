@@ -1,0 +1,23 @@
+{
+ "id": 12,
+ "name": "ViaBackwards",
+ "namespace": {
+  "owner": "ViaVersion",
+  "slug": "ViaBackwards"
+ },
+ "stats": {
+  "downloads": 769015
+ },
+ "category": "misc",
+ "description": "Allow Java Edition clients with older versions to connect to your Minecraft server",
+ "lastUpdated": "2026-11-06T13:10:22.218313Z",
+ "createdAt": "2022-12-23T20:47:00.582094Z",
+ "avatarUrl": "https://hangarcdn.papermc.io/avatars/project/12.webp?v=1",
+ "supportedPlatforms": {
+  "PAPER": [
+   "26.1.2",
+   "26.2",
+   "26.3"
+  ]
+ }
+}

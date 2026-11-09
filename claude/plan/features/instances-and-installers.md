@@ -61,7 +61,7 @@ pub struct LoaderVersion { id: String, released: Option<DateTime<Utc>>, stable: 
 - **Existing folder**: detect the loader by files (`fabric-server-launch.jar`, `libraries/net/neoforged`, `libraries/net/minecraftforge`,
   `paper-*.jar` / `cache/mojang_*.jar`, `quilt-server-launch.jar`, `server.jar` + version.json inside the bundler). Ask the user to confirm the MC version.
   Option: **copy** into `instances/` (safe) or **adopt in place** (instance.toml stores an external `server_root`). Default is copy.
-- **Zip / server pack**: extract into a new instance, then the same detection.
+- **Zip / server pack**: uploaded and unpacked into the imports folder, then the same detection (D-045).
 - **`.mrpack` / CurseForge pack**: see `mods-and-modpacks.md`.
 - After import: hash `mods/*.jar` → identify via Modrinth/CurseForge → write `.pw.toml` index (background job).
 

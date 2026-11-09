@@ -71,16 +71,20 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       server asks whether to delete its backups too (D-037).
 
 ## M4: Content: mods **and** plugins together
-- [ ] `ContentSource` abstraction; Modrinth search/install for **mods (Fabric/Quilt/Forge/NeoForge) and plugins
-      (Paper/Purpur/Folia)**; dependency resolution; packwiz index; enable/disable; remove.
-- [ ] Hangar (PaperMC plugin repo) source.
-- [ ] Identify unknown jars (Modrinth SHA-1, CF fingerprint, `plugin.yml`/mod metadata); bulk update check + apply.
-      Built for Modrinth (D-040): metadata, SHA-1 identify, bulk check, update after a full `pre_update` backup. The CF
-      fingerprint part comes with CurseForge.
-- [ ] CurseForge (user-pasted API key, server-side only): mods + Bukkit plugins, fingerprints, blocked-download flow.
-- [ ] Modpacks: `.mrpack` server install; CurseForge server packs.
-- [ ] Import from an uploaded zip / server pack (extract into a new instance with the archive limits, then the same loader
-      detection as folder import), and identify the imported `mods/*.jar` into the packwiz index.
+- [x] `ContentSource` abstraction (an enum, `source::Source`, D-043); Modrinth search/install for **mods
+      (Fabric/Quilt/Forge/NeoForge) and plugins (Paper/Purpur/Folia)**; dependency resolution; packwiz index;
+      enable/disable; remove.
+- [x] Hangar (PaperMC plugin repo) source: search, install with dependencies, update checks (one request per
+      project), a source picker on plugin servers; one plugin from two sources stays one file (D-043).
+- [x] Identify unknown jars (Modrinth SHA-1, CF fingerprint, `plugin.yml`/mod metadata); bulk update check + apply
+      (D-040, D-044).
+- [x] CurseForge (user-pasted API key, server-side only): mods + Bukkit plugins, fingerprints, blocked-download flow
+      (D-044), checked against the real API in CI and on real servers (D-046). A real blocked file hasn't turned up yet.
+- [x] Modpacks by upload: `.mrpack` and CurseForge manifest packs become a server in one job (D-045).
+- [ ] Modpacks by search: browsing Modrinth and CurseForge packs, following CurseForge's `serverPackFileId`; recording the
+      pack in `instance.toml`; pack updates.
+- [x] Import from an uploaded zip / server pack (unpacked into the imports folder, then the usual folder import), and identify
+      the imported `mods/*.jar` into the packwiz index (D-045).
 
 ## M5: Minecraft-aware admin
 - [ ] Log history + crash report viewer.

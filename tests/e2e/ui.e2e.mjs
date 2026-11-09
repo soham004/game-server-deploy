@@ -7,12 +7,14 @@
 // Skipped unless E2E_URL is set.
 
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 
 import { Browser } from './cdp.mjs';
+import { until } from './lib/client.mjs';
+import { download, smallModpack } from './lib/small-modpack.mjs';
 
 const BASE = process.env.E2E_URL;
 const SERVER = process.env.E2E_SERVER ?? 'E2E neoforge';
@@ -432,7 +434,7 @@ test('schedules: from a template, run now, by hand, disable, history', { skip, t
 }));
 
 test('mods: search Modrinth, install, update, turn off and on, remove', { skip, timeout: 300000 }, step('mods', async () => {
-  const rowFor = (name) => page.evaluate((n) => [...document.querySelectorAll('.c-content__table tbody tr')]
+  const rowFor = (name) => page.evaluate((n) => [...document.querySelectorAll('.c-content__table tbody tr[data-file]')]
     .find((tr) => tr.querySelector('.c-content__name')?.textContent === n)?.dataset.file ?? null, name);
   const clickRow = (file, label) => page.evaluate((f, l) => {
     const row = document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`);
@@ -442,9 +444,17 @@ test('mods: search Modrinth, install, update, turn off and on, remove', { skip, 
   await page.click('.c-tabs__tab', 'Mods');
   await page.waitFor(() => document.querySelector('.c-content__summary')?.textContent, { message: 'the mods tab' });
   await page.waitFor(() => document.querySelectorAll('.c-content-result').length > 0, { timeout: 30000, message: 'the first results from Modrinth' });
+  // No button, no Enter: the search runs by itself once typing stops.
+  assert.equal(await page.evaluate(() => document.querySelectorAll('.c-content-browser__search button').length), 0, 'no search button');
   await page.fill('.c-content-browser__search input', 'lithium');
-  await page.evaluate(() => document.querySelector('.c-content-browser__search').requestSubmit());
   await page.waitFor(() => [...document.querySelectorAll('.c-content-result__title')].some((a) => a.textContent === 'Lithium'), { timeout: 30000, message: 'Lithium in the results' });
+  // "Install" and "Other versions", or one disabled "Installed", for the Lithium result.
+  const lithiumActions = (expected, message) => page.waitFor((want) => {
+    const result = [...document.querySelectorAll('.c-content-result')].find((li) => li.querySelector('.c-content-result__title').textContent === 'Lithium');
+    const buttons = [...(result?.querySelectorAll('.c-content-browser__actions button') ?? [])];
+    return buttons.map((b) => `${b.textContent}${b.disabled ? ' (disabled)' : ''}`).join(', ') === want;
+  }, { args: [expected], timeout: 30000, message });
+  await lithiumActions('Install, Other versions', 'Lithium can be installed');
 
   page.answerDialogs(true); // the plan
   await page.evaluate(() => {
@@ -452,6 +462,7 @@ test('mods: search Modrinth, install, update, turn off and on, remove', { skip, 
     [...result.querySelectorAll('button')].find((b) => b.textContent === 'Install').click();
   });
   await page.waitFor(() => [...document.querySelectorAll('.c-content__name')].some((n) => n.textContent === 'Lithium'), { timeout: 120000, message: 'Lithium installed' });
+  await lithiumActions('Installed (disabled), Other versions', 'Lithium marked installed in the results');
   await page.waitFor(() => !document.querySelector('.c-content > .c-banner').hidden, { message: 'the restart notice (the server runs)' });
   await shot('22-mods');
 
@@ -462,15 +473,19 @@ test('mods: search Modrinth, install, update, turn off and on, remove', { skip, 
   await page.waitFor((f) => !document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`)?.classList.contains('is-disabled'), { args: [file], message: 'turned on' });
   await page.waitFor(() => document.querySelector('.c-content-updates__status')?.textContent.includes('up to date'), { timeout: 30000, message: 'the newest Lithium is up to date' });
 
-  // An older Lithium (installed through the API): the updates panel offers the newest again.
+  // Back to an older Lithium through "Other versions" (it replaces the installed file): the updates
+  // panel then offers the newest again.
   const versions = await page.evaluate(async (id) => (await fetch(`/api/v1/instances/${id}/content/projects/gvQqBUqZ/versions`)).json(), serverId);
   assert.ok(versions.length >= 2, `Lithium has an older version for this server: ${versions.length}`);
-  const older = await page.evaluate(async ({ id, version }) => (await fetch(`/api/v1/instances/${id}/content/install`, {
-    method: 'POST',
-    headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: 'gvQqBUqZ', version_id: version }),
-  })).status, { id: serverId, version: versions[1].id });
-  assert.equal(older, 202);
+  const inLithium = (selector) => `.c-content-result:has(a.c-content-result__title[href$="/lithium"]) ${selector}`;
+  await page.click(inLithium('.c-content-browser__actions button'), 'Other versions');
+  await page.waitFor((s) => document.querySelector(s), { args: [inLithium('.c-content-result__versions select')], message: 'the version picker' });
+  await page.fill(inLithium('.c-content-result__versions select'), versions[1].id);
+  page.answerDialogs(true); // the plan: replacing the newest
+  await page.click(inLithium('.c-content-result__versions button'), 'Install this version');
+  await page.waitFor((f) => document.querySelector(`.c-content__table tr[data-file="${CSS.escape(f)}"]`), { args: [versions[1].file.filename], timeout: 120000, message: 'the older Lithium installed' });
+  assert.equal(await page.evaluate(() => document.querySelectorAll('.c-content__table tbody tr[data-file]').length), 1, 'it replaced the newest, not added a second copy');
+  await lithiumActions('Installed (disabled), Other versions', 'still marked installed after going back');
   await page.waitFor((label) => [...document.querySelectorAll('.c-content-updates__item')].some((li) => li.textContent.includes('Lithium') && li.textContent.includes(label)),
     { args: [`${versions[1].version_number} → ${versions[0].version_number}`], timeout: 60000, message: 'Lithium offered as an update, both versions as Modrinth numbers them' });
   await shot('23-mods-update');
@@ -482,9 +497,232 @@ test('mods: search Modrinth, install, update, turn off and on, remove', { skip, 
 
   page.answerDialogs(true);
   await clickRow(versions[0].file.filename, 'Remove');
-  await page.waitFor(() => !document.querySelector('.c-content__table'), { message: 'nothing installed again' });
+  await page.waitFor(() => !document.querySelector('.c-content__table tr[data-file]'), { message: 'nothing installed again' });
+  await lithiumActions('Install, Other versions', 'Lithium can be installed again after removing it');
   await page.waitFor(() => !document.querySelector('.c-content-updates'), { message: 'no updates panel with nothing installed' });
   assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('mods: tick several, then install them together with their dependencies', { skip, timeout: 300000 }, step('mods-batch', async () => {
+  // Results and install-list entries by Modrinth slug (the result's link ends with it).
+  const resultFor = (slug) => `.c-content-result:has(a.c-content-result__title[href$="/${slug}"])`;
+  const listed = () => page.evaluate(() => [...document.querySelectorAll('.c-install-list .c-content__name')].map((t) => t.textContent));
+  /** Every visible result laid out in its columns: checkbox, icon, text, then the buttons to the right. */
+  const resultsInColumns = () => page.evaluate(() => [...document.querySelectorAll('.c-content-result:not([hidden])')].every((row) => {
+    const box = (selector) => row.querySelector(selector).getBoundingClientRect();
+    const [pick, icon, text, actions] = ['.c-content-result__pick', '.c-content-result__icon', '.c-content-result__text', '.c-content-browser__actions'].map(box);
+    return pick.right <= icon.left && icon.right <= text.left && text.right <= actions.left && actions.top < text.bottom;
+  }));
+  const searchFor = async (query, slug) => {
+    await page.fill('.c-content-browser__search input', query);
+    await page.waitFor((s) => document.querySelector(s), { args: [resultFor(slug)], timeout: 30000, message: `${slug} in the results` });
+  };
+  const tick = (slug) => page.evaluate((s) => document.querySelector(`${s} .c-content-result__pick input`).click(), resultFor(slug));
+
+  // REI needs Cloth Config and Architectury on NeoForge; FerriteCore needs nothing.
+  await searchFor('roughly enough items', 'rei');
+  await tick('rei');
+  assert.ok(await page.evaluate((s) => document.querySelector(s).hidden, resultFor('rei')), 'a ticked result moves to the list');
+  await searchFor('ferritecore', 'ferrite-core');
+  await tick('ferrite-core');
+  assert.equal((await listed()).length, 2, 'the list keeps what was ticked across searches');
+  assert.equal(await page.evaluate(() => document.querySelector('.c-install-list__actions .c-button--primary').textContent), 'Install 2 mods');
+
+  // Unticking puts it back among the results; tick it again.
+  await page.click('.c-install-list tbody tr:last-child button', 'Remove');
+  assert.equal((await listed()).length, 1);
+  assert.equal(await page.evaluate((s) => document.querySelector(s).hidden, resultFor('ferrite-core')), false, 'back among the results');
+  await tick('ferrite-core');
+  assert.ok(await resultsInColumns(), 'results keep their columns');
+  // The list sits between the installed list and the search, as a table like the installed one.
+  assert.ok(await page.evaluate(() => {
+    const list = document.querySelector('.c-install-list');
+    return list.compareDocumentPosition(document.querySelector('.c-content-browser')) & Node.DOCUMENT_POSITION_FOLLOWING
+      && list.querySelector('table.c-content__table thead th')?.textContent === 'Name';
+  }), 'a table above the search');
+  await shot('24-mods-install-list');
+
+  page.answerDialogs(true); // the plan for both
+  await page.click('.c-install-list__actions .c-button--primary', 'Install 2 mods');
+  await page.waitFor(() => document.querySelector('.c-install-list').hidden, { message: 'the list empties once installing' });
+  const plan = page.dialogs.at(-1);
+  assert.match(plan, /needed by Roughly Enough Items/, `the dependencies are in the plan:\n${plan}`);
+  await page.waitFor(() => document.querySelectorAll('.c-content__table tbody tr[data-file]').length === 4, { timeout: 180000, message: 'both mods and their two dependencies installed' });
+  // Jars name themselves; the index says which project each one is.
+  const projects = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/content`)).json()).items.map((item) => item.source?.project_id), serverId);
+  for (const dependency of ['9s6osm5g', 'lhGA9TYQ']) assert.ok(projects.includes(dependency), `Cloth Config and Architectury: ${projects}`);
+  await page.waitFor((s) => document.querySelector(`${s} .c-content-browser__actions button`)?.textContent === 'Installed', { args: [resultFor('ferrite-core')], message: 'FerriteCore marked installed' });
+  assert.ok(await resultsInColumns(), 'installed results keep their columns');
+  await shot('25-mods-installed-results');
+
+  // Leave the server as it was.
+  const files = await page.evaluate(() => [...document.querySelectorAll('.c-content__table tbody tr[data-file]')].map((tr) => tr.dataset.file));
+  for (const file of files) {
+    const status = await page.evaluate(async ({ id, f }) => (await fetch(`/api/v1/instances/${id}/content/files/${encodeURIComponent(f)}`, { method: 'DELETE', headers: { 'X-CSRF': '1' } })).status, { id: serverId, f: file });
+    assert.equal(status, 204, file);
+  }
+  await page.waitFor(() => !document.querySelector('.c-content__table tr[data-file]'), { message: 'nothing installed again' });
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('plugins: choose Hangar or Modrinth, tick from both, install', { skip, timeout: 300000 }, step('plugins-sources', async () => {
+  const paper = await page.evaluate(async () => {
+    const instances = await (await fetch('/api/v1/instances')).json();
+    return instances.find((instance) => instance.name === 'E2E paper')?.id ?? null;
+  });
+  assert.ok(paper, 'loaders.e2e.mjs made "E2E paper"');
+  const api = (method, path) => page.evaluate(async ({ m, p }) => {
+    const response = await fetch(p, { method: m, headers: { 'X-CSRF': '1' } });
+    return response.status === 204 ? null : response.json();
+  }, { m: method, p: `/api/v1/instances/${paper}/content${path}` });
+  const removeEverything = async () => {
+    for (const item of (await api('GET', '')).items) await api('DELETE', `/files/${encodeURIComponent(item.file)}`);
+  };
+  await removeEverything();
+
+  /** Searches and waits for `title` among results that all link to `site`: answers from the source chosen before don't count. */
+  const searchFor = async (query, title, site) => {
+    await page.fill('.c-content-browser__search input', query);
+    await page.waitFor((t, s) => {
+      const links = [...document.querySelectorAll('.c-content-result__title')];
+      return links.some((a) => a.textContent === t) && links.every((a) => a.href.startsWith(s));
+    }, { args: [title, site], timeout: 30000, message: `${title} in the results from ${site}` });
+  };
+  const tick = (title) => page.evaluate((t) => {
+    const row = [...document.querySelectorAll('.c-content-result')].find((li) => li.querySelector('.c-content-result__title').textContent === t);
+    row.querySelector('.c-content-result__pick input').click();
+  }, title);
+
+  try {
+    await page.goto(`${BASE}/servers/${paper}`);
+    await page.waitFor(() => [...document.querySelectorAll('.c-tabs__tab')].some((tab) => tab.textContent === 'Plugins'), { message: 'the server page' });
+    await page.click('.c-tabs__tab', 'Plugins');
+    await page.waitFor(() => document.querySelectorAll('.c-content-result').length > 0, { timeout: 30000, message: 'results' });
+    const picker = '.c-content-browser__search select[name="content_source"]';
+    assert.equal(await page.evaluate((s) => document.querySelector(s).hidden, picker), false, 'the picker shows on a plugin server');
+    assert.deepEqual(await page.evaluate((s) => [...document.querySelector(s).options].map((o) => o.textContent), picker), ['Modrinth', 'Hangar']);
+
+    // Hangar's results link to Hangar, and the search box says where it looks.
+    await page.fill(picker, 'hangar');
+    await searchFor('viabackwards', 'ViaBackwards', 'https://hangar.papermc.io/');
+    assert.equal(await page.evaluate(() => document.querySelector('.c-content-browser__search input').placeholder), 'Search Hangar');
+    await page.waitFor(() => document.querySelector('.c-content-result img.c-content-result__icon')?.naturalWidth > 0, { timeout: 30000, message: 'an icon from Hangar loads' });
+    await tick('ViaBackwards');
+    await shot('26-plugins-hangar');
+
+    // The list keeps it while searching the other source; Chunky comes from there.
+    await page.fill(picker, 'modrinth');
+    await searchFor('chunky', 'Chunky', 'https://modrinth.com/');
+    await tick('Chunky');
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.c-install-list tbody td:nth-child(3)')].map((td) => td.textContent)), ['Hangar', 'Modrinth'], 'From says which source');
+
+    page.answerDialogs(true); // the plan for both
+    await page.click('.c-install-list__actions .c-button--primary', 'Install 2 plugins');
+    await page.waitFor(() => document.querySelector('.c-install-list').hidden, { message: 'the list empties once installing' });
+    assert.match(page.dialogs.at(-1), /ViaVersion .*\(needed by ViaBackwards\)/, 'the Hangar dependency is in the plan');
+    await page.waitFor(() => document.querySelectorAll('.c-content__table tbody tr[data-file]').length === 3, { timeout: 180000, message: 'three plugins installed' });
+    const from = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('.c-content__table tbody tr[data-file]')]
+      .map((tr) => [tr.querySelector('.c-content__name').textContent, tr.querySelector('td:nth-child(3)').textContent])));
+    assert.deepEqual(from, { Chunky: 'Modrinth', ViaBackwards: 'Hangar', ViaVersion: 'Hangar' });
+    await shot('27-plugins-installed');
+
+    // Back on Hangar, what came from Hangar says Installed.
+    await page.fill(picker, 'hangar');
+    await searchFor('viaversion', 'ViaVersion', 'https://hangar.papermc.io/');
+    await page.waitFor(() => {
+      const row = [...document.querySelectorAll('.c-content-result')].find((li) => li.querySelector('.c-content-result__title').textContent === 'ViaVersion');
+      return row?.querySelector('.c-content-browser__actions button')?.textContent === 'Installed';
+    }, { timeout: 30000, message: 'ViaVersion marked installed on Hangar' });
+    assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+  } finally {
+    await removeEverything();
+    await page.goto(`${BASE}/servers/${serverId}`);
+    await page.waitFor(() => document.querySelector('.c-tabs__tab'), { message: 'back on the first server' });
+  }
+}));
+
+test('curseforge: key in settings, install, a file to download by hand', { skip, timeout: 180000 }, step('curseforge', async () => {
+  // Against the stand-in serve.sh starts (lib/mock-curseforge.mjs): the suite has no real key.
+  const paper = await page.evaluate(async () => (await (await fetch('/api/v1/instances')).json()).find((instance) => instance.name === 'E2E paper')?.id ?? null);
+  assert.ok(paper, 'loaders.e2e.mjs made "E2E paper"');
+  const call = (method, path) => page.evaluate(async ({ m, p }) => {
+    const response = await fetch(`/api/v1${p}`, { method: m, headers: { 'X-CSRF': '1' } });
+    return response.status === 204 ? null : response.json();
+  }, { m: method, p: path });
+  const cleanUp = async () => {
+    for (const item of (await call('GET', `/instances/${paper}/content`)).items) await call('DELETE', `/instances/${paper}/content/files/${encodeURIComponent(item.file)}`);
+    await call('DELETE', '/settings/curseforge-key');
+  };
+  const status = () => page.evaluate(() => document.querySelector('[data-curseforge-status]')?.textContent ?? '');
+  const inResult = (title, label) => page.evaluate((t, l) => {
+    const row = [...document.querySelectorAll('.c-content-result')].find((li) => li.querySelector('.c-content-result__title').textContent === t);
+    [...row.querySelectorAll('button')].find((b) => b.textContent === l).click();
+  }, title, label);
+  await cleanUp();
+
+  try {
+    await page.click('.c-nav__link', 'Settings');
+    await page.waitFor(() => document.querySelector('[data-curseforge-status]')?.textContent.startsWith('No key'), { message: 'the settings page' });
+
+    await page.fill('#curseforge-key', 'a-wrong-key');
+    await page.click('.c-form__actions button', 'Save');
+    await page.waitFor(() => document.querySelector('[data-form-error]:not([hidden])')?.textContent.includes('accept'), { message: 'a wrong key refused' });
+    assert.match(await status(), /^No key/);
+
+    await page.fill('#curseforge-key', 'e2e-curseforge-key');
+    await page.click('.c-form__actions button', 'Save');
+    await page.waitFor(() => document.querySelector('[data-curseforge-status]').textContent.startsWith('A key is saved'), { message: 'the key saved' });
+    assert.equal(await page.evaluate(() => document.querySelector('#curseforge-key').value), '', 'the field empties');
+    assert.ok(!(await page.evaluate(() => document.body.innerHTML)).includes('e2e-curseforge-key'), 'the key is not on the page');
+    await shot('28-settings');
+
+    await page.goto(`${BASE}/servers/${paper}`);
+    await page.waitFor(() => [...document.querySelectorAll('.c-tabs__tab')].some((tab) => tab.textContent === 'Plugins'), { message: 'the server page' });
+    await page.click('.c-tabs__tab', 'Plugins');
+    const picker = '.c-content-browser__search select[name="content_source"]';
+    await page.waitFor((s) => document.querySelector(s)?.options.length === 3, { args: [picker], message: 'CurseForge offered' });
+    await page.fill(picker, 'curseforge');
+    await page.waitFor(() => [...document.querySelectorAll('.c-content-result__title')].some((a) => a.textContent === 'E2E CF Plugin'), { timeout: 30000, message: 'CurseForge results' });
+
+    page.answerDialogs(true); // the plan
+    await inResult('E2E CF Plugin', 'Install');
+    await page.waitFor(() => [...document.querySelectorAll('.c-content__name')].some((n) => n.textContent === 'E2E CF Plugin'), { timeout: 60000, message: 'the plugin installed' });
+    assert.equal(await page.evaluate(() => document.querySelector('.c-content__table tr[data-file="e2e-cf-plugin.jar"] td:nth-child(3)').textContent), 'CurseForge');
+
+    page.answerDialogs(true); // the plan: this one can't be downloaded
+    await inResult('E2E CF Locked', 'Install');
+    await page.waitFor(() => !document.querySelector('.c-manual')?.hidden, { timeout: 30000, message: 'the file to download by hand' });
+    assert.match(page.dialogs.at(-1), /only allow downloading by hand[^]*E2E CF Locked/, page.dialogs.at(-1));
+    assert.equal(
+      await page.evaluate(() => document.querySelector('.c-manual__item a').href),
+      'https://www.curseforge.com/minecraft/bukkit-plugins/e2e-cf-locked/files/9102',
+    );
+    await shot('29-download-by-hand');
+
+    // The file the user downloaded: uploaded, recognised, and tracked like the others.
+    const folder = mkdtempSync(join(tmpdir(), 'gsd-e2e-'));
+    const downloaded = join(folder, 'e2e-cf-locked.jar');
+    writeFileSync(downloaded, 'what the author handed out');
+    await page.setFiles('input[name="manual_files"]', [downloaded]);
+    await page.waitFor(() => document.querySelector('.c-manual').hidden, { timeout: 30000, message: 'nothing left to download' });
+    await page.waitFor(() => document.querySelector('.c-content__table tr[data-file="e2e-cf-locked.jar"] td:nth-child(3)')?.textContent === 'CurseForge', { timeout: 30000, message: 'the upload is tracked' });
+    rmSync(folder, { recursive: true });
+    await shot('30-uploaded');
+
+    // Removing the key turns the source off; what is installed stays.
+    await page.goto(`${BASE}/settings`);
+    await page.waitFor(() => document.querySelector('[data-curseforge-status]')?.textContent.startsWith('A key is saved'), { message: 'settings again' });
+    page.answerDialogs(true);
+    await page.click('.c-form__actions button', 'Remove the key');
+    await page.waitFor(() => document.querySelector('[data-curseforge-status]').textContent.startsWith('No key'), { message: 'the key removed' });
+    assert.equal((await call('GET', `/instances/${paper}/content`)).items.length, 2);
+    assert.deepEqual((await call('GET', `/instances/${paper}/content`)).sources, ['modrinth', 'hangar']);
+    assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+  } finally {
+    await cleanUp();
+    await page.goto(`${BASE}/servers/${serverId}`);
+    await page.waitFor(() => document.querySelector('.c-tabs__tab'), { message: 'back on the first server' });
+  }
 }));
 
 test('the backups and schedules tabs fit a phone screen', { skip, timeout: 60000 }, step('phone', async () => {
@@ -631,6 +869,42 @@ test('imports a server folder, runs it, and changes its version', { skip, timeou
   await page.waitFor(() => document.querySelector('.c-pill')?.textContent === 'Stopped', { timeout: 100000, interval: 1000, message: 'it to stop' });
   await deleteOpenServer('E2E import', true);
   assert.deepEqual(page.errors, [], 'no JavaScript errors');
+}));
+
+test('modpacks: upload a real .mrpack, confirm, and it becomes a server', { skip, timeout: 900000 }, step('modpack', async (t) => {
+  const pack = await smallModpack('26.3', 'fabric');
+  if (!pack) {
+    t.skip('Modrinth has no Fabric modpack for 26.3 that runs on a server');
+    return;
+  }
+  const folder = mkdtempSync(join(tmpdir(), 'gsd-e2e-'));
+  const file = join(folder, pack.filename);
+  writeFileSync(file, await download(pack));
+  await page.goto(`${BASE}/servers/import`);
+  await page.waitFor(() => document.querySelector('input[name="modpack_file"]'), { message: 'the upload field' });
+  await page.setFiles('input[name="modpack_file"]', [file]);
+  await page.waitFor(() => document.querySelector('form[data-pack]'), { timeout: 120000, message: 'the pack form' });
+  rmSync(folder, { recursive: true });
+  assert.match(await page.evaluate(() => document.querySelector('form[data-pack] .c-import__notes').textContent), /Minecraft 26\.3, fabric/);
+  await shot('31-modpack-form');
+
+  await page.fill('form[data-pack] input[name="name"]', 'E2E pack');
+  await page.click('form[data-pack] button[type="submit"]', 'Create the server');
+  await page.waitFor(() => document.querySelector('form[data-pack] [data-form-error]:not([hidden])')?.textContent.includes('EULA'), { message: 'the EULA is required' });
+  await page.click('form[data-pack] input[name="eula_accepted"]');
+  await page.click('form[data-pack] button[type="submit"]', 'Create the server');
+  await page.waitFor(() => document.querySelector('.l-page-header__title')?.textContent === 'E2E pack', { timeout: 30000, message: 'the new server page' });
+  const id = await page.evaluate(() => location.pathname.split('/').pop());
+
+  // Its job installs the loader and then the pack; until it ends, the server has no content list.
+  await until('the pack to install', async () => (await page.evaluate(async (i) => (await fetch(`/api/v1/instances/${i}/content`)).status, id)) === 200, 600);
+  await page.goto(`${BASE}/servers/${id}`);
+  await page.waitFor(() => [...document.querySelectorAll('.c-tabs__tab')].some((tab) => tab.textContent === 'Mods'), { message: 'the server page' });
+  await page.click('.c-tabs__tab', 'Mods');
+  await page.waitFor(() => document.querySelector('.c-content__table tr[data-file]'), { timeout: 30000, message: 'the pack\'s mods listed' });
+  await shot('32-modpack-installed');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+  await deleteOpenServer('E2E pack', true);
 }));
 
 test('an owner adds a member who then sees only the server they were given', { skip, timeout: 90000 }, step('users', async () => {

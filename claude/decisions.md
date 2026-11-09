@@ -476,3 +476,157 @@ Members manage only the instances they are granted. Member quotas (instance coun
   sends every route all five methods without a session (a route added later is covered automatically); before and after
   setup; garbage and signed-out cookies; the WebSocket `Origin`; the browser suite (a deep link signed out → sign-in →
   back; the closed files refuse; `next` can't leave the site).
+
+**D-042: Installing several mods or plugins at once** · accepted · 2026-11-08
+- Each search result has a checkbox. A ticked one moves to a "To be installed" list between the installed list and the
+  search (`components/content-install-list.js`): the same table as the installed list (Name, Version, From, Remove),
+  kept across searches; Remove puts a project back among the results. "Install N mods" makes
+  one plan for everything on the list and, once confirmed, one `content.install` job (one restart, one change event).
+- `resolver::plan_many` seeds its breadth-first walk with every project asked for, before any dependency: a project
+  that another one needs comes as asked for (at its chosen version), a shared dependency is planned once (for whoever
+  needed it first), and an installed one is named once. Duplicates are caught by project id even when asked for by
+  slug. The plan's project cap went from 64 to 128.
+- API: `POST …/content/plan|install` take `{projects: [{project_id, version_id?}]}` (1 to 32) as well as the single
+  `{project_id, version_id?}`; mixing them, an empty list or too many is `422 invalid_install_request`. The audit
+  entry lists the projects.
+- Search results already installed say "Installed" (with Other versions, to go back to an older one); while an install
+  runs, "Installing…". Searching starts 200 ms after typing stops (`core/debounce.js`); late answers to older
+  searches are dropped.
+- Tested: resolver (shared dependencies, a dependency asked for too, an installed one named once); API (three mods and
+  their shared dependency in one job, every malformed request); the browser suite on live Modrinth (REI and FerriteCore
+  ticked across two searches, untick and tick again, one confirmation naming Cloth Config and Architectury "needed by"
+  REI, all four installed); the real Fabric server (Lithium and AppleSkin in one request bring Fabric API and load).
+
+**D-043: Hangar, and more than one source on a server** · accepted · 2026-11-08
+- Sources sit behind an enum, `source::Source` (search, project, projects, versions), not a trait object: `async fn` in a
+  trait isn't object-safe and there will only be three. This enum is the plan's `ContentSource`. What only one source can
+  do stays on its own client (Modrinth's lookups by hash). `Sources` owns them; `ContentService` asks for one by
+  `SourceKind`. `ForServer` wraps one source and one server for the resolver.
+- **Dependencies stay on the source of what needs them**, since ids mean nothing elsewhere (Hangar's are numbers, as
+  CurseForge's will be, so ids alone could collide). A plan with several sources plans each on its own and merges them.
+- **One plugin from two sources is one file.** Two copies conflict (the loader reports it and keeps at most one, not
+  necessarily the newer), and now that there are two sources it is easy to get there. So `resolver::Installed` also knows
+  every file the source doesn't track (hand-added or from another source) by its name, plugin or mod id, compared
+  without case or punctuation:
+  a dependency with such a name counts as installed, and asking for the project itself replaces that file (the plan says
+  so, and the user confirms it). Names are only compared across that boundary: two projects on one source may share a
+  name, and ids tell them apart. Asking for one plugin from two sources in one install is `409 cannot_install`, unless one
+  is only a dependency of the other side; then the earlier source's copy satisfies it. Sources are planned Modrinth first.
+- Replacing a file also removes the index entry that described it when that entry has another name (the slug changed
+  between sources), so one file has one entry.
+- **Update checks:** Modrinth stays one request for everything, by SHA-1. Hangar has no lookup by hash, so it is one
+  versions request per tracked plugin, one after another, on every check (a server with many Hangar plugins waits a few
+  seconds; the panel says it is checking). A project gone from Hangar has no update and doesn't hide the others'.
+- **What Hangar offers as an update:** the newest release published after the installed version. A snapshot is only
+  offered to someone already on a snapshot. Most projects publish snapshots constantly, and someone on a release didn't
+  choose them. Modrinth's own update endpoint decides for Modrinth files.
+- **Identify stays Modrinth-only:** Hangar can't look up a file by hash.
+- `IndexEntry::new(project, version)` now takes the project; `[update.hangar]` also keeps `page-url`, since Hangar's
+  addresses need the owner. Files installed earlier without it just show "Hangar" without a link.
+- API: `source` (default `modrinth`) on search, project and versions; on `plan` and `install`, both in the single form and
+  per project in the list; `source` beside `projects` is `422`. `GET …/content` lists the `sources` for the server;
+  search hits carry `page_url`, updates carry `source`, plans carry `not_available`. The install audit entry names projects
+  as `source:id`.
+- UI: a source picker appears when the server has more than one source (plugin servers); the install list keeps its entries
+  across sources and its "From" column says which.
+- **Known limits:** a required dependency hosted outside Hangar can't be installed; the plan's confirmation names it
+  (`not_available`) so the user can add it by hand. Hangar's project endpoint sends no long page text, so `Project.body` is
+  empty. Only versions Hangar hosts itself are offered, and only its newest 25 for the server's Minecraft version are read.
+  Name matching can't see a plugin whose jar name differs from its project's title and slug; two such copies are left to
+  the loader.
+- Tested: resolver (names, sources, what an earlier source brings, hosted elsewhere), update choice (release, snapshot,
+  unlisted), API with both mocks (search, install with dependency, update after backup, a gone project, replacing across
+  sources, a hand-added dependency, mixed lists), the real "E2E paper" with live Hangar (Chunky replaced from Modrinth,
+  ViaBackwards with ViaVersion, all three enable, an older Chunky updates after a backup), and the browser suite on live
+  APIs (picker, links, ticking from both sources, the plan, From column, "Installed" per source).
+
+**D-044: CurseForge, with the user's own key** · accepted · 2026-11-09
+- **The key:** kept in a new `app_settings` table, in the database no server's sandbox can reach (0600, D-041's reasoning
+  applies). `PUT`/`DELETE /settings/curseforge-key` and `GET /settings` need `settings.manage` (owners). It is write-only:
+  the API only says whether one is set. It is left out of the audit log, sent in a header marked sensitive to CurseForge's
+  API only (never with downloads, whose addresses are elsewhere), and `CurseForge` has a hand-written `Debug`. Saving
+  tries the key first (`GET /games/432`): a refused key is `422 curseforge_key_refused` and nothing is saved; if CurseForge
+  can't be reached, nothing is saved either. Without a key the source is simply not offered; using it anyway is
+  `409 source_key_missing`; a key refused later is `409 source_key_refused`.
+- **The client** is built from CurseForge's documented schemas, with a mock made from them, because no key was available
+  while building it (`test_support::mock_curseforge`, and `tests/e2e/lib/mock-curseforge.mjs` for the browser). Only
+  `tests/e2e/curseforge.e2e.mjs`, run by the user with their key, checks the real thing.
+- **What fits:** mods are class 6 and plugins class 5, with the loader as `modLoaderType`, or `modLoaderTypes=[5,4]` on Quilt.
+  The files endpoint takes one loader, so with several the filter happens here, from the loader names among a file's
+  `gameVersions`. A file naming no loader is a plugin. Server packs are left out. CurseForge says nothing about sides, so
+  client-only mods show in results (shown as unknown, not hidden).
+- **Files the author blocks** (`downloadUrl` is null): no paused job, unlike the original plan. Installing does everything
+  it can and leaves such files out, with the plan's confirmation and a "Download by hand" panel naming them, each with a
+  link to its page. The user downloads and adds them (`PUT …/content/upload?file=`, `content.manage`), which puts the jar in
+  the folder and identifies it. This keeps no state on the server and needs no job that waits for days; the price is that
+  the list is gone once the page is left (planning again brings it back). An upload never overwrites an existing file,
+  since that could orphan its index entry.
+- **Identify:** Modrinth by SHA-1, then what is left on CurseForge by fingerprint: `MurmurHash2`, seed 1, whitespace bytes left
+  out, tested against the values in Apache Kafka's tests, an independent implementation. Fingerprints are worked out only when
+  identifying, not for every listing. CurseForge trouble here leaves those files unknown rather than losing what Modrinth found.
+- **Updates:** one files request per tracked project, as for Hangar (D-043), and only with a key. A blocked newer version is
+  offered; updating backs up, leaves the file out, and the panel lists it.
+- **Index:** packwiz's own `[update.curseforge] project-id, file-id` (numbers), plus an optional `page-url`, so entries from
+  packwiz and Prism are now read as tracked.
+- `GSD_CURSEFORGE_API` (environment only) points the app at the browser suite's stand-in. Whoever sets a process's
+  environment already controls it, so this gives nothing away.
+- **Known limits:** `Project.body` is empty (long text is a separate request). Only a project's newest 50 files for the
+  server's Minecraft version are read. Replacing a file through a by-hand update leaves the old jar next to the new one until
+  removed, and identify calls it a second copy. Nothing checks whether a mod is client-only. CurseForge's Minecraft version
+  names for new releases are assumed to match ours ("26.3"); the live check will show.
+- Tested: fingerprint values; client against both a mock and strict query matchers; API with the mock (key rules including
+  roles, restart, audit; mod with dependency and update after backup; Bukkit plugin; blocked file through upload and identify;
+  path and file-type refusals; identify order); the browser suite against the stand-in (settings page, wrong key, picker,
+  install, by-hand panel, upload, removing the key). Against the real API only: a made-up key is refused with 403.
+
+**D-046: The real CurseForge API in tests, with a key that never ships** · accepted · 2026-11-09
+- Tests take `CURSEFORGE_API_KEY` from the environment, or else from `.env` at the repository root (only that variable; an
+  empty value counts as none). Nothing prints it. The file's value is used as written, since keys contain `$`.
+- `crates/gsd-mods/tests/curseforge_live.rs` checks the client against the real API: search per loader and sort, projects,
+  files, dependencies, and that our fingerprint of a real downloaded file is the one CurseForge has. It uses Minecraft 1.20.1,
+  whose mods are settled, and skips without a key. So `cargo test` on a machine with a `.env` makes a few real requests.
+- **CI:** one step of the Linux job gets the repository secret. Forks and Dependabot get no secrets, so they skip;
+  everywhere else `CURSEFORGE_REQUIRED` makes a missing key a failure, so these checks can't go quiet.
+  `curseforge.e2e.mjs` (real servers) stays a manual run.
+- **Never shipped:** `.env` and `.env.*` are ignored by git and Docker at any depth, the image holds only the compiled binary and the
+  entrypoint, and no build step receives the key. `scripts/check-secrets.sh` (in CI and `check.sh`) checks the ignore rules, tracked
+  files and for anything shaped like a key; CI also proves with a stand-in `.env` that the file stays out of the build context.
+- **What the real API showed (2026-11-09):** the fingerprint matches on a real file; a made-up key gets 403; `modLoaderTypes=[5,4]`
+  works; file ids are 32-bit (a bigger one is 400, not "unknown"); "most downloaded" is only roughly ordered, since its order lags
+  the live counts. On real servers, JEI with MezzConfig and Fabric API loads on 26.3 and WorldEdit enables on Paper. In that run
+  Modrinth named all three identified files first, so the CurseForge branch of identify is proven by the live test and the API
+  mock, not on a real server. No blocked file was among the most downloaded projects, so that flow has only met mocks.
+- Seen while testing: killing the app outright can leave a server's Java running (parent 1), and the next start then fails with
+  `session.lock: already locked`. Not addressed here.
+
+**D-045: Modpacks and uploaded servers** · accepted · 2026-11-09
+- **One upload, then a choice the archive makes:** `PUT /modpacks/upload?file=` (`instance.create`) streams it to
+  `<data>/cache/modpacks/`, removes uploads older than a day, and looks inside. `modrinth.index.json` is a Modrinth pack,
+  `manifest.json` a CurseForge pack; the answer says what it needs, and `POST /modpacks/install` makes the server. Any other
+  zip is taken for a server folder and unpacked into `<data>/imports/`, without a single top folder if it has one. The
+  existing import takes over from there (loader detection, confirming, copying).
+- **One job:** `MinecraftService::create_then` runs the pack's part inside the install job, after the server files and before
+  `installed_at`, so a half-filled server can't be started and the job's failure is the install's failure. A failed
+  pack leaves an uninstalled server, like any failed install, and retrying that reinstalls without the pack: delete it and
+  upload again.
+- **An archive is untrusted.** Entries go through `SafeRelPath`, links are skipped, unpacking is capped by bytes actually
+  written (16 GB, 200,000 entries) and files reach the server through the file manager. An `.mrpack` file's path is checked the
+  same way, and a bad one fails the install. **Its downloads are limited to the hosts the format allows** (`cdn.modrinth.com`,
+  `github.com`, `raw.githubusercontent.com`, `gitlab.com`, https only), since otherwise an upload could aim this app's requests
+  anywhere, such as a cloud metadata address. Every file is checked against its hash. The configured Modrinth API's own origin
+  is allowed too, which is how the tests' mock serves files.
+- **What goes in:** files with `env.server: unsupported` are left out; files with no `env` go in, since leaving out a mod a server
+  needs is worse. `overrides/` then `server-overrides/`, the later one winning; `client-overrides/` never. For a CurseForge
+  manifest, required files only, jars only, into `mods/`.
+- **Tracking:** after a pack, and after any import, the jars are looked up (`identify`), so they can be updated. A failed lookup
+  only logs: the files work either way.
+- **Known limits:** the plan's "search for a pack" isn't built: only uploads, not browsing Modrinth's or CurseForge's packs, so
+  CurseForge's `serverPackFileId` isn't followed yet (an official server pack works by uploading its zip). Blocked files in a
+  CurseForge pack are named in the job's log, not the by-hand panel; they can be added on the Mods tab. No `[modpack]` record in
+  `instance.toml`, and no pack updates. Client-only mods in CurseForge packs aren't detected. `.mrpack`'s fields `file.fileSize` and
+  `formatVersion` aren't enforced. The host rule checks a file's first address: GitHub's redirects to its own storage are followed,
+  as any other redirect would be, so the rule stops an upload naming a target, not a redirect from an allowed host.
+  Files in a pack that Modrinth doesn't know by hash (often hosted on GitHub) work but stay "Unknown", without updates.
+- Tested: format parsing; download host rules; API with both mocks (files, overrides order, client-only left out, entry and
+  path escapes, a disallowed host, a changed download, broken archives, rights, CurseForge manifest with key and blocked file,
+  server zip into imports, import then tracked); a real pack from Modrinth installed and started; the browser suite uploading one.

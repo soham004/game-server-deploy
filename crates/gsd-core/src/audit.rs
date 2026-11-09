@@ -49,6 +49,8 @@ pub mod actions {
     pub const CONTENT_REMOVED: &str = "content.removed";
     pub const CONTENT_UPDATE_REQUESTED: &str = "content.update_requested";
     pub const CONTENT_IDENTIFIED: &str = "content.identified";
+    pub const CONTENT_UPLOADED: &str = "content.uploaded";
+    pub const CURSEFORGE_KEY_CHANGED: &str = "settings.curseforge_key_changed";
 }
 
 /// One event to record.

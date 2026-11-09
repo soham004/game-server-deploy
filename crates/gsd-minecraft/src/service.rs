@@ -17,7 +17,7 @@ use gsd_core::{
         registry::RegistryError,
     },
     java::JavaRuntimes,
-    jobs::{JobError, JobFailure, JobRunner, JobSpec},
+    jobs::{JobContext, JobError, JobFailure, JobRunner, JobSpec},
     supervisor::HostSandbox,
 };
 
@@ -170,6 +170,20 @@ impl MinecraftService {
 
     /// Validates, registers the instance and starts its install job.
     pub async fn create(&self, request: CreateRequest) -> Result<(Instance, JobId), CreateError> {
+        self.create_then(request, |_, _| async { Ok(()) }).await
+    }
+
+    /// Like [`Self::create`], and `after` runs in the same job, once the server files are in and
+    /// before the instance counts as installed (so it can't be started halfway through).
+    pub async fn create_then<F, Fut>(
+        &self,
+        request: CreateRequest,
+        after: F,
+    ) -> Result<(Instance, JobId), CreateError>
+    where
+        F: FnOnce(Instance, JobContext) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), JobFailure>> + Send + 'static,
+    {
         let name = validate_basics(&request.name, request.max_memory_mb, request.eula_accepted)?;
 
         let detail = self.catalog.version_detail(&request.mc_version).await?;
@@ -212,12 +226,20 @@ impl MinecraftService {
         };
 
         let instance = self.registry.create(new).await?;
-        let job = self.install(instance.clone())?;
+        let job = self.install_then(instance.clone(), after)?;
         Ok((instance, job))
     }
 
     /// (Re)installs the server files in a background job.
     pub fn install(&self, instance: Instance) -> Result<JobId, CreateError> {
+        self.install_then(instance, |_, _| async { Ok(()) })
+    }
+
+    fn install_then<F, Fut>(&self, instance: Instance, after: F) -> Result<JobId, CreateError>
+    where
+        F: FnOnce(Instance, JobContext) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<(), JobFailure>> + Send + 'static,
+    {
         let server = MinecraftServer::from_table(&instance.definition.server)?;
         let spec = JobSpec {
             kind: "instance.install",
@@ -242,6 +264,7 @@ impl MinecraftService {
 
             job.step("Setting file ownership");
             instance.layout.assign_ownership(instance.definition.sandbox)?;
+            after(instance.clone(), job.clone()).await?;
             service
                 .registry
                 .update(instance.id(), |definition| {

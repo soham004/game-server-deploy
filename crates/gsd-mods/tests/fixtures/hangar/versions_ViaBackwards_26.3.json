@@ -1,0 +1,1134 @@
+{
+ "pagination": {
+  "count": 41,
+  "limit": 25,
+  "offset": 0
+ },
+ "result": [
+  {
+   "id": 33491,
+   "projectId": 12,
+   "name": "5.12.3-SNAPSHOT+668",
+   "createdAt": "2026-11-06T13:10:22.218313Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.3-SNAPSHOT.jar",
+      "sizeBytes": 1441391,
+      "sha256Hash": "fe36dce332e4bc57c1ab88ee455b96d10bc9bbb3986ede25dae5aef02ce920ab"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.3-SNAPSHOT%2B668/PAPER/ViaBackwards-5.12.3-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32868,
+   "projectId": 12,
+   "name": "5.12.3-SNAPSHOT+667",
+   "createdAt": "2026-10-29T10:33:09.138073Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.3-SNAPSHOT.jar",
+      "sizeBytes": 1439656,
+      "sha256Hash": "908b0da88ecd83b3569bd727a13d4b9cb2dea646e7c797f82ae0907d88bece8c"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.3-SNAPSHOT%2B667/PAPER/ViaBackwards-5.12.3-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32761,
+   "projectId": 12,
+   "name": "5.12.2",
+   "createdAt": "2026-10-27T19:47:24.136898Z",
+   "channel": {
+    "name": "Release"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2.jar",
+      "sizeBytes": 1439641,
+      "sha256Hash": "e989440e0aad7e12d4685d7a57df854691b67660966a95ec0450e20ce98e87ab"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2/PAPER/ViaBackwards-5.12.2.jar"
+    }
+   }
+  },
+  {
+   "id": 32743,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+665",
+   "createdAt": "2026-10-27T15:25:56.035068Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439690,
+      "sha256Hash": "63b0713506001d8bdd86ecd140aa4f8955f7aff6477a6451265fbf4f10029c6b"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B665/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32742,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+664",
+   "createdAt": "2026-10-27T15:05:24.26096Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439665,
+      "sha256Hash": "b2989d42b580dd2d464e2341022a477946b3c4768331b4bb24671db9f5358b4b"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B664/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32740,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+663",
+   "createdAt": "2026-10-27T14:58:48.079029Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439277,
+      "sha256Hash": "cabd9bb00344baf934674237abd778bf646cba063eaadf3c9176bb557f0c9d6c"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B663/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32284,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+662",
+   "createdAt": "2026-10-21T11:38:01.017295Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439004,
+      "sha256Hash": "3f27398657b91d75aee452801b2e75590d99f3cbb526d145c7fce9dbfac9b55a"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B662/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32283,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+661",
+   "createdAt": "2026-10-21T11:31:12.208919Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439005,
+      "sha256Hash": "c555b73cc49e2473f2dc35df30cc3e52da967c9d93695ad0e44c26d1690212e4"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B661/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32084,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+660",
+   "createdAt": "2026-10-18T20:16:01.20547Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1439003,
+      "sha256Hash": "8857e95bba0920b7ccf3f1028f16b9469ec8b886f5d30f9030747fa99d551e14"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B660/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 32082,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+659",
+   "createdAt": "2026-10-18T20:07:08.387288Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1438772,
+      "sha256Hash": "bfbffee5cfcf76ac5ac68b84c34d8bd85883d564939cc7e22e92f8c848cb7293"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B659/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31719,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+658",
+   "createdAt": "2026-10-12T16:59:59.324096Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1438465,
+      "sha256Hash": "687c43f95bf5801852b237af1a74953c4a12315bc018ad4488a640c678a39b85"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B658/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31667,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+657",
+   "createdAt": "2026-10-11T18:39:24.372355Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1437280,
+      "sha256Hash": "4f2f2b37e16cbd8936257e9dcbd2179ac82002cfe1998c408056c563f8d02c8d"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B657/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31665,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+656",
+   "createdAt": "2026-10-11T18:16:59.453893Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1437580,
+      "sha256Hash": "fd2b4adaf92e923727b3c28fc7dd918ce7aa0113be121dcca0a39c7c4b513d68"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B656/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31663,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+655",
+   "createdAt": "2026-10-11T18:15:49.135401Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1436638,
+      "sha256Hash": "74f10b7f99eb104b641ffc55a276521b66c5b26db58ac06e084d389e3642a3f5"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B655/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31662,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+654",
+   "createdAt": "2026-10-11T18:12:01.476175Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1436609,
+      "sha256Hash": "3246d0bc4bc035d9a26c10f22c287e50923d1ffd80dfa7a664128db5643eed70"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B654/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31616,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+653",
+   "createdAt": "2026-10-11T07:29:08.83225Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1436612,
+      "sha256Hash": "6fba789a8d98e3cb9d0eb20d809ad695a0d4924cdbeffe51294fdc088f407b0f"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B653/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31615,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+652",
+   "createdAt": "2026-10-11T07:27:38.308636Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1436598,
+      "sha256Hash": "d46f6329819ee2443f958342783353f805cb153aff95877621d904ac8af5f12a"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B652/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31534,
+   "projectId": 12,
+   "name": "5.12.2-SNAPSHOT+651",
+   "createdAt": "2026-10-09T14:46:13.795258Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.2-SNAPSHOT.jar",
+      "sizeBytes": 1436538,
+      "sha256Hash": "838e5f6d4f6a134bedab163b742fb8ec6f54898ef1cb118559631308bcfe2a3c"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.2-SNAPSHOT%2B651/PAPER/ViaBackwards-5.12.2-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31500,
+   "projectId": 12,
+   "name": "5.12.1",
+   "createdAt": "2026-10-08T13:45:17.08896Z",
+   "channel": {
+    "name": "Release"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1.jar",
+      "sizeBytes": 1436079,
+      "sha256Hash": "4b9dd5cb7662f532b44627f8491255bf96f586cbd00280d1480442590ad4450d"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1/PAPER/ViaBackwards-5.12.1.jar"
+    }
+   }
+  },
+  {
+   "id": 31497,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+648",
+   "createdAt": "2026-10-08T13:15:40.3088Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1436132,
+      "sha256Hash": "e0a46734497f9ad1179b3c6487f67485a9e34d75d0ef1f7e549f501ff7c0a41d"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B648/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31167,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+647",
+   "createdAt": "2026-10-01T16:39:09.101082Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433854,
+      "sha256Hash": "c3cb4e2b4e04b9d9bf3d75318a44133146982295021ea9e26984606bdd709481"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B647/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31166,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+646",
+   "createdAt": "2026-10-01T16:38:15.430218Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433802,
+      "sha256Hash": "c7e6a92b8ac03f7517ebcd7aa334470828d9fd6c621060b75f65d0cb6c8788b0"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B646/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31156,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+645",
+   "createdAt": "2026-10-01T12:58:09.940185Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433773,
+      "sha256Hash": "c819fc75a78573b27afa67a5a778fd31f5b29e088688f2d9b1eb6040d71b384c"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B645/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31154,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+644",
+   "createdAt": "2026-10-01T12:56:36.724223Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433778,
+      "sha256Hash": "bae6b24bb588cfb485bf47d1c19e7737b41c429f68cf07d769f29889f260fc4c"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B644/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  },
+  {
+   "id": 31059,
+   "projectId": 12,
+   "name": "5.12.1-SNAPSHOT+643",
+   "createdAt": "2026-09-29T16:43:12.232015Z",
+   "channel": {
+    "name": "Snapshot"
+   },
+   "pluginDependencies": {
+    "PAPER": [
+     {
+      "name": "ViaRewind",
+      "projectId": 112,
+      "required": false,
+      "externalUrl": null,
+      "platform": "PAPER"
+     },
+     {
+      "name": "ViaVersion",
+      "projectId": 31,
+      "required": true,
+      "externalUrl": null,
+      "platform": "PAPER"
+     }
+    ]
+   },
+   "platformDependencies": {
+    "PAPER": [
+     "26.1.2",
+     "26.2",
+     "26.3"
+    ]
+   },
+   "downloads": {
+    "PAPER": {
+     "fileInfo": {
+      "name": "ViaBackwards-5.12.1-SNAPSHOT.jar",
+      "sizeBytes": 1433779,
+      "sha256Hash": "837b1b328ac0ac1233bf59792b0d614f14f724471a6f6380c2c8336264bc50da"
+     },
+     "externalUrl": null,
+     "downloadUrl": "https://hangarcdn.papermc.io/plugins/ViaVersion/ViaBackwards/versions/5.12.1-SNAPSHOT%2B643/PAPER/ViaBackwards-5.12.1-SNAPSHOT.jar"
+    }
+   }
+  }
+ ]
+}

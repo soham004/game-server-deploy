@@ -1,4 +1,4 @@
-//! A server's mods or plugins: what is installed, searching Modrinth for what fits, planning and
+//! A server's mods or plugins: what is installed, searching a source for what fits, planning and
 //! installing (with dependencies), turning files on and off, removing them, and keeping them up
 //! to date (checking, naming hand-added files, updating after a full backup).
 //!
@@ -6,10 +6,11 @@
 
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    body::Body,
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use gsd_core::{
     audit::{AuditEntry, actions},
@@ -17,8 +18,8 @@ use gsd_core::{
 };
 use gsd_mods::{
     AvailableUpdate, ContentList, Identified, UpdateCheck,
-    model::{ContentVersion, Project, SearchPage, SearchQuery, SearchSort},
-    resolver::InstallPlan,
+    model::{ContentVersion, Project, SearchPage, SearchQuery, SearchSort, SourceKind},
+    resolver::{InstallPlan, Requested},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -61,6 +62,10 @@ pub fn routes() -> Router<AppState> {
         .route("/instances/{instance_id}/content/updates", get(updates))
         .route("/instances/{instance_id}/content/identify", post(identify))
         .route("/instances/{instance_id}/content/update", post(update))
+        .route(
+            "/instances/{instance_id}/content/upload",
+            put(upload).layer(DefaultBodyLimit::disable()),
+        )
 }
 
 async fn list(
@@ -72,6 +77,8 @@ async fn list(
 
 #[derive(Debug, Deserialize)]
 struct SearchParams {
+    #[serde(default)]
+    source: SourceKind,
     #[serde(default)]
     q: String,
     #[serde(default)]
@@ -91,32 +98,94 @@ async fn search(
         offset: params.offset.min(10_000),
         limit: PAGE_SIZE,
     };
-    Ok(Json(state.content.search(auth.instance_id, &query).await?))
+    Ok(Json(
+        state
+            .content
+            .search(auth.instance_id, params.source, &query)
+            .await?,
+    ))
+}
+
+/// Which source a project id belongs to (ids mean nothing on another).
+#[derive(Debug, Deserialize)]
+struct SourceParam {
+    #[serde(default)]
+    source: SourceKind,
 }
 
 async fn project(
     State(state): State<AppState>,
     _auth: Authorized<perm::InstanceView>,
     Path((_, project_id)): Path<(InstanceId, String)>,
+    Query(params): Query<SourceParam>,
 ) -> Result<Json<Project>, ApiError> {
-    Ok(Json(state.content.project(&project_id).await?))
+    Ok(Json(state.content.project(params.source, &project_id).await?))
 }
 
 async fn versions(
     State(state): State<AppState>,
     auth: Authorized<perm::InstanceView>,
     Path((_, project_id)): Path<(InstanceId, String)>,
+    Query(params): Query<SourceParam>,
 ) -> Result<Json<Vec<ContentVersion>>, ApiError> {
-    Ok(Json(state.content.versions(auth.instance_id, &project_id).await?))
+    Ok(Json(
+        state
+            .content
+            .versions(auth.instance_id, params.source, &project_id)
+            .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstallBody {
-    project_id: String,
-    /// A specific version; the best fitting one when absent.
+    /// One project (from Modrinth unless `source` says otherwise)…
+    #[serde(default)]
+    source: Option<SourceKind>,
+    #[serde(default)]
+    project_id: Option<String>,
+    /// …at a specific version (the best fitting one when absent).
     #[serde(default)]
     version_id: Option<String>,
+    /// …or several at once, each with its own source and an optional version.
+    #[serde(default)]
+    projects: Option<Vec<Requested>>,
+}
+
+/// The most projects one install may ask for (each brings its dependencies too).
+const MAX_REQUESTED: usize = 32;
+
+impl InstallBody {
+    /// What to install: one project or the list, never both.
+    fn requested(self) -> Result<Vec<Requested>, ApiError> {
+        let requested = match (self.source, self.project_id, self.version_id, self.projects) {
+            (source, Some(project_id), version_id, None) => vec![Requested {
+                source: source.unwrap_or_default(),
+                project_id,
+                version_id,
+            }],
+            (None, None, None, Some(projects)) => projects,
+            _ => {
+                return Err(invalid_request(
+                    "Send either project_id (with source and version_id if needed) or projects.",
+                ));
+            }
+        };
+        if requested.is_empty() || requested.len() > MAX_REQUESTED {
+            return Err(invalid_request(format!(
+                "Install 1 to {MAX_REQUESTED} projects at a time."
+            )));
+        }
+        Ok(requested)
+    }
+}
+
+fn invalid_request(message: impl Into<String>) -> ApiError {
+    ApiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "invalid_install_request",
+        message,
+    )
 }
 
 async fn plan(
@@ -124,12 +193,8 @@ async fn plan(
     auth: Authorized<perm::ContentManage>,
     ApiJson(body): ApiJson<InstallBody>,
 ) -> Result<Json<InstallPlan>, ApiError> {
-    Ok(Json(
-        state
-            .content
-            .plan(auth.instance_id, &body.project_id, body.version_id.as_deref())
-            .await?,
-    ))
+    let requested = body.requested()?;
+    Ok(Json(state.content.plan(auth.instance_id, &requested).await?))
 }
 
 #[derive(Debug, Serialize)]
@@ -143,21 +208,23 @@ async fn install(
     auth: Authorized<perm::ContentManage>,
     ApiJson(body): ApiJson<InstallBody>,
 ) -> Result<Response, ApiError> {
-    let (plan, job_id) = state
-        .content
-        .start_install(auth.instance_id, &body.project_id, body.version_id.as_deref())
-        .await?;
+    let requested = body.requested()?;
+    let (plan, job_id) = state.content.start_install(auth.instance_id, &requested).await?;
     let files: Vec<&str> = plan
         .steps
         .iter()
         .map(|step| step.version.file.filename.as_str())
+        .collect();
+    let projects: Vec<String> = requested
+        .iter()
+        .map(|request| format!("{}:{}", request.source.as_str(), request.project_id))
         .collect();
     let entry = AuditEntry::on_instance(
         auth.actor.id(),
         auth.instance_id,
         actions::CONTENT_INSTALL_REQUESTED,
     )
-    .with_details(json!({ "project": body.project_id, "files": files }));
+    .with_details(json!({ "projects": projects, "files": files }));
     state.audit.record(entry).await;
     Ok((StatusCode::ACCEPTED, Json(InstallStarted { job_id, plan })).into_response())
 }
@@ -222,6 +289,29 @@ async fn identify(
         state.audit.record(entry).await;
     }
     Ok(Json(identified))
+}
+
+#[derive(Debug, Deserialize)]
+struct UploadQuery {
+    file: String,
+}
+
+/// A jar the user brings (one `CurseForge` can't hand over, or any other): the request body is the
+/// file. It is looked up right away, so it is tracked if a source knows it.
+async fn upload(
+    State(state): State<AppState>,
+    auth: Authorized<perm::ContentManage>,
+    Query(query): Query<UploadQuery>,
+    body: Body,
+) -> Result<(StatusCode, Json<Identified>), ApiError> {
+    let identified = state
+        .content
+        .upload(auth.instance_id, &query.file, body.into_data_stream())
+        .await?;
+    let entry = AuditEntry::on_instance(auth.actor.id(), auth.instance_id, actions::CONTENT_UPLOADED)
+        .with_details(json!({ "file": query.file, "identified": identified.identified }));
+    state.audit.record(entry).await;
+    Ok((StatusCode::CREATED, Json(identified)))
 }
 
 #[derive(Debug, Default, Deserialize)]

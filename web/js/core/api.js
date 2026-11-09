@@ -35,6 +35,15 @@ async function request(method, path, body) {
     init.body = JSON.stringify(body);
   }
 
+  return send(path, init);
+}
+
+/** A file as the request body (`PUT`), for endpoints that take one. */
+function upload(path, file) {
+  return send(path, { method: 'PUT', headers: { Accept: 'application/json', 'X-CSRF': '1' }, credentials: 'same-origin', body: file });
+}
+
+async function send(path, init) {
   let response;
   try {
     response = await fetch(BASE + path, init);
@@ -64,4 +73,5 @@ export const api = {
   put: (path, body) => request('PUT', path, body),
   patch: (path, body) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),
+  upload,
 };

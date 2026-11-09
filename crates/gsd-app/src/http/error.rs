@@ -340,6 +340,7 @@ impl From<gsd_mods::ContentError> for ApiError {
         match error {
             ContentError::NoContent => status(StatusCode::CONFLICT, "no_content_for_loader"),
             ContentError::NotInstalled(_) => status(StatusCode::NOT_FOUND, "content_not_installed"),
+            ContentError::NotAJar(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "not_a_jar"),
             ContentError::Resolve(ResolveError::Source(error)) | ContentError::Source(error) => error.into(),
             ContentError::Resolve(_) => status(StatusCode::CONFLICT, "cannot_install"),
             ContentError::Files(error) => error.into(),
@@ -355,6 +356,22 @@ impl From<gsd_mods::ContentError> for ApiError {
     }
 }
 
+impl From<gsd_mods::modpack::ModpackError> for ApiError {
+    fn from(error: gsd_mods::modpack::ModpackError) -> Self {
+        use gsd_mods::modpack::ModpackError;
+        let message = error.to_string();
+        let status = |status, code| Self::new(status, code, message.clone());
+        match error {
+            ModpackError::TooBig => status(StatusCode::PAYLOAD_TOO_LARGE, "upload_too_big"),
+            ModpackError::UnknownUpload => status(StatusCode::NOT_FOUND, "upload_not_found"),
+            ModpackError::Pack(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_modpack"),
+            ModpackError::Create(error) => error.into(),
+            ModpackError::Content(error) => error.into(),
+            ModpackError::Io(_) => Self::internal(&error),
+        }
+    }
+}
+
 impl From<gsd_mods::SourceError> for ApiError {
     fn from(error: gsd_mods::SourceError) -> Self {
         use gsd_mods::SourceError;
@@ -364,6 +381,8 @@ impl From<gsd_mods::SourceError> for ApiError {
             SourceError::RateLimited => {
                 Self::new(StatusCode::TOO_MANY_REQUESTS, "source_rate_limited", message)
             }
+            SourceError::NoKey => Self::new(StatusCode::CONFLICT, "source_key_missing", message),
+            SourceError::KeyRefused => Self::new(StatusCode::CONFLICT, "source_key_refused", message),
             SourceError::Request(_)
             | SourceError::Status { .. }
             | SourceError::Decode { .. }
