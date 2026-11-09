@@ -456,8 +456,18 @@ pub(crate) mod kernel {
     async fn preparing_a_group_again_kills_what_an_earlier_run_left_behind() {
         let Some(real) = RealTree::new() else { return };
         let limits = CgroupLimits::for_heap(512);
-        let spec = sandboxed_shell("sleep 600", limits);
+        let spec = sandboxed_shell("echo started; sleep 600", limits);
         let mut leftover = process::spawn(&spec, &real.host).unwrap();
+        // The launcher joins the group after `spawn` returns, so wait for what runs after that. A
+        // real leftover is from an earlier run, and joined long ago.
+        let mut line = String::new();
+        tokio::io::AsyncBufReadExt::read_line(
+            &mut tokio::io::BufReader::new(&mut leftover.stdout),
+            &mut line,
+        )
+        .await
+        .unwrap();
+        assert_eq!(line, "started\n");
 
         real.tree()
             .prepare(spec.sandbox.as_ref().unwrap().cgroup.as_ref().unwrap())
