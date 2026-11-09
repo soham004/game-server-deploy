@@ -10,8 +10,10 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[cfg(target_os = "linux")]
+use super::sandbox;
 use super::{
-    sandbox::{self, HostSandbox, SandboxSpec, cgroup::CgroupSlot},
+    sandbox::{HostSandbox, SandboxSpec, SandboxSupport, cgroup::CgroupSlot},
     state::ExitInfo,
 };
 
@@ -36,11 +38,34 @@ pub(crate) struct Spawned {
     pub cgroup: Option<CgroupSlot>,
 }
 
-pub(crate) fn spawn(spec: &ProcessSpec, host: &HostSandbox) -> io::Result<Spawned> {
+/// The command that starts `spec`: through the launcher where there is one, else directly.
+fn start_command(spec: &ProcessSpec, host: &HostSandbox, cgroup: Option<&CgroupSlot>) -> io::Result<Command> {
+    #[cfg(target_os = "linux")]
+    if let Some(launcher) = host.launcher() {
+        return sandbox::launch_command(launcher, spec, &host.support(), cgroup);
+    }
+    // Only a launcher can apply a sandbox, so going on here would silently run without one.
+    let needs_launcher = spec.sandbox.is_some() && host.support() != SandboxSupport::none();
+    if needs_launcher || cgroup.is_some() {
+        return Err(io::Error::other(
+            "this host's sandbox needs a launcher, and has none",
+        ));
+    }
     let mut command = Command::new(&spec.program);
+    command.args(&spec.args).current_dir(&spec.cwd);
+    Ok(command)
+}
+
+pub(crate) fn spawn(spec: &ProcessSpec, host: &HostSandbox) -> io::Result<Spawned> {
+    // Hard limits only where the process asks for them and the host has control groups.
+    let request = spec.sandbox.as_ref().and_then(|sandbox| sandbox.cgroup.as_ref());
+    let cgroup = match request.zip(host.cgroups()) {
+        Some((request, tree)) => Some(tree.prepare(request)?),
+        None => None,
+    };
+
+    let mut command = start_command(spec, host, cgroup.as_ref())?;
     command
-        .args(&spec.args)
-        .current_dir(&spec.cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -55,16 +80,6 @@ pub(crate) fn spawn(spec: &ProcessSpec, host: &HostSandbox) -> io::Result<Spawne
     // Own process group, so a kill also reaches anything the server started.
     #[cfg(unix)]
     command.process_group(0);
-
-    // Hard limits only where the process asks for them and the host has control groups.
-    let request = spec.sandbox.as_ref().and_then(|sandbox| sandbox.cgroup.as_ref());
-    let cgroup = match request.zip(host.cgroups()) {
-        Some((request, tree)) => Some(tree.prepare(request)?),
-        None => None,
-    };
-    if let Some(sandbox_spec) = &spec.sandbox {
-        sandbox::apply(&mut command, sandbox_spec, &host.support(), cgroup.as_ref())?;
-    }
 
     let mut child = command.spawn()?;
     let missing = |name: &str| io::Error::other(format!("child {name} was not captured"));
@@ -251,6 +266,27 @@ mod tests {
         assert!(matches!(outcome, RunOutcome::Exited(exit) if exit.code == Some(0)));
         assert_eq!(lines, ["done"]);
         assert!(started.elapsed() < Duration::from_secs(4), "drain is bounded");
+    }
+
+    /// Silently running without the sandbox would be the worst way for this to go wrong.
+    #[tokio::test]
+    async fn a_sandbox_without_a_launcher_refuses_to_start() {
+        use crate::supervisor::sandbox::ResourceLimits;
+
+        let mut spec = shell("true");
+        spec.sandbox = Some(SandboxSpec {
+            user: None,
+            read_write: vec![],
+            read_only: vec![],
+            bind_tcp: vec![],
+            connect_tcp: vec![],
+            limits: ResourceLimits::default(),
+            cgroup: None,
+        });
+        let mut support = SandboxSupport::none();
+        support.filesystem = true;
+        let result = spawn(&spec, &HostSandbox::new(support, None));
+        assert!(result.is_err());
     }
 
     #[tokio::test]

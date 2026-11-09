@@ -17,7 +17,7 @@
 //! run: `-Xmx` caps the heap and rlimits apply; only the hard ceiling is missing.
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io,
     path::{Path, PathBuf},
 };
@@ -210,11 +210,11 @@ impl CgroupTree {
         // is broken anyway, and the diagnostic can say plainly what happened).
         write_if_present(&dir.join("memory.oom.group"), "1")?;
         fs::write(dir.join("pids.max"), request.limits.tasks_max.to_string())?;
-        let procs = OpenOptions::new().write(true).open(dir.join("cgroup.procs"))?;
+        // A group that can't be joined is better found here than by the launcher.
+        OpenOptions::new().write(true).open(dir.join("cgroup.procs"))?;
         Ok(CgroupSlot {
             oom_kills_before: oom_kills(&dir),
             dir,
-            procs,
             limits: request.limits,
         })
     }
@@ -231,19 +231,15 @@ impl CgroupTree {
 #[derive(Debug)]
 pub struct CgroupSlot {
     dir: PathBuf,
-    /// Opened by the app, written by the child before exec (`0` = "move me"). The kernel checks
-    /// permissions with the opener's credentials, so this works after the child dropped root.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    procs: File,
     oom_kills_before: u64,
     limits: CgroupLimits,
 }
 
 impl CgroupSlot {
-    /// A handle for the child process (closed on exec).
+    /// The launcher writes `0` ("move me") here, before it drops root.
     #[cfg(target_os = "linux")]
-    pub(crate) fn procs_file(&self) -> io::Result<File> {
-        self.procs.try_clone()
+    pub(crate) fn procs_path(&self) -> PathBuf {
+        self.dir.join("cgroup.procs")
     }
 
     pub fn limits(&self) -> CgroupLimits {

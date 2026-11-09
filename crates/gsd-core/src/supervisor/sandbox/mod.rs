@@ -17,10 +17,12 @@ mod linux;
 
 pub use cgroup::{CgroupLimits, CgroupRequest};
 pub use host::{HostSandbox, SandboxUnusable};
+#[cfg(target_os = "linux")]
+pub(crate) use linux::launch_command;
 
 use std::path::PathBuf;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::instances::SandboxIds;
 
@@ -38,7 +40,7 @@ pub struct SandboxSpec {
     pub cgroup: Option<CgroupRequest>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResourceLimits {
     pub open_files: u64,
     /// Only applied when the process has its own user (the limit is per user).
@@ -179,23 +181,11 @@ impl SandboxSupport {
     }
 }
 
-/// Configures `command` to run inside the sandbox, as far as `support` allows, and to join
-/// `cgroup` (if any) before it starts.
-pub(crate) fn apply(
-    command: &mut tokio::process::Command,
-    spec: &SandboxSpec,
-    support: &SandboxSupport,
-    cgroup: Option<&cgroup::CgroupSlot>,
-) -> std::io::Result<()> {
+/// When this process was started as the sandbox launcher, starts the server and never returns;
+/// otherwise does nothing. The first thing `main` must do (see `linux.rs`).
+pub fn launch_if_asked() {
     #[cfg(target_os = "linux")]
-    {
-        linux::apply(command, spec, support, cgroup)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (command, spec, support, cgroup);
-        Ok(())
-    }
+    linux::launch_if_asked();
 }
 
 #[cfg(test)]

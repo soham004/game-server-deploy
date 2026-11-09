@@ -35,14 +35,14 @@
   and `-Duser.home=` to that path).
 - Ownership: `instances/<slug>/server` is `chown uid:gid` and `chmod 0700` (dirs) / `0600` (files written by us). The app
   (root with `CAP_CHOWN`/`CAP_DAC_OVERRIDE`/`CAP_FOWNER`) can still manage the files; the other instances cannot.
-- The process is spawned with `Command::uid()/gid()` + `setgroups([])` (via `pre_exec`), so it cannot signal or ptrace other
+- The launcher (see Implementation notes) switches to that UID and GID and drops other groups, so the server cannot signal or ptrace other
   servers (different UIDs), cannot read the app's `0600 root` files (`gsd.sqlite`, `config.toml`, `backups/`), and cannot read
   other instances' dirs.
 - Every file the app writes into an instance (uploads, installs, extracted mods, restored backups) is chowned to the instance
   UID by a single helper, `files::ownership::assign(instance, path)`. Easy to forget, so it is centralised and tested.
 
 ### Layer 2: Landlock (best effort, kernel ≥ 5.13; network rules need ABI v4 / kernel ≥ 6.7)
-- Applied in the child between fork and exec (`pre_exec`) with the `landlock` crate: `set_no_new_privs()` + a ruleset
+- Applied by the launcher with the `landlock` crate: `set_no_new_privs()` + a ruleset
   allowing only the paths above. Uses the **best-effort** compatibility mode: on older kernels, apply what's supported and
   report the achieved level.
 - Docker's default seccomp profile **allows** the Landlock syscalls (moby commit 2022), so this works inside the container
@@ -69,9 +69,8 @@
   - host install under systemd with `Delegate=yes` in our unit file → on (verified with `systemd-run -p Delegate=yes`);
   - Docker: `/sys/fs/cgroup` is read-only by default → off, with the reason in `GET /system` and the startup log;
   - a shared group (a shell, a desktop session, `init.scope`) → off.
-  A sandboxed probe proves at startup that a child joins its group after dropping root (the kernel checks the opener's
-  credentials on `cgroup.procs`, Linux ≥ 5.16 or backports); if not, limits turn off instead of every start failing.
-  The child joins in `pre_exec` by writing `0` to a `cgroup.procs` fd the app opened. After an exit, a new `oom_kill` in
+  A sandboxed probe proves at startup that a process really ends up in its group; if not, limits turn off instead of every
+  start failing. The launcher joins by writing `0` to `cgroup.procs` before it drops root. After an exit, a new `oom_kill` in
   `memory.events` becomes the `memory_limit` diagnostic. Installers don't use the server's group (preparing it kills
   leftovers).
 - rlimits for every child: `RLIMIT_NOFILE` (default 8192), `RLIMIT_NPROC` (per UID, so it only limits that instance's
@@ -107,10 +106,11 @@ pub trait ServerProcess: Send {
 - The supervisor only talks to `ServerProcess`, so the console, backups and the scheduler don't care which backend runs the server.
 
 ## Implementation notes
-- All sandbox setup lives in `gsd-core/supervisor/sandbox/` (`linux.rs`, `fallback.rs`), behind `#[cfg(target_os = "linux")]`.
-  `pre_exec` closures must be async-signal-safe: precompute everything (paths as `CString`, the ruleset) **before** fork, and
-  only do syscalls in the closure.
-- The `landlock` crate's ruleset is created before fork and `restrict_self()` is called in `pre_exec`.
+- All sandbox setup lives in `gsd-core/supervisor/sandbox/` (`linux.rs`), behind `#[cfg(target_os = "linux")]`.
+- **No `unsafe` (D-048):** the app starts itself as a launcher (`gsd sandbox-launch <plan>`, handled first in `main`, one
+  thread, no runtime). It applies everything from safe code, in this order: join the control group, build the Landlock rules,
+  switch user, enter the folder, set rlimits, set the parent-death signal, restrict itself, `exec` the server. If any step fails, it
+  prints why and exits 126 without running the server.
 - Installers (Forge/NeoForge/Quilt `java -jar installer`) also run sandboxed as the instance UID (they execute downloaded code).
 - Self-test endpoint and page: "Isolation check" spawns a tiny probe (a `java` program, or a shell probe) as an instance UID and tries to
   read a sibling dir, connect to a sibling's RCON port, and write outside its root. It reports pass/fail for each check.

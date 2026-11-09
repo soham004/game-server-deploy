@@ -104,9 +104,11 @@ async fn isolation_check(config: &Config) -> Result<(), CliError> {
     println!("Testing in {}", config.data_dir.display());
     // Hard limits need the app's own control group; only the running app can test them
     // (POST /system/isolation-check).
-    let host = HostSandbox::new(SandboxSupport::detect(), None).with_cgroups(Err(CgroupsUnavailable(
-        "tested only by the running app (its isolation check)".into(),
-    )));
+    let host = HostSandbox::new(SandboxSupport::detect(), None)
+        .with_cgroups(Err(CgroupsUnavailable(
+            "tested only by the running app (its isolation check)".into(),
+        )))
+        .with_this_binary_as_launcher();
     let report = gsd_core::supervisor::sandbox::check::run(&probe, scratch.path(), &host)
         .await
         .map_err(fail)?;

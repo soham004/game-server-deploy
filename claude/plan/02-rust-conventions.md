@@ -83,7 +83,7 @@ apply to every PR. Future-me: re-read this before writing code.
 ## 9. Lints and tooling (workspace `Cargo.toml`)
 ```toml
 [workspace.lints.rust]
-unsafe_code = "forbid"          # allow per-module only for OS FFI if a crate isn't available
+unsafe_code = "forbid"          # no exceptions: `forbid` can't be allowed again further down (D-048)
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]

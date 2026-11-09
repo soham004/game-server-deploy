@@ -24,7 +24,9 @@ export function appBinary() {
 
 /**
  * Runs `gsd serve` until `stop()`. The app's own output is kept (`log()`) for failure reports.
- * @returns {Promise<{ origin: string, log: () => string, stop: () => Promise<void> }>}
+ * `kill()` ends it with SIGKILL instead, as a crash or the out-of-memory killer would: it gets no
+ * chance to stop its servers.
+ * @returns {Promise<{ origin: string, log: () => string, stop: () => Promise<void>, kill: () => Promise<void> }>}
  */
 export async function startApp({ dataDir = DATA_DIR, port }) {
   const bin = appBinary();
@@ -46,6 +48,10 @@ export async function startApp({ dataDir = DATA_DIR, port }) {
     log,
     async stop() {
       child.kill('SIGTERM');
+      await exited;
+    },
+    async kill() {
+      child.kill('SIGKILL');
       await exited;
     },
   };

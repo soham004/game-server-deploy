@@ -42,6 +42,11 @@ Stopping ──timeout──► kill ──► Stopped
 `stop\n` to stdin → wait for exit up to `stop_timeout_secs` (default 60, configurable; large modded servers need more)
 → else kill and warn ("server did not stop in time; world may not be saved").
 
+### When the app dies
+On Linux every server gets SIGTERM from the kernel if the app dies without stopping it, and Java's shutdown hook saves the
+world (D-047). A new app doesn't adopt or kill leftovers; if one still holds the world, the start fails with the
+`world_locked` diagnostic.
+
 ### Output handling
 - Reader tasks use `BufReader::lines()` on stdout and stderr (lossy UTF-8), parse each line with the game adapter
   (`LogLine{ts, thread, level, logger, text, raw}`), push it into a **ring buffer** (default 5,000 lines, configurable),

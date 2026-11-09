@@ -164,6 +164,15 @@ static RULES: LazyLock<Vec<Rule>> = LazyLock::new(|| {
                 "A mod couldn't patch the game (mixin failure), often because of an incompatible mod or game version.".into()
             },
         ),
+        rule(
+            r"session\.lock: already locked",
+            "world_locked",
+            Severity::Error,
+            "World in use by another process",
+            |_| {
+                "Another Java process still has this world open. A server can take a moment to save after the app was killed, so try again shortly. If this keeps happening, stop that process on the host.".into()
+            },
+        ),
     ]
 });
 
@@ -253,6 +262,10 @@ mod tests {
             (
                 "org.spongepowered.asm.mixin.transformer.throwables.MixinApplyError: Mixin apply failed",
                 "mixin_failure",
+            ),
+            (
+                "net.minecraft.util.DirectoryLock$LockException: ./world/session.lock: already locked (possibly by other Minecraft instance?)",
+                "world_locked",
             ),
         ];
         for (line, code) in cases {

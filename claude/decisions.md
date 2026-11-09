@@ -630,3 +630,27 @@ Members manage only the instances they are granted. Member quotas (instance coun
 - Tested: format parsing; download host rules; API with both mocks (files, overrides order, client-only left out, entry and
   path escapes, a disallowed host, a changed download, broken archives, rights, CurseForge manifest with key and blocked file,
   server zip into imports, import then tracked); a real pack from Modrinth installed and started; the browser suite uploading one.
+
+**D-047: A server stops by itself when the app dies** · accepted · 2026-11-09
+- **The problem (seen in D-046):** an app killed outright (crash, out-of-memory killer, `kill -9`) gets no chance to stop its
+  servers. Java ignores the broken pipes and keeps running, holding the port and `session.lock`, so every later start of that
+  server fails. Reproduced on a real server before the fix: still running 60 s after the kill.
+- **The fix, Linux:** every process we start sets `PR_SET_PDEATHSIG` to SIGTERM between fork and exec, so the kernel tells it
+  however the app dies. SIGTERM rather than SIGKILL: Java's shutdown hook saves the world, and SIGKILL would lose everything
+  since the last autosave. The setting is made after the server's user change (which would reset it), and the child checks its parent
+  afterwards, in case the app died just before.
+- **A trap to keep in mind:** the signal follows the *thread* that started the process, not the app. Servers are started from
+  tasks on tokio's worker threads, which last as long as the app. `block_in_place` can end one, which would stop servers for no
+  reason, so it must not be used here: neither the workspace nor its 278 normal dependencies use it (checked by search; tokio itself excluded).
+- **A new app doesn't adopt or kill anything.** No pid files: the signal covers the normal cases. A server that hangs while
+  stopping stays up with no app to kill it, and a new start then fails; a new diagnostic (`world_locked`) says another process has the
+  world open. A start right after a kill can hit this while the old server is still saving; trying again works once it has
+  exited. That timing wasn't exercised: the test waits for the old process to exit first.
+- **Known limits:** only the started process gets the signal, not what it started (Java starts nothing in normal use). Windows has no
+  such signal, so a killed app can still leave a server running there; a job object would solve it, but Windows isn't a release target yet.
+- Also found: when the probe user can't run the app binary (say it lives in a private home folder), the start check blames the
+  filesystem (`sandbox_unusable`), which is misleading. Not changed here.
+- Tested: `tests/e2e/app-killed.e2e.mjs` with a real vanilla server: a block placed seconds before SIGKILL to the app is still there
+  after a restart under a new app. It failed before the fix, and a control that also kills Java directly fails with "the world
+  was not saved", so the test can tell the difference. Passes as a normal user and as root, where the server ran as UID 20000. A unit
+  test checks the signal arrives when the starting thread ends.

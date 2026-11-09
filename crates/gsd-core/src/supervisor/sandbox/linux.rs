@@ -1,91 +1,225 @@
-//! Linux enforcement: setuid/setgid, Landlock and rlimits, applied between fork and exec.
+//! Linux enforcement: the user switch, Landlock, rlimits and the parent-death signal.
 //!
-//! WHY `unsafe`: `pre_exec` runs code in the forked child, where only async-signal-safe
-//! operations are allowed. Everything that allocates (opening path fds, building the Landlock
-//! ruleset, reading current limits) happens in the parent; the child only makes syscalls.
-
-#![allow(unsafe_code)]
+//! These must apply to the server process alone, before Java starts, and the app has many threads
+//! it can't restrict. So the app starts *itself* as a short-lived launcher ([`launch_command`]). The
+//! launcher has one thread and no runtime ([`launch_if_asked`] runs first in `main`), applies
+//! everything from ordinary safe code, then replaces itself with the server through `exec`. The
+//! process keeps its pid, process group and pipes, so the app can't tell the difference afterwards.
+//!
+//! A launcher that fails prints why on stderr, which lands in the server's console, and exits
+//! with [`LAUNCH_FAILED`]. Nothing runs unsandboxed in that case.
 
 use std::{
-    io::{self, Write},
+    convert::Infallible,
+    ffi::OsStr,
+    io,
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
-    sync::Mutex,
 };
 
 use landlock::{
-    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, NetPort, PathBeneath, PathFd, Ruleset,
-    RulesetAttr, RulesetCreated, RulesetCreatedAttr,
+    ABI, Access, AccessFs, AccessNet, CompatLevel, Compatible, LandlockStatus, NetPort, PathBeneath, PathFd,
+    Ruleset, RulesetAttr, RulesetCreated, RulesetCreatedAttr,
 };
-use nix::sys::resource::{Resource, getrlimit, setrlimit};
+use nix::{
+    errno::Errno,
+    sys::{
+        prctl,
+        resource::{Resource, getrlimit, setrlimit},
+        signal::Signal,
+    },
+    unistd::{Gid, Pid, Uid, getppid, setgid, setgroups, setuid},
+};
+use serde::{Deserialize, Serialize};
 
-use super::{SandboxSpec, SandboxSupport, cgroup::CgroupSlot};
+use super::{ResourceLimits, SandboxSupport, cgroup::CgroupSlot};
+use crate::supervisor::process::ProcessSpec;
 
 /// The newest ABI we know how to use; older kernels get a best-effort subset.
 const TARGET_ABI: ABI = ABI::V5;
 
+/// First argument that makes the app binary act as the launcher.
+const LAUNCH_ARG: &str = "sandbox-launch";
+
+/// The launcher's exit code when it could not start the server (126: "could not be run").
+const LAUNCH_FAILED: i32 = 126;
+
 /// The kernel's Landlock ABI version, or `None` when Landlock is unavailable or disabled.
+///
+/// The `landlock` crate only reports this after restricting the caller. So a thread of its own is
+/// restricted, reads the answer and ends, and its restriction ends with it.
 pub(super) fn landlock_abi() -> Option<u32> {
-    const LANDLOCK_CREATE_RULESET_VERSION: libc::c_uint = 1;
-    // SAFETY: with a NULL attribute, size 0 and the VERSION flag, this syscall only returns the
-    // ABI version (or an error); it reads and writes no memory.
-    let version = unsafe {
-        libc::syscall(
-            libc::SYS_landlock_create_ruleset,
-            std::ptr::null::<libc::c_void>(),
-            0_usize,
-            LANDLOCK_CREATE_RULESET_VERSION,
-        )
-    };
-    u32::try_from(version).ok().filter(|v| *v > 0)
+    let probe = std::thread::spawn(|| {
+        Ruleset::default()
+            .handle_access(AccessFs::Execute)?
+            .create()?
+            .restrict_self()
+    });
+    let status = probe.join().ok()?.ok()?;
+    match status.landlock {
+        LandlockStatus::Available {
+            effective_abi,
+            kernel_abi,
+        } => u32::try_from(kernel_abi.unwrap_or(effective_abi as i32)).ok(),
+        _ => None,
+    }
 }
 
-pub(super) fn apply(
-    command: &mut tokio::process::Command,
-    spec: &SandboxSpec,
+/// Everything the launcher needs, passed as one JSON argument. It holds no secrets: the server's
+/// environment travels as the launcher's own environment, not in here.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct LaunchPlan {
+    /// The app's pid, to notice that it died before the parent-death signal was set.
+    parent: i32,
+    program: PathBuf,
+    args: Vec<String>,
+    cwd: PathBuf,
+    /// Absent for processes that run without a sandbox.
+    sandbox: Option<SandboxPlan>,
+}
+
+/// A [`super::SandboxSpec`] narrowed to what this host can enforce.
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct SandboxPlan {
+    /// Uid and gid to switch to.
+    user: Option<(u32, u32)>,
+    read_write: Vec<PathBuf>,
+    read_only: Vec<PathBuf>,
+    bind_tcp: Vec<u16>,
+    connect_tcp: Vec<u16>,
+    limits: ResourceLimits,
+    filesystem_rules: bool,
+    network_rules: bool,
+    /// The `cgroup.procs` file of the control group to join.
+    cgroup_procs: Option<PathBuf>,
+}
+
+/// A command that starts `spec` through the launcher, which is `launcher` (the app binary).
+pub(crate) fn launch_command(
+    launcher: &Path,
+    spec: &ProcessSpec,
     support: &SandboxSupport,
     cgroup: Option<&CgroupSlot>,
-) -> io::Result<()> {
-    let own_user = spec.user.filter(|_| support.separate_users);
-    if let Some(user) = own_user {
-        // std drops supplementary groups (setgroups) before setuid when running as root.
-        command.uid(user.uid);
-        command.gid(user.gid);
+) -> io::Result<tokio::process::Command> {
+    // What the app can see for itself stays an error from starting, not a crash of the server.
+    std::fs::metadata(&spec.cwd)?;
+    if spec.program.components().count() > 1 {
+        std::fs::metadata(&spec.program)?;
     }
-
-    let limits = PreparedLimits::new(spec, own_user.is_some());
-    let ruleset = if support.filesystem {
-        Some(build_ruleset(spec, support.network).map_err(io::Error::other)?)
-    } else {
-        None
+    let plan = LaunchPlan {
+        parent: Pid::this().as_raw(),
+        program: spec.program.clone(),
+        args: spec.args.clone(),
+        cwd: spec.cwd.clone(),
+        sandbox: spec.sandbox.as_ref().map(|sandbox| SandboxPlan {
+            user: sandbox
+                .user
+                .filter(|_| support.separate_users)
+                .map(|user| (user.uid, user.gid)),
+            read_write: sandbox.read_write.clone(),
+            read_only: sandbox.read_only.clone(),
+            bind_tcp: sandbox.bind_tcp.clone(),
+            connect_tcp: sandbox.connect_tcp.clone(),
+            limits: sandbox.limits,
+            filesystem_rules: support.filesystem,
+            network_rules: support.network,
+            cgroup_procs: cgroup.map(CgroupSlot::procs_path),
+        }),
     };
-    let ruleset = Mutex::new(ruleset);
-    let cgroup_procs = cgroup.map(CgroupSlot::procs_file).transpose()?;
+    let mut command = tokio::process::Command::new(launcher);
+    command
+        .arg(LAUNCH_ARG)
+        .arg(serde_json::to_string(&plan).map_err(io::Error::other)?);
+    Ok(command)
+}
 
-    // SAFETY: runs in the child after fork. It only calls write (joining the control group:
-    // "0" means the writing process), setrlimit and the Landlock syscalls (`restrict_self` =
-    // prctl(NO_NEW_PRIVS) + landlock_restrict_self), all async-signal-safe. The mutex is private
-    // to this closure, so it can't be held by another thread at fork time.
-    unsafe {
-        command.pre_exec(move || {
-            // First, so everything after (including exec) is already counted against the caps.
-            if let Some(mut procs) = cgroup_procs.as_ref() {
-                procs.write_all(b"0")?;
-            }
-            limits.apply()?;
-            let prepared = ruleset
-                .lock()
-                .map_err(|_| io::Error::other("ruleset lock poisoned"))?
-                .take();
-            if let Some(ruleset) = prepared {
-                ruleset.restrict_self().map_err(io::Error::other)?;
-            }
-            Ok(())
-        });
+/// When the app was started as the launcher, starts the server and never returns. Otherwise does
+/// nothing. Call it first in `main`: Landlock and the signal setting apply to the calling thread,
+/// and `exec` drops any others, so a runtime's threads would be pointless at best.
+pub(super) fn launch_if_asked() {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() != Some(OsStr::new(LAUNCH_ARG)) {
+        return;
     }
+    let plan = args
+        .next()
+        .and_then(|plan| plan.into_string().ok())
+        .ok_or_else(|| io::Error::other("no launch plan"))
+        .and_then(|plan| serde_json::from_str(&plan).map_err(io::Error::other));
+    // `launch` only comes back with an error: when it works, this process has become the server.
+    let Err(error) = plan.and_then(|plan| launch(&plan));
+    eprintln!("Could not start the server: {error}");
+    std::process::exit(LAUNCH_FAILED);
+}
+
+/// Applies the plan and becomes the server. The order matters; each step says why it comes where it
+/// does. Any failure stops here, so a server never runs with less than the plan asked for.
+fn launch(plan: &LaunchPlan) -> io::Result<Infallible> {
+    let sandbox = plan.sandbox.as_ref();
+
+    // First, so everything after (including exec) is already counted against the caps.
+    if let Some(procs) = sandbox.and_then(|sandbox| sandbox.cgroup_procs.as_ref()) {
+        std::fs::write(procs, "0")?;
+    }
+    // While the app's rights still apply: the server's user may not be able to reach these paths.
+    let ruleset = match sandbox {
+        Some(sandbox) if sandbox.filesystem_rules => Some(build_ruleset(sandbox).map_err(io::Error::other)?),
+        _ => None,
+    };
+
+    if let Some((uid, gid)) = sandbox.and_then(|sandbox| sandbox.user) {
+        become_user(uid, gid)?;
+    }
+    // As the server's user, so a folder it can't enter is an error here and not a surprise later.
+    std::env::set_current_dir(&plan.cwd)?;
+    if let Some(sandbox) = sandbox {
+        // After the user switch: limiting processes first could make the switch itself fail.
+        PreparedLimits::new(sandbox).apply()?;
+    }
+    // After the user switch, which would reset it.
+    stop_with_parent(plan.parent)?;
+    // Last: it also limits what the steps above could do.
+    if let Some(ruleset) = ruleset {
+        ruleset.restrict_self().map_err(io::Error::other)?;
+    }
+
+    Err(std::process::Command::new(&plan.program).args(&plan.args).exec())
+}
+
+fn become_user(uid: u32, gid: u32) -> io::Result<()> {
+    setgid(Gid::from_raw(gid))?;
+    // Root's other groups must not stay with the server. Without the right to change them (EPERM)
+    // this isn't root, and there are none to worry about.
+    match setgroups(&[]) {
+        Ok(()) | Err(Errno::EPERM) => {}
+        Err(error) => return Err(error.into()),
+    }
+    setuid(Uid::from_raw(uid))?;
     Ok(())
 }
 
-fn build_ruleset(spec: &SandboxSpec, network: bool) -> Result<RulesetCreated, landlock::RulesetError> {
+/// Has the kernel send the process SIGTERM when the app dies, however it dies (a crash, the
+/// out-of-memory killer, `kill -9`). Nothing else would tell it: Java ignores the broken pipes, keeps
+/// running and holds `session.lock`, so no later start works.
+///
+/// SIGTERM rather than SIGKILL: Java's shutdown hook then saves the world. A server that hangs while
+/// stopping stays up, with no app left to kill it, and the next start explains the locked world.
+///
+/// WHY this is safe here: the signal follows the *thread* that started the process, not the whole
+/// app, so a server started on a thread that ends would be stopped for no reason. Servers are
+/// started from tasks on tokio's worker threads, which last as long as the app. That stops being
+/// true with `block_in_place`, which can end one, so don't use it in this app.
+fn stop_with_parent(parent: i32) -> io::Result<()> {
+    prctl::set_pdeathsig(Signal::SIGTERM)?;
+    // The app may have died before the line above, when no signal would come any more.
+    if getppid().as_raw() == parent {
+        Ok(())
+    } else {
+        Err(io::Error::other("the app has gone"))
+    }
+}
+
+fn build_ruleset(sandbox: &SandboxPlan) -> Result<RulesetCreated, landlock::RulesetError> {
     let all = AccessFs::from_all(TARGET_ABI);
     let read = AccessFs::from_read(TARGET_ABI);
     let file_only = AccessFs::from_file(TARGET_ABI);
@@ -93,30 +227,30 @@ fn build_ruleset(spec: &SandboxSpec, network: bool) -> Result<RulesetCreated, la
     let mut ruleset = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
         .handle_access(all)?;
-    if network {
+    if sandbox.network_rules {
         ruleset = ruleset.handle_access(AccessNet::BindTcp | AccessNet::ConnectTcp)?;
     }
     let mut created = ruleset.create()?;
 
-    for (paths, access) in [(&spec.read_only, read), (&spec.read_write, all)] {
+    for (paths, access) in [(&sandbox.read_only, read), (&sandbox.read_write, all)] {
         for path in existing(paths) {
             // Directory-only rights can't be granted on a file.
             let access = if path.is_dir() { access } else { access & file_only };
             let fd = match PathFd::new(path) {
                 Ok(fd) => fd,
                 Err(error) => {
-                    tracing::warn!(path = %path.display(), %error, "skipping sandbox path");
+                    eprintln!("Skipping sandbox path {}: {error}", path.display());
                     continue;
                 }
             };
             created = created.add_rule(PathBeneath::new(fd, access))?;
         }
     }
-    if network {
-        for port in &spec.bind_tcp {
+    if sandbox.network_rules {
+        for port in &sandbox.bind_tcp {
             created = created.add_rule(NetPort::new(*port, AccessNet::BindTcp))?;
         }
-        for port in &spec.connect_tcp {
+        for port in &sandbox.connect_tcp {
             created = created.add_rule(NetPort::new(*port, AccessNet::ConnectTcp))?;
         }
     }
@@ -127,7 +261,7 @@ fn existing(paths: &[PathBuf]) -> impl Iterator<Item = &Path> {
     paths.iter().map(PathBuf::as_path).filter(|path| path.exists())
 }
 
-/// Limits computed in the parent, applied in the child.
+/// The limits to set, capped by what is allowed now.
 #[derive(Debug, Clone, Copy)]
 struct PreparedLimits {
     open_files: Option<(u64, u64)>,
@@ -135,7 +269,7 @@ struct PreparedLimits {
 }
 
 impl PreparedLimits {
-    fn new(spec: &SandboxSpec, own_user: bool) -> Self {
+    fn new(sandbox: &SandboxPlan) -> Self {
         // Never raise above the current hard limit (that would need privileges).
         let capped = |resource: Resource, wanted: u64| {
             getrlimit(resource).ok().map(|(_, hard)| {
@@ -144,14 +278,12 @@ impl PreparedLimits {
             })
         };
         Self {
-            open_files: capped(Resource::RLIMIT_NOFILE, spec.limits.open_files),
+            open_files: capped(Resource::RLIMIT_NOFILE, sandbox.limits.open_files),
             // RLIMIT_NPROC counts every process of the user, so it's only meaningful (and safe)
             // when the server has a user of its own.
-            processes: if own_user {
-                capped(Resource::RLIMIT_NPROC, spec.limits.processes)
-            } else {
-                None
-            },
+            processes: sandbox
+                .user
+                .and_then(|_| capped(Resource::RLIMIT_NPROC, sandbox.limits.processes)),
         }
     }
 
@@ -166,99 +298,89 @@ impl PreparedLimits {
     }
 }
 
+// The launcher itself is tested with the real binary in `gsd-app/tests/sandbox.rs`.
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
-    use std::process::Stdio;
-
     use super::*;
-    use crate::supervisor::sandbox::{ResourceLimits, system_read_only_paths, system_read_write_paths};
+    use crate::{instances::SandboxIds, supervisor::sandbox::SandboxSpec};
 
-    /// Runs `script` with `sh` inside a sandbox that may only write `allowed`.
-    async fn run_sandboxed(allowed: &Path, script: &str) -> (bool, String) {
-        let support = SandboxSupport::detect();
-        let mut read_write = vec![allowed.to_owned()];
-        read_write.extend(system_read_write_paths());
-        let spec = SandboxSpec {
-            user: None,
-            read_write,
-            read_only: system_read_only_paths(),
-            bind_tcp: vec![],
-            connect_tcp: vec![],
-            limits: ResourceLimits::default(),
-            cgroup: None,
-        };
-        let mut command = tokio::process::Command::new("/bin/sh");
-        command
-            .arg("-c")
-            .arg(script)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        apply(&mut command, &spec, &support, None).unwrap();
-        let output = command.output().await.unwrap();
-        let text =
-            String::from_utf8_lossy(&output.stdout).into_owned() + &String::from_utf8_lossy(&output.stderr);
-        (output.status.success(), text)
+    fn spec() -> ProcessSpec {
+        ProcessSpec {
+            program: "java".into(),
+            args: vec!["-jar".into(), "server.jar".into()],
+            cwd: std::env::temp_dir(),
+            env: vec![("SECRET".into(), "not for the plan".into())],
+            sandbox: Some(SandboxSpec {
+                user: Some(SandboxIds {
+                    uid: 20000,
+                    gid: 20000,
+                }),
+                read_write: vec!["/srv/own".into()],
+                read_only: vec!["/usr".into()],
+                bind_tcp: vec![25565],
+                connect_tcp: vec![443],
+                limits: ResourceLimits::default(),
+                cgroup: None,
+            }),
+        }
     }
 
-    #[tokio::test]
-    async fn landlock_confines_the_filesystem() {
-        if landlock_abi().is_none() {
-            eprintln!("skipped: Landlock is not available on this kernel");
-            return;
-        }
-        let root = tempfile::tempdir().unwrap();
-        let own = root.path().join("own");
-        let sibling = root.path().join("sibling");
-        std::fs::create_dir_all(&own).unwrap();
-        std::fs::create_dir_all(&sibling).unwrap();
-        std::fs::write(sibling.join("secret.txt"), "top secret").unwrap();
-
-        let (ok, _) = run_sandboxed(&own, &format!("echo hi > {}/mine.txt", own.display())).await;
-        assert!(ok, "writing its own directory is allowed");
-        assert!(own.join("mine.txt").exists());
-
-        let (ok, output) = run_sandboxed(&own, &format!("cat {}/secret.txt", sibling.display())).await;
-        assert!(!ok, "reading a sibling must fail, got: {output}");
-        assert!(!output.contains("top secret"));
-
-        let (ok, _) = run_sandboxed(&own, &format!("echo x > {}/planted.txt", sibling.display())).await;
-        assert!(!ok);
-        assert!(!sibling.join("planted.txt").exists());
-
-        let (ok, _) = run_sandboxed(&own, "ls /usr/bin > /dev/null").await;
-        assert!(ok, "system directories stay readable");
-    }
-
-    /// Regression: `/etc/resolv.conf` is usually a symlink out of `/etc` (systemd-resolved, WSL);
-    /// without its target in the rules, every DNS lookup in the sandbox failed.
-    #[tokio::test]
-    async fn name_resolution_config_stays_readable() {
-        if landlock_abi().is_none() {
-            eprintln!("skipped: Landlock is not available on this kernel");
-            return;
-        }
-        let dir = tempfile::tempdir().unwrap();
-        for file in ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf"] {
-            if std::path::Path::new(file).exists() {
-                let (ok, output) = run_sandboxed(dir.path(), &format!("cat {file} > /dev/null")).await;
-                assert!(ok, "{file} must be readable in the sandbox: {output}");
-            }
-        }
-        let (ok, output) = run_sandboxed(dir.path(), "getent hosts localhost").await;
-        assert!(ok, "resolving a name must work: {output}");
-    }
-
-    #[tokio::test]
-    async fn open_file_limit_is_applied() {
-        let dir = tempfile::tempdir().unwrap();
-        let (ok, output) = run_sandboxed(dir.path(), "ulimit -n").await;
-        assert!(ok);
-        let limit: u64 = output.trim().parse().unwrap();
-        assert!(limit <= ResourceLimits::default().open_files, "limit {limit}");
+    fn plan_for(support: &SandboxSupport) -> LaunchPlan {
+        let command = launch_command(Path::new("/app"), &spec(), support, None).unwrap();
+        let args: Vec<_> = command.as_std().get_args().collect();
+        assert_eq!(args[0], LAUNCH_ARG);
+        serde_json::from_str(args[1].to_str().unwrap()).unwrap()
     }
 
     #[test]
-    fn abi_probe_does_not_panic() {
+    fn the_plan_carries_the_process_but_not_its_environment() {
+        let command = launch_command(Path::new("/app"), &spec(), &SandboxSupport::none(), None).unwrap();
+        let text = format!("{:?}", command.as_std().get_args().collect::<Vec<_>>());
+        assert!(!text.contains("not for the plan"), "{text}");
+
+        let plan = plan_for(&SandboxSupport::none());
+        assert_eq!(plan.program, Path::new("java"));
+        assert_eq!(plan.args, ["-jar", "server.jar"]);
+        assert_eq!(plan.parent, Pid::this().as_raw());
+    }
+
+    #[test]
+    fn the_plan_asks_only_for_what_this_host_enforces() {
+        let plan = plan_for(&SandboxSupport::none());
+        let sandbox = plan.sandbox.unwrap();
+        assert_eq!(sandbox.user, None, "no user switch without root");
+        assert!(!sandbox.filesystem_rules && !sandbox.network_rules);
+
+        let plan = plan_for(&SandboxSupport {
+            separate_users: true,
+            landlock_abi: Some(5),
+            filesystem: true,
+            network: true,
+            resource_limits: true,
+        });
+        let sandbox = plan.sandbox.unwrap();
+        assert_eq!(sandbox.user, Some((20000, 20000)));
+        assert!(sandbox.filesystem_rules && sandbox.network_rules);
+    }
+
+    #[test]
+    fn a_missing_program_or_folder_is_an_error_from_starting() {
+        let support = SandboxSupport::none();
+        let mut missing = spec();
+        missing.program = "/nonexistent/java".into();
+        assert!(launch_command(Path::new("/app"), &missing, &support, None).is_err());
+
+        let mut missing = spec();
+        missing.cwd = "/nonexistent/folder".into();
+        assert!(launch_command(Path::new("/app"), &missing, &support, None).is_err());
+    }
+
+    /// The probe restricts a thread of its own; this thread must stay free to write anywhere.
+    #[test]
+    fn reading_the_version_leaves_the_caller_unrestricted() {
         let _ = landlock_abi();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("still-allowed"), "yes").unwrap();
     }
 }

@@ -254,6 +254,9 @@ pub(crate) mod kernel {
             if !nix::unistd::geteuid().is_root() {
                 return skip("needs root");
             }
+            let Some(launcher) = built_app() else {
+                return skip("the app binary isn't built (cargo build -p gsd-app)");
+            };
             let mount = Path::new(CGROUP_MOUNT);
             let name = format!(
                 "app-test-{}-{}",
@@ -275,7 +278,9 @@ pub(crate) mod kernel {
                 init: None,
             };
             let tree = CgroupTree::setup(&base, &membership).expect("set up a real tree");
-            let host = HostSandbox::new(SandboxSupport::detect(), None).with_cgroups(Ok(tree));
+            let host = HostSandbox::new(SandboxSupport::detect(), None)
+                .with_cgroups(Ok(tree))
+                .with_launcher(launcher);
             Some(Self { base, stand_in, host })
         }
 
@@ -287,6 +292,15 @@ pub(crate) mod kernel {
         pub(crate) fn host(&self) -> &HostSandbox {
             &self.host
         }
+    }
+
+    /// The app binary, as the launcher. This test binary can't be one (it would run the tests), and
+    /// Cargo only tells integration tests where binaries are, so look next to it:
+    /// `target/debug/deps/<this>` and `target/debug/gsd`.
+    fn built_app() -> Option<std::path::PathBuf> {
+        let this = std::env::current_exe().ok()?;
+        let app = this.parent()?.parent()?.join("gsd");
+        app.exists().then_some(app)
     }
 
     /// Skips the test (prints why), or fails it where the environment promised these tests can
@@ -326,8 +340,7 @@ pub(crate) mod kernel {
         }
     }
 
-    /// A shell script in the full sandbox, as its own user (the order that matters: the child
-    /// joins its group after dropping root).
+    /// A shell script in the full sandbox, as its own user.
     fn sandboxed_shell(script: &str, limits: CgroupLimits) -> ProcessSpec {
         let mut read_write = system_read_write_paths();
         read_write.push(std::env::temp_dir());

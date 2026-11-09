@@ -217,8 +217,9 @@ async fn detect_host_sandbox(config: &Config) -> HostSandbox {
     // Before any probe runs: setting up may move the app into a subgroup of its own, which is
     // refused while other processes (such as a probe) share its group.
     let cgroups = CgroupTree::detect();
-    let host =
-        HostSandbox::new(support, check_sandbox_in_data_dir(config, support).await).with_cgroups(cgroups);
+    let host = HostSandbox::new(support, check_sandbox_in_data_dir(config, support).await)
+        .with_cgroups(cgroups)
+        .with_this_binary_as_launcher();
     match std::env::current_exe() {
         Ok(probe) => check::verify_cgroups(&probe, &config.sandbox_check_dir(), host).await,
         Err(_) => host,

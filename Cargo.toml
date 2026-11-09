@@ -65,7 +65,7 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2-zli
 
 [workspace.lints.rust]
 # `deny` (not `forbid`) so the Linux sandbox module can opt in for `pre_exec`.
-unsafe_code = "deny"
+unsafe_code = "forbid"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]

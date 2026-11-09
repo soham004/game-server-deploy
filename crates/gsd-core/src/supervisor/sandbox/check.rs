@@ -177,16 +177,13 @@ pub async fn own_folder_usable(probe: &Path, dir: &Path, support: SandboxSupport
     let scratch = scratch_in(dir)?;
     let (own, _) = probe_folders(scratch.path(), support)?;
     let target = own.join("ok.txt").display().to_string();
-    let host = HostSandbox::new(support, None);
+    let host = HostSandbox::new(support, None).with_launcher(probe.to_owned());
     Ok(probe_action(probe, &own, &host, "write", &target).await)
 }
 
 /// Keeps `host`'s hard limits only if a sandboxed process (as its own user, when the app is
 /// root) really ends up in its control group here; otherwise turns them off with the reason.
-///
-/// Joining happens after the child dropped root, which relies on the kernel checking the
-/// permissions of whoever opened `cgroup.procs` (Linux ≥ 5.16, or a backport). Better to find a
-/// kernel without it now than to fail every server start later.
+/// Better to find out now than to fail every server start later.
 pub async fn verify_cgroups(probe: &Path, dir: &Path, host: HostSandbox) -> HostSandbox {
     if host.cgroups().is_none() {
         return host;

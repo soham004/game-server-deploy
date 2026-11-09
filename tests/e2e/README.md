@@ -17,6 +17,7 @@ Build the app first: `cargo build -p gsd-app`. The scripts find it at `$GSD_BIN`
 | `modpack.e2e.mjs` | Linux | A real pack: the smallest Fabric `.mrpack` Modrinth has for 26.3 (`E2E_MC` to change it, `lib/small-modpack.mjs` picks it) is uploaded, the server and all its files installed, the server started, then deleted. |
 | `version-change.e2e.mjs` | Linux, `loaders.e2e.mjs` run once | Moves "E2E neoforge" (`E2E_LOADER=forge` for Forge) to another build and back with the real installer: safety backup, old build folder removed, server starts on the new build. |
 | `ui.e2e.mjs` + `cdp.mjs` | Chrome or Edge, an app from `serve.sh` | The web UI in a headless browser: sign-in, console, properties, files, settings, backups and restore, schedules, mods from Modrinth (install, update, turn off and on, remove), plugins from Hangar and Modrinth on "E2E paper" (source picker, ticking from both), CurseForge against a local stand-in (settings page, wrong key, install, a file to download by hand and upload), a real `.mrpack` uploaded and made into a server, phone width, clone, import and version change, users. Screenshots with `E2E_SCREENSHOTS=<folder>`. |
+| `app-killed.e2e.mjs` | Linux | The app gets SIGKILL while a real vanilla server runs (makes its own, deletes it afterwards): the server saves its world and exits by itself, and starts again under a new app. Run it as root too, where the server has its own user. |
 | `serve.sh` | Linux | Serves the app on `$E2E_DATA` (port 18739) for `ui.e2e.mjs`, with `lib/mock-curseforge.mjs` standing in for CurseForge (port 18740). |
 | `docker.e2e.mjs` | Docker, an image (`E2E_IMAGE`, default `gsd:dev`) | The image as root with the compose file's capabilities: hard limits off with the reason; every file written into a server belongs to its own user (install, upload, extract, clone, import, restore, version change); root-only backups of a running server; delete with backups. |
 | `cgroup-systemd.sh` + `cgroup.e2e.mjs` | root, systemd, cgroup v2 | The app as a systemd service with `Delegate=yes`: a real server runs in its own control group with the expected memory and task limits, as its own user, and the isolation check passes. |
@@ -29,6 +30,7 @@ node --test tests/e2e/version-change.e2e.mjs
 node --test tests/e2e/content.e2e.mjs
 node --test tests/e2e/curseforge.e2e.mjs      # key from CURSEFORGE_API_KEY, or else from .env
 node --test tests/e2e/modpack.e2e.mjs
+node --test tests/e2e/app-killed.e2e.mjs
 sudo bash tests/e2e/cgroup-systemd.sh
 
 # The browser suite: the app on Linux, the browser wherever Chrome or Edge is installed

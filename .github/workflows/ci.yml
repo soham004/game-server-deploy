@@ -62,7 +62,8 @@ jobs:
           sudo /usr/local/bin/gsd-ci --data-dir /srv/gsd-ci isolation-check
       - name: Hard limits against the real kernel (cgroup v2, as root)
         # These tests skip themselves without root; REQUIRE_KERNEL_TESTS turns a skip into a
-        # failure here. Each builds a private group under /sys/fs/cgroup and removes it.
+        # failure here. Each builds a private group under /sys/fs/cgroup and removes it. They use
+        # target/debug/gsd, built in the step above, as the sandbox launcher.
         run: |
           exe=$(cargo test -p gsd-core --lib --locked --no-run --message-format=json \
             | jq -r 'select(.profile.test == true and .target.kind == ["lib"]) | .executable')

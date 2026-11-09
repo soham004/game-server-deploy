@@ -1,7 +1,7 @@
 //! What the sandbox can do on this host, decided once at startup and shared by everything that
 //! runs untrusted code: game servers (supervisors) and loader installers (install jobs).
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use super::{
     SandboxSupport,
@@ -16,6 +16,8 @@ pub struct HostSandbox {
     support: SandboxSupport,
     problem: Option<Arc<str>>,
     cgroups: Result<Arc<CgroupTree>, CgroupsUnavailable>,
+    /// The binary that applies the sandbox and then becomes the server (see `linux.rs`).
+    launcher: Option<PathBuf>,
 }
 
 /// Sandboxed processes can't run on this host; the message says why and how to fix it.
@@ -30,7 +32,36 @@ impl HostSandbox {
             support,
             problem: problem.map(Arc::from),
             cgroups: Err(CgroupsUnavailable("Hard memory limits were not set up.".into())),
+            launcher: None,
         }
+    }
+
+    /// Starts processes through `launcher`, a binary whose `main` calls
+    /// [`launch_if_asked`](super::launch_if_asked). Without one, a process that needs a sandbox
+    /// this host could enforce refuses to start.
+    #[must_use]
+    pub fn with_launcher(mut self, launcher: PathBuf) -> Self {
+        self.launcher = Some(launcher);
+        self
+    }
+
+    /// Uses the running binary as the launcher. On Linux that is `/proc/self/exe`, which still works
+    /// after the file on disk was replaced (an upgrade or a rebuild) while the app keeps running.
+    /// Other systems have no launcher.
+    #[must_use]
+    pub fn with_this_binary_as_launcher(self) -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            self.with_launcher("/proc/self/exe".into())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self
+        }
+    }
+
+    pub fn launcher(&self) -> Option<&std::path::Path> {
+        self.launcher.as_deref()
     }
 
     /// No isolation and no problem (tests, non-Linux development).
