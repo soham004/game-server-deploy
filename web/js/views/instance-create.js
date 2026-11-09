@@ -64,7 +64,9 @@ export function mount(root) {
   root.append(
     h('header', { class: 'l-page-header' },
       h('h1', { class: 'l-page-header__title' }, 'New server'),
-      h('a', { class: 'c-button c-button--ghost', href: '/servers/import' }, 'Import an existing server'),
+      h('div', { class: 'l-page-header__actions' },
+        h('a', { class: 'c-button c-button--ghost', href: '/servers/modpack' }, 'From a modpack'),
+        h('a', { class: 'c-button c-button--ghost', href: '/servers/import' }, 'Import an existing server')),
     ),
     h('section', { class: 'c-card' }, form),
   );

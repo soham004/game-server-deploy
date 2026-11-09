@@ -181,6 +181,39 @@
   gap: var(--space-3);
 }
 
+.c-pack {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.c-pack__status {
+  margin: 0;
+}
+
+.c-pack__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.c-pack__actions:empty,
+.c-pack__review:empty {
+  display: none;
+}
+
+.c-pack__plan {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-pack__plan ul {
+  overflow-wrap: anywhere;
+}
+
 .c-content-browser__search {
   display: flex;
   flex-wrap: wrap;

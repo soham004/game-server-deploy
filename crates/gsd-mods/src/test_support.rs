@@ -34,6 +34,11 @@ pub fn fixture(name: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(fixture_path(name)).unwrap()).unwrap()
 }
 
+/// The SHA-1 sources publish for a file with these contents.
+pub fn sha1_hex(bytes: &[u8]) -> String {
+    hex::encode(Sha1::digest(bytes))
+}
+
 /// A jar whose descriptor says it is `slug` at `version` (a plugin descriptor for plugins).
 pub fn fake_jar(slug: &str, title: &str, version: &str, plugin: bool) -> Vec<u8> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));

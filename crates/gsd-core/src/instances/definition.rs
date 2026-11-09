@@ -36,6 +36,25 @@ pub struct InstanceDefinition {
     pub backups: BackupPolicy,
     pub ports: Ports,
     pub sandbox: SandboxIds,
+    /// The pack this server was made from, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modpack: Option<ModpackRecord>,
+}
+
+/// Where a server's modpack came from, so it can be shown and later updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModpackRecord {
+    /// `modrinth`, `curseforge`, or `file` for an uploaded archive.
+    pub source: String,
+    /// The pack on its source; absent for an upload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_id: Option<String>,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// How the JVM starts the server. Paths are relative to the server directory; `args` go after
@@ -250,6 +269,7 @@ pub(crate) mod tests {
                 uid: 20000,
                 gid: 20000,
             },
+            modpack: None,
         }
     }
 

@@ -58,6 +58,30 @@ impl Modrinth {
             [format!("versions:{}", target.mc_version)],
             ["server_side:required", "server_side:optional"],
         ]);
+        self.run_search(&facets, query).await
+    }
+
+    /// Modpacks that run on a server, for `mc_version` if one is given.
+    pub async fn search_packs(
+        &self,
+        query: &SearchQuery,
+        mc_version: Option<&str>,
+    ) -> Result<SearchPage, SourceError> {
+        let mut facets = vec![
+            json!(["project_type:modpack"]),
+            json!(["server_side:required", "server_side:optional"]),
+        ];
+        if let Some(version) = mc_version {
+            facets.push(json!([format!("versions:{version}")]));
+        }
+        self.run_search(&json!(facets), query).await
+    }
+
+    async fn run_search(
+        &self,
+        facets: &serde_json::Value,
+        query: &SearchQuery,
+    ) -> Result<SearchPage, SourceError> {
         let index = match query.sort {
             SearchSort::Relevance => "relevance",
             SearchSort::Downloads => "downloads",
@@ -73,6 +97,19 @@ impl Modrinth {
         ]);
         let response: wire::SearchResponse = send_json(request).await?;
         Ok(response.into())
+    }
+
+    /// Every version of a modpack, newest first. A pack decides its own loader and Minecraft
+    /// version, so there is nothing to narrow these to.
+    pub async fn pack_versions(&self, project_id: &str) -> Result<Vec<ContentVersion>, SourceError> {
+        let request = self
+            .client
+            .get(format!("{}/project/{}/version", self.api, segment(project_id)?));
+        let response: Vec<wire::VersionResponse> = send_json(request).await?;
+        Ok(response
+            .into_iter()
+            .filter_map(wire::VersionResponse::into_version)
+            .collect())
     }
 
     pub async fn project(&self, id: &str) -> Result<Project, SourceError> {

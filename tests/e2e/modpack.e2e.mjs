@@ -12,7 +12,7 @@ import { after, before, test } from 'node:test';
 
 import { startApp } from './lib/app.mjs';
 import { Client } from './lib/client.mjs';
-import { download, smallModpack } from './lib/small-modpack.mjs';
+import { download, modpackWithTwoVersions, smallModpack } from './lib/small-modpack.mjs';
 
 const MC = process.env.E2E_MC ?? '26.3';
 const skip = process.platform === 'linux' ? false : 'real servers need Linux (the sandbox)';
@@ -29,6 +29,112 @@ before(async () => {
 after(async () => {
   await app?.stop();
 });
+
+test('a real pack found through search downloads, becomes a server, starts, and is remembered', { skip, timeout: 20 * 60_000 }, async (t) => {
+  const pack = await smallModpack(MC, 'fabric');
+  if (!pack) {
+    t.skip(`Modrinth has no Fabric modpack for ${MC} that runs on a server`);
+    return;
+  }
+  t.diagnostic(`using ${pack.title} (${pack.id}), version ${pack.versionId}`);
+  const query = new URLSearchParams({ q: pack.title, mc: MC });
+  const page = (await client.call('GET', `/modpacks/search?${query}`)).body;
+  assert.ok(page.hits.some((hit) => hit.id === pack.id), `search finds it: ${JSON.stringify(page.hits.map((hit) => hit.title))}`);
+  const versions = (await client.call('GET', `/modpacks/projects/${pack.id}/versions`)).body;
+  assert.ok(versions.some((version) => version.id === pack.versionId), 'and its version');
+
+  const started = await client.call('POST', '/modpacks/fetch', { source: 'modrinth', project_id: pack.id, version_id: pack.versionId });
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const fetched = await client.waitForJob(started.body.job_id, 300);
+  assert.equal(fetched.status, 'succeeded', fetched.error);
+  const { body: uploaded } = await client.call('GET', `/modpacks/uploads/${started.body.upload_id}`);
+  assert.equal(uploaded.kind, 'pack', JSON.stringify(uploaded));
+  assert.equal(uploaded.pack.mc_version, MC);
+
+  const created = await client.call('POST', '/modpacks/install', { upload_id: uploaded.upload_id, name: 'E2E found pack', max_memory_mb: 4096, eula_accepted: true });
+  assert.equal(created.status, 202, JSON.stringify(created.body));
+  const { id } = created.body.instance;
+  try {
+    const job = await client.waitForJob(created.body.job_id, 900);
+    assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.slice(-20).join('\n')}`);
+    const { body: server } = await client.call('GET', `/instances/${id}`);
+    assert.equal(server.modpack.source, 'modrinth');
+    assert.equal(server.modpack.project_id, pack.id);
+    assert.equal(server.modpack.version_id, pack.versionId);
+
+    await client.call('POST', `/instances/${id}/start`);
+    await client.waitForState(id, 'running', 600).catch(async (error) => {
+      throw new Error(`${error.message}\n${(await client.console(id)).slice(-40).join('\n')}`);
+    });
+    await client.call('POST', `/instances/${id}/stop`);
+    await client.waitForState(id, 'stopped', 180);
+  } finally {
+    await client.call('POST', `/instances/${id}/stop`);
+    await client.waitForState(id, 'stopped', 180).catch(() => {});
+    const deleted = await client.call('DELETE', `/instances/${id}?delete_backups=true`);
+    assert.equal(deleted.status, 204, JSON.stringify(deleted.body));
+  }
+});
+
+test('a real pack that has already run updates to a newer version and starts', { skip, timeout: 30 * 60_000 }, async (t) => {
+  const pack = await modpackWithTwoVersions('fabric');
+  if (!pack) {
+    t.skip('Modrinth has no Fabric modpack with two versions for the Minecraft versions tried');
+    return;
+  }
+  t.diagnostic(`using ${pack.title} (${pack.id}) on ${pack.mcVersion}: ${pack.older} to ${pack.newer}`);
+  const fetched = await fetchVersion('/modpacks/fetch', { source: 'modrinth', project_id: pack.id, version_id: pack.older });
+  const created = await client.call('POST', '/modpacks/install', { upload_id: fetched.upload_id, name: 'E2E pack update', max_memory_mb: 4096, eula_accepted: true });
+  assert.equal(created.status, 202, JSON.stringify(created.body));
+  const { id } = created.body.instance;
+  try {
+    const job = await client.waitForJob(created.body.job_id, 1200);
+    assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.slice(-20).join('\n')}`);
+    const before = (await client.call('GET', `/instances/${id}/modpack`)).body;
+    assert.ok(before.update, `a newer version is offered: ${JSON.stringify(before)}`);
+
+    // The server's own first run rewrites configs; those must count as changed, and stay.
+    await client.call('POST', `/instances/${id}/start`);
+    await client.waitForState(id, 'running', 600).catch(async (error) => {
+      throw new Error(`${error.message}\n${(await client.console(id)).slice(-30).join('\n')}`);
+    });
+    await client.call('POST', `/instances/${id}/stop`);
+    await client.waitForState(id, 'stopped', 180);
+
+    const update = await fetchVersion(`/instances/${id}/modpack/fetch`, { version_id: pack.newer });
+    const { body: plan } = await client.call('GET', `/instances/${id}/modpack/plan?upload_id=${update.upload_id}`);
+    t.diagnostic(`plan: from ${plan.from} to ${plan.to}, ${plan.add.length} to add, ${plan.replace.length} to replace, ${plan.remove.length} to remove, ${plan.kept.length} kept`);
+    assert.ok(plan.add, JSON.stringify(plan));
+
+    const started = await client.call('POST', `/instances/${id}/modpack/update`, { upload_id: update.upload_id });
+    assert.equal(started.status, 202, JSON.stringify(started.body));
+    const applied = await client.waitForJob(started.body.job_id, 1200);
+    assert.equal(applied.status, 'succeeded', `${applied.error}\n${applied.log.slice(-20).join('\n')}`);
+    const after = (await client.call('GET', `/instances/${id}`)).body;
+    assert.equal(after.modpack.version_id, pack.newer);
+    const backups = (await client.call('GET', `/instances/${id}/backups`)).body.backups;
+    assert.equal(backups[0].kind, 'pre_update');
+
+    await client.call('POST', `/instances/${id}/start`);
+    await client.waitForState(id, 'running', 600).catch(async (error) => {
+      throw new Error(`${error.message}\n${(await client.console(id)).slice(-30).join('\n')}`);
+    });
+  } finally {
+    await client.call('POST', `/instances/${id}/stop`);
+    await client.waitForState(id, 'stopped', 180).catch(() => {});
+    const deleted = await client.call('DELETE', `/instances/${id}?delete_backups=true`);
+    assert.equal(deleted.status, 204, JSON.stringify(deleted.body));
+  }
+});
+
+/** Starts a fetch and waits for its job; returns what was started. */
+async function fetchVersion(route, body) {
+  const started = await client.call('POST', route, body);
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const job = await client.waitForJob(started.body.job_id, 300);
+  assert.equal(job.status, 'succeeded', job.error);
+  return started.body;
+}
 
 test('a real Fabric modpack installs, starts and loads its mods', { skip, timeout: 20 * 60_000 }, async (t) => {
   const pack = await smallModpack(MC, 'fabric');

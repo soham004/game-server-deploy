@@ -15,6 +15,7 @@ import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
 import { createContentBrowser } from './content-browser.js';
 import { createManualDownloads } from './content-manual.js';
+import { createPackUpdates } from './content-modpack.js';
 import { createContentUpdates } from './content-updates.js';
 
 export function createContent({ instanceId, can, isRunning }) {
@@ -25,11 +26,13 @@ export function createContent({ instanceId, can, isRunning }) {
   const summary = h('p', { class: 'c-muted c-content__summary' });
   const installed = h('div', { class: 'c-content__installed' });
   const manual = createManualDownloads({ instanceId });
+  const pack = createPackUpdates({ instanceId, canManage });
   const browser = createContentBrowser({ instanceId, canInstall: canManage, noun: () => (list?.kind === 'plugins' ? 'plugin' : 'mod'), onManual: manual.add });
   let updates = null;
   const updatesSlot = h('div', { class: 'c-content__updates' });
   const element = h('section', { class: 'c-content' },
     notice,
+    pack.element,
     h('h2', { class: 'c-content__heading' }, 'Installed'), summary, updatesSlot, installed,
     manual.element,
     browser.installList,
@@ -47,6 +50,7 @@ export function createContent({ instanceId, can, isRunning }) {
       if (!searched) {
         searched = true;
         browser.search();
+        pack.load();
       }
     } catch (error) {
       installed.replaceChildren(h('p', { class: 'c-muted' }, error.message));
@@ -145,7 +149,14 @@ export function createContent({ instanceId, can, isRunning }) {
   });
   const offJobs = live.on('jobs', (event) => {
     const job = event.data;
-    if (event.type !== 'job' || job.instance_id !== instanceId || job.status !== 'succeeded') return;
+    if (event.type !== 'job' || job.instance_id !== instanceId) return;
+    if (job.kind === 'modpack.update' && job.status !== 'running') {
+      if (job.status === 'succeeded') toast('The pack is updated.', { kind: 'success' });
+      else toast(job.error ?? 'The update did not finish.', { kind: 'error' });
+      pack.load();
+      load();
+    }
+    if (job.status !== 'succeeded') return;
     if (job.kind === 'content.install') toast('Installed.', { kind: 'success' });
     if (job.kind === 'content.update') toast('Updated.', { kind: 'success' });
   });

@@ -114,6 +114,72 @@ test('files whose authors block downloads say where to get them', { skip, timeou
   t.diagnostic('no blocked file among the most downloaded projects: not checked against the real API');
 });
 
+test('a real modpack is found, downloaded, and made into a server', { skip, timeout: 30 * 60_000 }, async (t) => {
+  const pack = await smallestPack();
+  if (!pack) {
+    t.skip('CurseForge has no modpack for the Minecraft versions tried');
+    return;
+  }
+  t.diagnostic(`using ${pack.hit.title} (${pack.hit.id}), file ${pack.version.file.filename}: ${pack.hit.page_url}`);
+
+  const started = await client.call('POST', '/modpacks/fetch', { source: 'curseforge', project_id: pack.hit.id, version_id: pack.version.id });
+  if (started.status === 409) {
+    assert.match(started.body.error.message, /curseforge\.com/, 'a pack only downloadable by hand says where to get it');
+    t.diagnostic(`only by hand: ${started.body.error.message}`);
+    return;
+  }
+  assert.equal(started.status, 202, JSON.stringify(started.body));
+  const fetched = await client.waitForJob(started.body.job_id, 900);
+  t.diagnostic(`job: ${fetched.title}`);
+  assert.equal(fetched.status, 'succeeded', fetched.error);
+  const { body: uploaded } = await client.call('GET', `/modpacks/uploads/${started.body.upload_id}`);
+  t.diagnostic(`it is: ${uploaded.kind} ${JSON.stringify(uploaded.pack)}, server pack: ${uploaded.server_pack}`);
+  assert.equal(uploaded.kind, 'pack', JSON.stringify(uploaded));
+
+  const created = await client.call('POST', '/modpacks/install', { upload_id: uploaded.upload_id, name: 'E2E CF pack', max_memory_mb: 4096, eula_accepted: true });
+  assert.equal(created.status, 202, JSON.stringify(created.body));
+  const { id } = created.body.instance;
+  try {
+    const job = await client.waitForJob(created.body.job_id, 1200);
+    t.diagnostic(`log: ${job.log.slice(-6).join(' | ').slice(0, 800)}`);
+    assert.equal(job.status, 'succeeded', `${job.error}\n${job.log.slice(-20).join('\n')}`);
+    const { body: server } = await client.call('GET', `/instances/${id}`);
+    assert.equal(server.modpack.source, 'curseforge');
+    assert.equal(server.modpack.project_id, pack.hit.id);
+    // A pack made for clients may not start on a server, which isn't this app's doing: only reported.
+    await client.call('POST', `/instances/${id}/start`);
+    const outcome = await client.waitForState(id, 'running', 420).then(() => 'it started', () => 'it did not start');
+    const lines = await client.console(id);
+    t.diagnostic(`${outcome}: ${lines.slice(-3).join(' | ').slice(0, 500)}`);
+  } finally {
+    await client.call('POST', `/instances/${id}/stop`);
+    await client.waitForState(id, 'stopped', 180).catch(() => {});
+    const deleted = await client.call('DELETE', `/instances/${id}?delete_backups=true`);
+    assert.equal(deleted.status, 204, JSON.stringify(deleted.body));
+  }
+});
+
+/** The pack whose newest file is smallest, among the most downloaded for a recent Minecraft version. */
+async function smallestPack() {
+  // A particular project, say one known to have a server pack.
+  if (process.env.E2E_CF_PACK) {
+    const versions = (await client.call('GET', `/modpacks/projects/${process.env.E2E_CF_PACK}/versions?source=curseforge`)).body;
+    return { hit: { id: process.env.E2E_CF_PACK, title: 'E2E_CF_PACK', page_url: '' }, version: versions[0] };
+  }
+  for (const mc of ['26.3', '1.21.1', '1.20.1']) {
+    const { status, body } = await client.call('GET', `/modpacks/search?source=curseforge&sort=downloads&mc=${mc}`);
+    assert.equal(status, 200, JSON.stringify(body));
+    const candidates = [];
+    for (const hit of body.hits) {
+      const versions = (await client.call('GET', `/modpacks/projects/${hit.id}/versions?source=curseforge`)).body;
+      if (versions[0]) candidates.push({ hit, version: versions[0] });
+    }
+    candidates.sort((a, b) => a.version.file.size - b.version.file.size);
+    if (candidates[0]) return candidates[0];
+  }
+  return null;
+}
+
 async function hits(id) {
   const { status, body } = await client.call('GET', `/instances/${id}/content/search?source=curseforge&sort=downloads`);
   assert.equal(status, 200, JSON.stringify(body));
