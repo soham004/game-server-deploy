@@ -18,6 +18,7 @@ const routes = [
   { path: '/', view: () => loadView(() => import('./views/dashboard.js')) },
   { path: '/servers/new', view: () => loadView(() => import('./views/instance-create.js')) },
   { path: '/servers/import', view: () => loadView(() => import('./views/instance-import.js')) },
+  { path: '/servers/modpack', view: () => loadView(() => import('./views/instance-modpack.js')) },
   { path: '/servers/:id', view: () => loadView(() => import('./views/instance.js')) },
   { path: '/users', view: () => loadView(() => import('./views/users.js')) },
   { path: '/settings', view: () => loadView(() => import('./views/settings.js')) },

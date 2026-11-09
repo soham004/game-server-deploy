@@ -907,6 +907,32 @@ test('modpacks: upload a real .mrpack, confirm, and it becomes a server', { skip
   await deleteOpenServer('E2E pack', true);
 }));
 
+test('modpacks: find one on Modrinth, and it comes back ready to create a server', { skip, timeout: 300000 }, step('modpack-search', async (t) => {
+  const pack = await smallModpack('26.3', 'fabric');
+  if (!pack) {
+    t.skip('Modrinth has no Fabric modpack for 26.3 that runs on a server');
+    return;
+  }
+  await page.goto(`${BASE}/servers/new`);
+  await page.click('.l-page-header__actions a', 'From a modpack');
+  await page.waitFor(() => document.querySelector('.c-content-result'), { timeout: 30000, message: 'the most downloaded packs' });
+  await shot('33-modpack-search');
+
+  await page.fill('select[name="pack_mc"]', '26.3');
+  await page.fill('input[name="pack_query"]', pack.title);
+  await page.waitFor((id) => document.querySelector(`.c-content-result[data-project="${id}"]`), { timeout: 30000, message: 'the pack in the results', args: [pack.id] });
+  await page.evaluate((id) => document.querySelector(`.c-content-result[data-project="${id}"] .c-button--ghost`).click(), pack.id);
+  await page.waitFor(() => document.querySelector('.c-content-result__versions select'), { timeout: 30000, message: 'its versions' });
+  await page.evaluate((id) => {
+    const row = document.querySelector(`.c-content-result[data-project="${id}"]`);
+    row.querySelector('.c-content-result__versions .c-button--primary').click();
+  }, pack.id);
+  await page.waitFor(() => document.querySelector('form[data-pack]'), { timeout: 180000, message: 'the pack form after its download' });
+  assert.match(await page.evaluate(() => document.querySelector('form[data-pack] .c-import__notes').textContent), /Minecraft/);
+  await shot('34-modpack-found');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
 test('an owner adds a member who then sees only the server they were given', { skip, timeout: 90000 }, step('users', async () => {
   const username = 'e2e-member';
   // Leftover from an interrupted run.

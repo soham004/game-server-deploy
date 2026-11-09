@@ -52,12 +52,14 @@ narrows one to a server for the resolver. Lookups by hash stay on the clients th
 - Tests use the real API with a key from `CURSEFORGE_API_KEY` or `.env`, which never ships (D-046).
 
 ## Modpacks
-Built so far: uploads only (D-045). Below is the full plan; search and `[modpack]` records are still to come.
+Built so far: uploads (D-045), search, fetching and `[modpack]` records (D-049). Below is the full plan; pack updates and
+checking client-only mods against Modrinth are still to come.
 - **Modrinth `.mrpack`** (from search or file upload): read `modrinth.index.json` → required MC + loader → create the instance
   via the installer → download files where `env.server != unsupported` (files with no env go in and get flagged) →
   extract `overrides/` then `server-overrides/` → record `[modpack]` in instance.toml.
-- **CurseForge**: if the pack file has `serverPackFileId`, download the **official server pack** zip and import it as a
-  folder (detect the loader). Otherwise use `manifest.json` (`minecraft.version`, `modLoaders[primary]`, `files[{projectID,fileID,required}]`)
+- **CurseForge**: if the pack file has `serverPackFileId`, download that **official server pack** zip too: `manifest.json` says
+  which loader to install, and the server pack replaces the pack's files (real ones have no loader to detect, D-049). Otherwise use
+  `manifest.json` (`minecraft.version`, `modLoaders[primary]`, `files[{projectID,fileID,required}]`)
   → batch `POST /mods/files` → download (blocked → manual flow) → copy `overrides/`. Client-only mods can't be detected
   reliably on CF, so offer a "check against Modrinth" pass and a known-client-only list (shaders, minimaps, Sodium/Iris/…)
   as warnings, not silent removals.

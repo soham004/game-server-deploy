@@ -46,6 +46,7 @@ fn instance(dir: &std::path::Path) -> Instance {
                 uid: 20000,
                 gid: 20000,
             },
+            modpack: None,
         },
         layout,
     }

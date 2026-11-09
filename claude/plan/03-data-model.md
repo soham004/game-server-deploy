@@ -49,10 +49,12 @@ management = 35566
 rcon = { enabled = true, port = 25575 }                  # password stored in server.properties only
 management = { enabled = true, port = 25585 }            # MCSMP, loopback-only, secret in server.properties
 
-[modpack]                      # present if created from a pack
-source = "modrinth"            # modrinth | curseforge | file
+[modpack]                      # present if created from a pack (D-049)
+source = "modrinth"            # modrinth | curseforge | file (uploaded; no ids then)
 project_id = "1KVo5zza"
 version_id = "…"
+name = "Some Pack"
+version = "2.0"                # as the pack names itself, if it does
 ```
 - Rust: `InstanceDefinition` (serde) with `schema` versioning plus `migrate(v) -> v+1` functions.
 - Written atomically (write temp file, fsync, rename). Never partially written.

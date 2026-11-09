@@ -106,6 +106,47 @@ fn assert_found(page: &SearchPage, what: &str) {
     }
 }
 
+/// Packs are listed under their own class; their files are offered without the server versions, which
+/// are reached from the pack's file.
+#[tokio::test]
+async fn modpacks_are_found_with_their_files_and_server_packs() {
+    let Some(curseforge) = client() else { return };
+    let page = curseforge
+        .search_packs(&query("", SearchSort::Downloads), Some(MC_VERSION))
+        .await
+        .unwrap();
+    assert_found(&page, "modpacks");
+    assert!(
+        page.hits
+            .iter()
+            .all(|hit| hit.page_url.contains("/minecraft/modpacks/")),
+        "only modpacks: {page:?}"
+    );
+
+    let mut server_packs = 0;
+    for hit in &page.hits {
+        let versions = curseforge.pack_versions(&hit.id).await.unwrap();
+        let newest = versions
+            .first()
+            .unwrap_or_else(|| panic!("{} has files", hit.title));
+        let name = newest.file.filename.to_ascii_lowercase();
+        assert!(
+            std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|extension| extension == "zip"),
+            "{}: {name}",
+            hit.title
+        );
+        if let Some(server_pack) = curseforge.server_pack(&hit.id, &newest.id).await.unwrap() {
+            assert_eq!(server_pack.project_id, hit.id);
+            assert_ne!(server_pack.id, newest.id);
+            server_packs += 1;
+        }
+    }
+    eprintln!("{server_packs} of {} packs have a server pack", page.hits.len());
+    assert!(server_packs > 0, "the biggest packs usually have one");
+}
+
 #[tokio::test]
 async fn the_key_is_accepted_and_a_made_up_one_refused() {
     let Some(curseforge) = client() else { return };

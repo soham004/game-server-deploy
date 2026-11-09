@@ -30,6 +30,7 @@ const KEY_HEADER: &str = "x-api-key";
 const GAME_ID: u32 = 432;
 const CLASS_MODS: u32 = 6;
 const CLASS_BUKKIT_PLUGINS: u32 = 5;
+const CLASS_MODPACKS: u32 = 4471;
 /// The most files one request returns.
 const FILES_PAGE: &str = "50";
 /// `CurseForge` answers nothing beyond this result (`index + pageSize`).
@@ -118,6 +119,26 @@ impl CurseForge {
             ContentKind::Mods => CLASS_MODS,
             ContentKind::Plugins => CLASS_BUKKIT_PLUGINS,
         };
+        self.run_search(class, Some(&target.mc_version), &loader_ids(target), query)
+            .await
+    }
+
+    /// Modpacks, for `mc_version` if one is given. `CurseForge` can't say which run on a server.
+    pub async fn search_packs(
+        &self,
+        query: &SearchQuery,
+        mc_version: Option<&str>,
+    ) -> Result<SearchPage, SourceError> {
+        self.run_search(CLASS_MODPACKS, mc_version, &[], query).await
+    }
+
+    async fn run_search(
+        &self,
+        class: u32,
+        mc_version: Option<&str>,
+        loaders: &[u32],
+        query: &SearchQuery,
+    ) -> Result<SearchPage, SourceError> {
         let sort = match query.sort {
             // With text and no sort field, CurseForge orders by how well it matches.
             SearchSort::Relevance if !query.text.is_empty() => None,
@@ -131,13 +152,15 @@ impl CurseForge {
         let mut parameters: Vec<(&str, String)> = vec![
             ("gameId", GAME_ID.to_string()),
             ("classId", class.to_string()),
-            ("gameVersion", target.mc_version.clone()),
             ("searchFilter", query.text.clone()),
             ("sortOrder", "desc".into()),
             ("index", index.to_string()),
             ("pageSize", page_size.to_string()),
         ];
-        match loader_ids(target).as_slice() {
+        if let Some(version) = mc_version {
+            parameters.push(("gameVersion", version.to_owned()));
+        }
+        match loaders {
             [] => {}
             [one] => parameters.push(("modLoaderType", one.to_string())),
             several => parameters.push(("modLoaderTypes", json!(several).to_string())),
@@ -186,7 +209,46 @@ impl CurseForge {
         if let [one] = loader_ids(target).as_slice() {
             parameters.push(("modLoaderType", one.to_string()));
         }
-        let request = self.get(&format!("/mods/{id}/files"))?.query(&parameters);
+        let mut versions = self.offered_files(project_id, id, &parameters).await?;
+        versions.retain(|version| target.accepts(&version.loaders, &version.game_versions));
+        Ok(versions)
+    }
+
+    /// Every file of a modpack, newest first. A pack decides its own loader and Minecraft version,
+    /// so there is nothing to narrow these to.
+    pub async fn pack_versions(&self, project_id: &str) -> Result<Vec<ContentVersion>, SourceError> {
+        let parameters = [("pageSize", FILES_PAGE.to_owned())];
+        self.offered_files(project_id, number(project_id)?, &parameters)
+            .await
+    }
+
+    /// The server version of a pack's file, if its author made one.
+    pub async fn server_pack(
+        &self,
+        project_id: &str,
+        file_id: &str,
+    ) -> Result<Option<ContentVersion>, SourceError> {
+        let (project, file) = (number(project_id)?, number(file_id)?);
+        let Some(server_pack) = self.file(project, file).await?.server_pack() else {
+            return Ok(None);
+        };
+        Ok(Some(self.file(project, server_pack).await?.into_version(None)))
+    }
+
+    async fn file(&self, project: u64, file: u64) -> Result<wire::FileResponse, SourceError> {
+        let request = self.get(&format!("/mods/{project}/files/{file}"))?;
+        let response: wire::Data<wire::FileResponse> = send_json(request).await?;
+        Ok(response.data)
+    }
+
+    /// A project's files that are meant to be offered, newest first.
+    async fn offered_files(
+        &self,
+        project_id: &str,
+        id: u64,
+        parameters: &[(&str, String)],
+    ) -> Result<Vec<ContentVersion>, SourceError> {
+        let request = self.get(&format!("/mods/{id}/files"))?.query(parameters);
         let response: wire::Data<Vec<wire::FileResponse>> = send_json(request).await?;
         let files: Vec<wire::FileResponse> = response
             .data
@@ -202,7 +264,6 @@ impl CurseForge {
         let mut versions: Vec<ContentVersion> = files
             .into_iter()
             .map(|file| file.into_version(page.as_deref()))
-            .filter(|version| target.accepts(&version.loaders, &version.game_versions))
             .collect();
         versions.sort_by_key(|version| std::cmp::Reverse(version.published));
         Ok(versions)

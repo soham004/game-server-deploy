@@ -4,6 +4,7 @@
  * the folder is copied into a new, sandboxed server. A modpack or a zipped server can be uploaded
  * here too.
  */
+import { modpackForm } from '../components/modpack-form.js';
 import { api } from '../core/api.js';
 import { h } from '../core/dom.js';
 import { onSubmit } from '../core/forms.js';
@@ -65,7 +66,7 @@ function createUpload(onServerFolder) {
     try {
       const uploaded = await api.upload(`/modpacks/upload?file=${encodeURIComponent(file.name)}`, file);
       if (uploaded.kind === 'server_folder') onServerFolder();
-      else status.replaceChildren(packForm(uploaded));
+      else status.replaceChildren(modpackForm(uploaded));
     } catch (error) {
       status.replaceChildren(h('p', { class: 'c-form__error', role: 'alert' }, error.message));
     } finally {
@@ -78,35 +79,6 @@ function createUpload(onServerFolder) {
     h('p', { class: 'c-muted' }, 'A Modrinth pack (.mrpack), a CurseForge pack, or a zip of a server folder.'),
     h('label', { class: 'c-field' }, h('span', { class: 'c-field__label' }, 'File'), input),
     status);
-}
-
-/** What an uploaded pack needs, and the form that creates a server for it. */
-function packForm({ upload_id: uploadId, pack }) {
-  const version = pack.loader_version ? ` ${pack.loader_version}` : '';
-  const form = h('form', { class: 'c-form', novalidate: true, dataset: { pack: uploadId } },
-    h('h3', { class: 'c-import__title' }, pack.version ? `${pack.name} ${pack.version}` : pack.name),
-    h('ul', { class: 'c-import__notes' },
-      h('li', null, `Minecraft ${pack.mc_version}, ${pack.loader}${version}`),
-      h('li', null, `${pack.files} files to download`)),
-    h('div', { class: 'c-field' }, h('label', { class: 'c-field__label', for: 'pack-name' }, 'Server name'),
-      h('input', { class: 'c-input', id: 'pack-name', name: 'name', maxlength: 64, value: pack.name })),
-    h('div', { class: 'c-field' }, h('label', { class: 'c-field__label', for: 'pack-memory' }, 'Maximum memory (MB)'),
-      h('input', { class: 'c-input', id: 'pack-memory', name: 'max_memory_mb', type: 'number', min: 512, max: 65536, step: 256, value: 4096 })),
-    h('label', { class: 'c-check' }, h('input', { type: 'checkbox', name: 'eula_accepted', value: 'yes' }),
-      h('span', null, 'I accept the ', h('a', { href: 'https://aka.ms/MinecraftEULA', target: '_blank', rel: 'noopener noreferrer' }, 'Minecraft EULA'), '.')),
-    h('p', { class: 'c-form__error', 'data-form-error': '', role: 'alert', hidden: true }),
-    h('div', { class: 'c-form__actions' }, h('button', { class: 'c-button c-button--primary', type: 'submit' }, 'Create the server')),
-  );
-  onSubmit(form, async (values) => {
-    const { instance } = await api.post('/modpacks/install', {
-      upload_id: uploadId,
-      name: values.name,
-      max_memory_mb: Number(values.max_memory_mb),
-      eula_accepted: values.eula_accepted === 'yes',
-    });
-    navigate(`/servers/${instance.id}`);
-  });
-  return form;
 }
 
 function card(candidate, releases, loaders) {

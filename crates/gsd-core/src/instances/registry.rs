@@ -199,6 +199,7 @@ impl InstanceRegistry {
             backups: BackupPolicy::default(),
             ports: Ports { game: game_port },
             sandbox: ids,
+            modpack: None,
         };
         if let Err(error) = definition.save(&layout.definition_path()) {
             let _ = std::fs::remove_dir_all(layout.root());

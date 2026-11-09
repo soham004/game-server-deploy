@@ -10,6 +10,7 @@
 //! out, unpacking is capped, and an `.mrpack` can only make this app download from the hosts its
 //! format allows, since otherwise an upload could aim the app's requests anywhere.
 
+pub mod browse;
 pub mod format;
 
 use std::{
@@ -24,11 +25,13 @@ use futures_util::{Stream, StreamExt};
 use gsd_core::{
     files::{FilesError, SafeRelPath, ServerFiles},
     ids::JobId,
-    instances::Instance,
+    instances::{Instance, ModpackRecord},
     jobs::{JobContext, JobFailure, error_chain},
     random,
 };
-use gsd_minecraft::{CreateError, CreateRequest, MinecraftService, settings::MinecraftServer};
+use gsd_minecraft::{
+    CreateError, CreateRequest, MinecraftService, install::point_at_port, settings::MinecraftServer,
+};
 use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
@@ -56,7 +59,12 @@ const ALLOWED_HOSTS: [&str; 4] = [
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Uploaded {
     /// A modpack, waiting to be installed.
-    Pack { upload_id: String, pack: PackInfo },
+    Pack {
+        upload_id: String,
+        pack: PackInfo,
+        /// Its author's server version came along, and is what gets installed.
+        server_pack: bool,
+    },
     /// A server folder, now in the imports folder under this name.
     ServerFolder { folder: String },
 }
@@ -77,6 +85,10 @@ pub enum ModpackError {
     TooBig,
     #[error("that upload isn't here any more; upload the pack again")]
     UnknownUpload,
+    #[error("that source has no modpacks")]
+    NoPacksThere,
+    #[error("{name} can only be downloaded by hand: get it from {url}, then upload it here")]
+    ByHand { name: String, url: String },
     #[error(transparent)]
     Pack(#[from] format::PackError),
     #[error(transparent)]
@@ -93,6 +105,14 @@ impl ContentService {
         self.inner.cache_dir.with_file_name("modpacks")
     }
 
+    /// Where an upload's archive is. The id comes from a client, and becomes a file name.
+    fn upload_path(&self, upload_id: &str) -> Result<PathBuf, ModpackError> {
+        if upload_id.is_empty() || !upload_id.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(ModpackError::UnknownUpload);
+        }
+        Ok(self.uploads_dir().join(format!("{upload_id}.zip")))
+    }
+
     /// Stores an uploaded archive and says what it is. A plain zip goes to `imports_dir`.
     pub async fn upload_modpack<S, E>(
         &self,
@@ -107,9 +127,8 @@ impl ContentService {
         let dir = self.uploads_dir();
         tokio::fs::create_dir_all(&dir).await?;
         remove_old_uploads(&dir).await;
-        let bytes = random::random_bytes::<16>().map_err(|error| io::Error::other(error.to_string()))?;
-        let upload_id = hex::encode(bytes);
-        let path = dir.join(format!("{upload_id}.zip"));
+        let upload_id = new_upload_id()?;
+        let path = self.upload_path(&upload_id)?;
         let mut file = tokio::fs::File::create(&path).await?;
         let mut written: u64 = 0;
         while let Some(chunk) = body.next().await {
@@ -124,27 +143,7 @@ impl ContentService {
         }
         file.flush().await?;
         drop(file);
-        match read_pack(path.clone()).await {
-            Ok(Some(pack)) => Ok(Uploaded::Pack {
-                upload_id,
-                pack: pack.info,
-            }),
-            Ok(None) => {
-                let folder = import_folder_name(file_name);
-                let imports = imports_dir.to_owned();
-                let source = path.clone();
-                let unpacked =
-                    tokio::task::spawn_blocking(move || unpack_server_zip(&source, &imports, &folder))
-                        .await
-                        .map_err(io::Error::other)?;
-                let _ = tokio::fs::remove_file(&path).await;
-                Ok(Uploaded::ServerFolder { folder: unpacked? })
-            }
-            Err(error) => {
-                let _ = tokio::fs::remove_file(&path).await;
-                Err(error)
-            }
-        }
+        classify(&upload_id, &path, file_name, imports_dir).await
     }
 
     /// Creates a server for an uploaded pack; one job installs the server and then the pack.
@@ -153,11 +152,7 @@ impl ContentService {
         request: InstallPack,
         minecraft: &MinecraftService,
     ) -> Result<(Instance, JobId), ModpackError> {
-        // The id came from a client, and becomes a file name.
-        if !request.upload_id.chars().all(|c| c.is_ascii_alphanumeric()) || request.upload_id.is_empty() {
-            return Err(ModpackError::UnknownUpload);
-        }
-        let path = self.uploads_dir().join(format!("{}.zip", request.upload_id));
+        let path = self.upload_path(&request.upload_id)?;
         if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
             return Err(ModpackError::UnknownUpload);
         }
@@ -167,6 +162,8 @@ impl ContentService {
         if matches!(pack.contents, PackContents::Curseforge(_)) && !self.has_curseforge_key() {
             return Err(ContentError::Source(crate::SourceError::NoKey).into());
         }
+        let origin = browse::FetchNote::read(&path).await.map(|note| note.origin);
+        let record = modpack_record(&pack.info, origin);
         let create = CreateRequest {
             name: request.name,
             mc_version: pack.info.mc_version.clone(),
@@ -180,12 +177,26 @@ impl ContentService {
             .create_then(create, move |instance, job| async move {
                 let result = service.fill(&instance, &pack, &path, &job).await;
                 let _ = tokio::fs::remove_file(&path).await;
-                result.map_err(|error| JobFailure::msg(error_chain(&error)))
+                let _ = tokio::fs::remove_file(browse::FetchNote::path(&path)).await;
+                let _ = tokio::fs::remove_file(server_pack_path(&path)).await;
+                result.map_err(|error| JobFailure::msg(error_chain(&error)))?;
+                // Only for showing and updating it: the server works either way.
+                let saved = service
+                    .inner
+                    .instances
+                    .registry()
+                    .update(instance.id(), |definition| definition.modpack = Some(record))
+                    .await;
+                if let Err(error) = saved {
+                    job.log(format!("Could not record which pack this is: {error}"));
+                }
+                Ok(())
             })
             .await?)
     }
 
-    /// The pack's part of the job: its files, its overrides, then what the sources recognise.
+    /// The pack's part of the job: its files and overrides, or instead its author's server version
+    /// when there is one; then what the sources recognise.
     async fn fill(
         &self,
         instance: &Instance,
@@ -194,20 +205,38 @@ impl ContentService {
         job: &JobContext,
     ) -> Result<(), ModpackError> {
         let files = ServerFiles::open(instance).await.map_err(ContentError::from)?;
-        job.step(format!(
-            "Downloading {} files for {}",
-            pack.info.files, pack.info.name
-        ));
-        match &pack.contents {
-            PackContents::Mrpack(wanted) => self.fetch_mrpack(&files, wanted, job).await?,
-            PackContents::Curseforge(wanted) => self.fetch_curseforge(&files, wanted, job).await?,
+        let server_pack = server_pack_path(archive);
+        let has_server_pack = tokio::fs::try_exists(&server_pack).await.unwrap_or(false);
+        if !has_server_pack {
+            job.step(format!(
+                "Downloading {} files for {}",
+                pack.info.files, pack.info.name
+            ));
+            match &pack.contents {
+                PackContents::Mrpack(wanted) => self.fetch_mrpack(&files, wanted, job).await?,
+                PackContents::Curseforge(wanted) => self.fetch_curseforge(&files, wanted, job).await?,
+            }
         }
-        job.step("Copying the pack's own files");
+        job.step(if has_server_pack {
+            "Copying the server pack"
+        } else {
+            "Copying the pack's own files"
+        });
         let staging = archive.with_extension("staging");
-        let (from, prefixes, to) = (archive.to_owned(), pack.overrides.clone(), staging.clone());
-        tokio::task::spawn_blocking(move || unpack_folders(&from, &prefixes, &to))
-            .await
-            .map_err(io::Error::other)??;
+        let to = staging.clone();
+        let port = instance.definition.ports.game;
+        let (from, overrides) = (archive.to_owned(), pack.overrides.clone());
+        tokio::task::spawn_blocking(move || {
+            if has_server_pack {
+                let top = single_top_folder(&server_pack)?;
+                unpack_folders(&server_pack, std::slice::from_ref(&top), &to)?;
+            } else {
+                unpack_folders(&from, &overrides, &to)?;
+            }
+            keep_settings_of_this_server(&to, port)
+        })
+        .await
+        .map_err(io::Error::other)??;
         let copied = copy_tree(&files, &staging).await;
         let _ = tokio::fs::remove_dir_all(&staging).await;
         job.log(format!("Copied {} files from the pack", copied?));
@@ -327,6 +356,81 @@ fn download_allowed(url: &str, extra_origin: Option<&str>) -> bool {
         && parsed
             .host_str()
             .is_some_and(|host| ALLOWED_HOSTS.contains(&host))
+}
+
+/// Where the author's server version of a fetched pack waits, next to the pack.
+fn server_pack_path(archive: &Path) -> PathBuf {
+    archive.with_extension("server.zip")
+}
+
+/// A pack's files must not undo what is settled for this server. The EULA was accepted when it was
+/// created. And `server.properties` often comes along naming the default port, which the sandbox
+/// wouldn't let this server bind, so it keeps the rest of that file but not the port.
+fn keep_settings_of_this_server(staging: &Path, port: u16) -> Result<(), ModpackError> {
+    match std::fs::remove_file(staging.join("eula.txt")) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    if staging.join("server.properties").is_file() {
+        point_at_port(staging, port).map_err(|error| io::Error::other(error.to_string()))?;
+    }
+    Ok(())
+}
+
+fn new_upload_id() -> Result<String, ModpackError> {
+    let bytes = random::random_bytes::<16>().map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(hex::encode(bytes))
+}
+
+/// What goes in `instance.toml`: where the pack came from, or `file` for an upload.
+fn modpack_record(info: &PackInfo, origin: Option<browse::PackOrigin>) -> ModpackRecord {
+    let (source, project_id, version_id) = match origin {
+        Some(origin) => (
+            origin.source.as_str(),
+            Some(origin.project_id),
+            Some(origin.version_id),
+        ),
+        None => ("file", None, None),
+    };
+    ModpackRecord {
+        source: source.to_owned(),
+        project_id,
+        version_id,
+        name: info.name.clone(),
+        version: info.version.clone(),
+    }
+}
+
+/// Decides what an archive is. A pack stays where it is, waiting to be installed. Anything else is a
+/// server folder and goes to `imports_dir`. Only a pack's archive is left behind.
+async fn classify(
+    upload_id: &str,
+    path: &Path,
+    file_name: &str,
+    imports_dir: &Path,
+) -> Result<Uploaded, ModpackError> {
+    match read_pack(path.to_owned()).await {
+        Ok(Some(pack)) => Ok(Uploaded::Pack {
+            upload_id: upload_id.to_owned(),
+            pack: pack.info,
+            server_pack: false,
+        }),
+        Ok(None) => {
+            let folder = import_folder_name(file_name);
+            let imports = imports_dir.to_owned();
+            let source = path.to_owned();
+            let unpacked = tokio::task::spawn_blocking(move || unpack_server_zip(&source, &imports, &folder))
+                .await
+                .map_err(io::Error::other)?;
+            let _ = tokio::fs::remove_file(path).await;
+            Ok(Uploaded::ServerFolder { folder: unpacked? })
+        }
+        Err(error) => {
+            let _ = tokio::fs::remove_file(path).await;
+            Err(error)
+        }
+    }
 }
 
 async fn read_pack(path: PathBuf) -> Result<Option<Pack>, ModpackError> {

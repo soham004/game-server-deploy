@@ -95,6 +95,11 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST/DELETE | `/instances/{id}/content/files/{file}/enable` · `…/disable` · `DELETE …/files/{file}` | turn on, off, remove |
 | GET | `/instances/{id}/content/updates` | `{updates: [{file, name, installed_version, source, project_id, version}], unknown}` |
 | POST | `/instances/{id}/content/identify` | name hand-added jars (Modrinth by SHA-1, then CurseForge by fingerprint) → `{identified, still_unknown, duplicates}` |
+| GET | `/modpacks/sources` | `{sources}`: where packs can be searched now (`instance.create`, as all of these) (D-049) |
+| GET | `/modpacks/search?source=&q=&sort=&offset=&mc=` | a page of packs that run on a server; `mc` narrows to one Minecraft version · `422 source_has_no_packs` (Hangar), `409 source_key_missing` |
+| GET | `/modpacks/projects/{id}/versions?source=` | a pack's versions, newest first |
+| POST | `/modpacks/fetch` | `{source, project_id, version_id?}` (no version: newest release) → 202 `{upload_id, job_id}` · `404 project_not_found`, `409 modpack_by_hand` (the message says where to get it) |
+| GET | `/modpacks/uploads/{upload_id}` | once the job has succeeded: as the upload's answer · `404 upload_not_found` until then, and if it failed |
 | PUT | `/modpacks/upload?file=` | body is an archive (`instance.create`) → 201 `{kind: "pack", upload_id, pack}` or `{kind: "server_folder", folder}`; `422 invalid_modpack`, `413 upload_too_big` (D-045) |
 | POST | `/modpacks/install` | `{upload_id, name, max_memory_mb, eula_accepted}` → 202 `{instance, job_id}`; `404 upload_not_found` |
 | PUT | `/instances/{id}/content/upload?file=` | body is a jar the user brought (never replaces a file): put in the folder and identified → 201, as identify; `422 not_a_jar` (D-044) |

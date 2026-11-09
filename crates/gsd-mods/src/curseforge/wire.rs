@@ -104,6 +104,9 @@ pub struct FileResponse {
     is_available: bool,
     #[serde(default)]
     is_server_pack: Option<bool>,
+    /// On a modpack's file: the file holding its server version, if the author made one.
+    #[serde(default)]
+    server_pack_file_id: Option<u64>,
     #[serde(default)]
     pub file_fingerprint: u64,
 }
@@ -232,6 +235,11 @@ impl FileResponse {
 
     pub fn is_blocked(&self) -> bool {
         self.download_url.is_none()
+    }
+
+    /// The file holding this pack's server version. `CurseForge` can say 0 for "none".
+    pub fn server_pack(&self) -> Option<u64> {
+        self.server_pack_file_id.filter(|id| *id != 0)
     }
 
     /// The model's version. `project_page` is where a blocked file can be downloaded by hand.

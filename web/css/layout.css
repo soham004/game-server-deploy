@@ -46,6 +46,12 @@
   font-size: var(--text-xl);
 }
 
+.l-page-header__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 @media (max-width: 900px) {
   .l-shell {
     grid-template-columns: minmax(0, 1fr);

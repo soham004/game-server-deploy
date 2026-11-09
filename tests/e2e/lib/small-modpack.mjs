@@ -1,7 +1,7 @@
 // Finds a real, small server-capable modpack on Modrinth to test with, since which packs exist for
 // a Minecraft version changes over time.
 //
-//   const pack = await smallModpack('26.3', 'fabric');   // { title, filename, url, size } or null
+//   const pack = await smallModpack('26.3', 'fabric');   // { id, versionId, title, filename, url, size } or null
 
 const API = 'https://api.modrinth.com/v2';
 const HEADERS = { 'User-Agent': 'game-server-deploy e2e tests' };
@@ -25,7 +25,7 @@ export async function smallModpack(mcVersion, loader) {
     const query = new URLSearchParams({ loaders: JSON.stringify([loader]), game_versions: JSON.stringify([mcVersion]) });
     const versions = await get(`/project/${hit.project_id}/version?${query}`);
     const file = versions[0]?.files.find((candidate) => candidate.filename.endsWith('.mrpack'));
-    if (file) candidates.push({ title: hit.title, filename: file.filename, url: file.url, size: file.size });
+    if (file) candidates.push({ id: hit.project_id, versionId: versions[0].id, title: hit.title, filename: file.filename, url: file.url, size: file.size });
   }
   candidates.sort((a, b) => a.size - b.size);
   return candidates[0] ?? null;

@@ -81,8 +81,9 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [x] CurseForge (user-pasted API key, server-side only): mods + Bukkit plugins, fingerprints, blocked-download flow
       (D-044), checked against the real API in CI and on real servers (D-046). A real blocked file hasn't turned up yet.
 - [x] Modpacks by upload: `.mrpack` and CurseForge manifest packs become a server in one job (D-045).
-- [ ] Modpacks by search: browsing Modrinth and CurseForge packs, following CurseForge's `serverPackFileId`; recording the
-      pack in `instance.toml`; pack updates.
+- [x] Modpacks by search: browsing Modrinth and CurseForge packs, following CurseForge's `serverPackFileId`, recording the
+      pack in `instance.toml` (D-049).
+- [ ] Pack updates.
 - [x] Import from an uploaded zip / server pack (unpacked into the imports folder, then the usual folder import), and identify
       the imported `mods/*.jar` into the packwiz index (D-045).
 

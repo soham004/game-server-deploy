@@ -12,7 +12,7 @@ use gsd_core::{
     audit::{AuditEntry, actions},
     auth::{Actor, Permission, PermissionSet},
     ids::{InstanceId, JobId},
-    instances::Instance,
+    instances::{Instance, ModpackRecord},
     supervisor::{ServerState, Snapshot},
 };
 use gsd_minecraft::{
@@ -65,6 +65,8 @@ pub(crate) struct InstanceDto {
     software: String,
     java_major: u32,
     max_memory_mb: u32,
+    /// The pack it was made from, if any.
+    modpack: Option<ModpackRecord>,
     /// What the current user may do on it.
     permissions: PermissionSet,
 }
@@ -86,6 +88,7 @@ impl InstanceDto {
             software: software_label(definition),
             java_major: definition.java.major,
             max_memory_mb: definition.java.max_memory_mb,
+            modpack: definition.modpack.clone(),
             permissions: actor.permissions_for(definition.id),
         }
     }

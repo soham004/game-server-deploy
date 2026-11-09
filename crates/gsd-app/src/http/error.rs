@@ -364,6 +364,8 @@ impl From<gsd_mods::modpack::ModpackError> for ApiError {
         match error {
             ModpackError::TooBig => status(StatusCode::PAYLOAD_TOO_LARGE, "upload_too_big"),
             ModpackError::UnknownUpload => status(StatusCode::NOT_FOUND, "upload_not_found"),
+            ModpackError::NoPacksThere => status(StatusCode::UNPROCESSABLE_ENTITY, "source_has_no_packs"),
+            ModpackError::ByHand { .. } => status(StatusCode::CONFLICT, "modpack_by_hand"),
             ModpackError::Pack(_) => status(StatusCode::UNPROCESSABLE_ENTITY, "invalid_modpack"),
             ModpackError::Create(error) => error.into(),
             ModpackError::Content(error) => error.into(),

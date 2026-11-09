@@ -86,6 +86,7 @@ function card(instance) {
     h('dl', { class: 'c-server-card__facts' },
       h('div', null, h('dt', null, 'Port'), h('dd', null, String(instance.port))),
       h('div', null, h('dt', null, 'Memory'), h('dd', null, memoryLabel(instance.max_memory_mb))),
+      instance.modpack ? h('div', null, h('dt', null, 'Modpack'), h('dd', null, instance.modpack.name)) : null,
     ),
   );
 }

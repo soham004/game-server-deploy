@@ -8,7 +8,7 @@ pub mod registry;
 mod service;
 pub mod settings;
 
-pub use definition::{BackupPolicy, InstanceDefinition, Ports, SCHEMA_VERSION, SandboxIds};
+pub use definition::{BackupPolicy, InstanceDefinition, ModpackRecord, Ports, SCHEMA_VERSION, SandboxIds};
 pub use layout::InstanceLayout;
 pub use registry::{AllocationPolicy, Instance, InstanceRegistry, NewInstance};
 pub use service::{InstanceError, InstanceService};

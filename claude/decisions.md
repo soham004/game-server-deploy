@@ -654,3 +654,33 @@ Members manage only the instances they are granted. Member quotas (instance coun
   after a restart under a new app. It failed before the fix, and a control that also kills Java directly fails with "the world
   was not saved", so the test can tell the difference. Passes as a normal user and as root, where the server ran as UID 20000. A unit
   test checks the signal arrives when the starting thread ends.
+
+**D-048: No `unsafe` in our code** · accepted · 2026-11-09
+- **Why:** the user chose Rust for memory safety. Three blocks existed, all in `sandbox/linux.rs`: two `pre_exec` closures and
+  a raw `libc::syscall`. The workspace lint is now `unsafe_code = "forbid"`, which can't be allowed again further down.
+- **Instead of `pre_exec`, a launcher:** the app starts itself as `gsd sandbox-launch <plan as JSON>`. `launch_if_asked` runs first in
+  `main`, which is why `main` no longer uses `#[tokio::main]`: the launcher has one thread. It joins the control group,
+  builds the Landlock rules, switches user, enters the folder, sets rlimits, sets the parent-death signal (D-047), restricts itself and
+  `exec`s the server. All of it is safe calls through `nix`, `landlock` and std. `exec` keeps the pid, process group and pipes, so the
+  supervisor is unchanged.
+- **The Landlock version** now comes from the `landlock` crate, which reports it only after restricting the caller, so a thread of its
+  own is restricted, reads it and ends. It still reports 7 on this kernel.
+- **The launcher is `/proc/self/exe`**, so a server still starts after the binary on disk was replaced by a rebuild or an upgrade.
+- **Fails closed:** if a step fails, nothing runs. A sandbox this host could enforce with no launcher configured refuses to start.
+- **What behaves differently:**
+  - `spawn` returns before the sandbox is applied, so the process joins its control group a moment later. Only one test relied on the
+    old order. It failed in CI, and now waits for the process to start.
+  - Problems only the launcher can see (a user switch failing, a file that can't be executed) are now a console line and exit 126, so the
+    server shows as crashed. A missing program or folder is still an error from starting, because the app checks those first.
+  - Joining the control group now happens before dropping root, so it no longer relies on the kernel checking who opened
+    `cgroup.procs`.
+  - Each start costs one extra `exec`. The plan is visible in `/proc/<pid>/cmdline` for that moment; it holds paths, ports and the
+    server's arguments, which were visible there anyway, and not its environment.
+- **Tests moved:** the Landlock tests are now in `gsd-app/tests/sandbox.rs`, where Cargo says where the binary is. A test binary can't
+  be a launcher, so the root-only kernel tests in `gsd-core` use `target/debug/gsd` and need it built first; CI builds it in the step before.
+- `unsafe` remains inside `std`, `tokio`, `nix`, `landlock` and other dependencies, as in any Rust program. This covers only our code.
+- Tested: the launcher's result (same program, arguments, environment and folder), a failed launch running nothing, and that removing the
+  signal call fails its test. As a normal user: all seven loaders installed or started, a real NeoForge build change, real mods and plugins
+  loading, and a server started after its binary was deleted. As root: the isolation check at level Strong (server as UID 30999),
+  the 5 kernel tests on five runs in a row. Also `app-killed.e2e.mjs` in both, and the Docker suite. Not run:
+  `cgroup-systemd.sh`, so hard limits under real systemd are covered only by the kernel tests.
