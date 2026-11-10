@@ -1,4 +1,6 @@
-//! A server's worlds: every folder with a `level.dat`, and what can be done with them.
+//! A server's worlds: every folder with a `level.dat` (or the files a world that broke leaves behind:
+//! `level.dat_old`, `session.lock`), the `level-name` folder whatever it holds, and what can be done
+//! with them. A world that won't load is listed with why, so it can still be deleted from here.
 //!
 //! - **Make active:** sets `level-name`; a running server switches when it restarts.
 //! - **Download:** the folder as a zip, while the server is stopped (a running one writes as it goes;
@@ -6,8 +8,9 @@
 //! - **Upload:** a zip becomes a new world folder. It must hold a `level.dat`, at its top or in the one
 //!   folder it contains.
 //! - **Delete / reset** (stopped only): a job that backs up first (`pre_delete`), then moves the folders
-//!   to the server's trash. Reset is for the active world, which the next start makes anew, with a new
-//!   seed if one is given; delete is for the others.
+//!   to the server's trash. Any world can be deleted, the active one too: it is often the one that
+//!   won't load, and the next start makes a new one under its name. Reset is for the active world,
+//!   and can also set the seed the new one gets.
 //!
 //! Older Paper and Purpur versions keep a world's nether and end in `<world>_nether` and `<world>_the_end`:
 //! those go with their world, as its parts. (A real Paper 26.3 server keeps them inside the world folder, as
@@ -37,6 +40,10 @@ use crate::{
 
 const PROPERTIES: &str = "server.properties";
 const LEVEL_DAT: &str = "level.dat";
+/// Files only a world folder holds. The game keeps the last `level.dat` as `level.dat_old` and locks the
+/// world with `session.lock` while it plays; a world that broke (a crash while saving, a first start
+/// that never finished) can be left with these and no `level.dat`.
+const WORLD_MARKERS: [&str; 3] = [LEVEL_DAT, "level.dat_old", "session.lock"];
 const WORLD_GEN: &str = "data/minecraft/world_gen_settings.dat";
 const PART_SUFFIXES: [&str; 2] = ["_nether", "_the_end"];
 /// The largest world zip taken.
@@ -65,7 +72,7 @@ pub struct World {
     pub size_bytes: u64,
     #[serde(flatten)]
     pub facts: WorldFacts,
-    /// Why its `level.dat` couldn't be read, if it couldn't.
+    /// Why its `level.dat` couldn't be read, or that it has none, as a sentence to show.
     pub problem: Option<String>,
 }
 
@@ -81,8 +88,6 @@ pub enum WorldError {
     Running,
     #[error("wait until what the server is doing has finished")]
     Busy,
-    #[error("that is the world the server plays: reset it instead, or make another one active first")]
-    Active,
     #[error("only the world the server plays can be reset; delete the others")]
     NotActive,
     #[error("that zip has no level.dat, at its top or in the one folder it holds, so it isn't a world")]
@@ -141,7 +146,7 @@ impl WorldService {
         let instance = self.instances.get(id).await?;
         let files = ServerFiles::open(&instance).await?;
         let active = level_name(&files).await?;
-        let folders = world_folders(&files).await?;
+        let folders = world_folders(&files, &active).await?;
         let mut worlds = Vec::new();
         for folder in &folders {
             if is_part(folder, &folders) {
@@ -262,7 +267,8 @@ impl WorldService {
             .ok_or_else(|| WorldError::NotFound(folder.to_owned()))
     }
 
-    /// Backs up, then deletes a world that isn't the active one (a job).
+    /// Backs up, then deletes a world (a job). Deleting the active one leaves `level-name` as it is, so the
+    /// next start makes a new world under that name, unless another is made active first.
     pub async fn delete(
         &self,
         id: InstanceId,
@@ -270,11 +276,14 @@ impl WorldService {
         by: Option<UserId>,
     ) -> Result<JobId, WorldError> {
         let (instance, world) = self.removable(id, folder).await?;
-        if world.active {
-            return Err(WorldError::Active);
-        }
         let request = BackupRequest {
-            scope: BackupScope::Full,
+            // A world backup holds the active world and its parts; backups can't yet hold just another
+            // folder, so deleting any other world takes a full one.
+            scope: if world.active {
+                BackupScope::World
+            } else {
+                BackupScope::Full
+            },
             kind: BackupKind::PreDelete,
             note: Some(format!("Before deleting the world {folder}")),
             by,
@@ -391,18 +400,20 @@ fn path(name: &str) -> Result<SafeRelPath, WorldError> {
     SafeRelPath::parse(name).map_err(|_| WorldError::InvalidName(name.to_owned()))
 }
 
-/// Folders at the top of the server folder that hold a `level.dat`.
-async fn world_folders(files: &ServerFiles) -> Result<BTreeSet<String>, WorldError> {
+/// Folders at the top of the server folder that are worlds: those holding one of [`WORLD_MARKERS`], and
+/// the `active` one whatever it holds (the server plays it, so it is a world even when it is broken).
+async fn world_folders(files: &ServerFiles, active: &str) -> Result<BTreeSet<String>, WorldError> {
     let mut worlds = BTreeSet::new();
     for entry in files.list(SafeRelPath::root()).await? {
         if entry.kind != EntryKind::Directory || entry.name.starts_with('.') {
             continue;
         }
-        if files
-            .list(entry.path.clone())
-            .await?
-            .iter()
-            .any(|inner| inner.name == LEVEL_DAT && inner.kind == EntryKind::File)
+        if entry.name == active
+            || files
+                .list(entry.path.clone())
+                .await?
+                .iter()
+                .any(|inner| inner.kind == EntryKind::File && WORLD_MARKERS.contains(&inner.name.as_str()))
         {
             worlds.insert(entry.name);
         }
@@ -419,6 +430,7 @@ fn is_part(folder: &str, folders: &BTreeSet<String>) -> bool {
     })
 }
 
+/// What a world's files say about it, or why they can't, as a sentence to show.
 async fn read_facts(files: &ServerFiles, folder: &str) -> Result<WorldFacts, String> {
     let read = |name: String| async move {
         let file = path(&name).map_err(|e| e.to_string())?;
@@ -430,7 +442,10 @@ async fn read_facts(files: &ServerFiles, folder: &str) -> Result<WorldFacts, Str
             Err(error) => Err(error.to_string()),
         }
     };
-    let level = read(format!("{folder}/{LEVEL_DAT}")).await?.unwrap_or_default();
+    let level = read(format!("{folder}/{LEVEL_DAT}"))
+        .await
+        .map_err(|error| format!("its level.dat can't be read: {error}"))?
+        .ok_or_else(|| "it has no level.dat".to_owned())?;
     // Its own file since 1.21.11; one that can't be read only costs the seed.
     let world_gen = read(format!("{folder}/{WORLD_GEN}")).await.ok().flatten();
     Ok(info::facts(&level, world_gen.as_ref()))

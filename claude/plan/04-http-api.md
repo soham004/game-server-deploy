@@ -89,7 +89,7 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/worlds/{folder}/activate` | `properties.write`: sets `level-name` → `{restart_needed}` (built, D-055) |
 | GET | `/instances/{id}/worlds/{folder}/download` | `files.read`: the folder (or a part) as a zip; `409 instance_running` (built, D-055) |
 | PUT | `/instances/{id}/worlds/{folder}?activate=` | `files.write`: a zip as the raw body (16 GB at most) → 201 the world; `level.dat` at its top or in its one folder; `409 world_exists`, `422 not_a_world` (built, D-055) |
-| DELETE · POST | `/instances/{id}/worlds/{folder}` · `…/{folder}/reset` `{seed?}` | `files.write`, stopped: 202 `{job_id}`, a `pre_delete` backup (full; the world's for a reset), then to the trash. Delete is for other worlds (`409 world_active`), reset for the active one (`409 world_not_active`); `seed` absent keeps `level-seed`, empty makes it random (built, D-055) |
+| DELETE · POST | `/instances/{id}/worlds/{folder}` · `…/{folder}/reset` `{seed?}` | `files.write`, stopped: 202 `{job_id}`, a `pre_delete` backup (full; the world's for the active one), then to the trash. Any world can be deleted, the active one too (the next start makes a new one, D-059); reset is for the active one (`409 world_not_active`); `seed` absent keeps `level-seed`, empty makes it random (built, D-055) |
 
 ### Mods / plugins / packs
 | GET | `/content/search?source=modrinth&type=mod&q=&instance={id}` | search pre-filtered for the instance |

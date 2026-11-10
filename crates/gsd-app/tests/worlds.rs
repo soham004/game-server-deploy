@@ -1,6 +1,6 @@
 //! Worlds through the API, with real `level.dat` files: the list (a Paper-style world with its nether, an
 //! older world), who sees seeds, making one active, downloads, uploads (a folder inside the zip, a zip
-//! that isn't a world), and deleting and resetting after a backup.
+//! that isn't a world), deleting and resetting after a backup, and worlds that won't load.
 
 #![cfg(unix)]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -322,10 +322,6 @@ async fn worlds_are_deleted_and_reset_after_a_backup() {
     let cookie = app.setup_owner().await;
     let (id, dir) = server_with_worlds(&app, &cookie).await;
 
-    let active = app
-        .delete(&format!("/api/v1/instances/{id}/worlds/world"), Some(&cookie))
-        .await;
-    assert_eq!(json_body(active).await["error"]["code"], "world_active");
     let other = app
         .post(
             &format!("/api/v1/instances/{id}/worlds/old_world/reset"),
@@ -389,4 +385,74 @@ async fn worlds_are_deleted_and_reset_after_a_backup() {
         )
         .await;
     assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn a_world_that_wont_load_is_listed_and_deleted_even_when_active() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let (id, dir) = server_with_worlds(&app, &cookie).await;
+    // The active world's level.dat is garbage; `crashed` lost its level.dat while saving and kept
+    // level.dat_old; `half` is a first start that never finished, with only its lock.
+    std::fs::write(dir.join("world/level.dat"), b"not a level").unwrap();
+    std::fs::create_dir_all(dir.join("crashed")).unwrap();
+    std::fs::write(dir.join("crashed/level.dat_old"), fixture("level_26.3.dat")).unwrap();
+    std::fs::create_dir_all(dir.join("half/region")).unwrap();
+    std::fs::write(dir.join("half/session.lock"), "☃").unwrap();
+
+    let view = worlds(&app, &id, &cookie).await;
+    let problem = |folder: &str| world(&view, folder)["problem"].as_str().unwrap().to_owned();
+    assert!(
+        problem("world").starts_with("its level.dat can't be read"),
+        "{view}"
+    );
+    assert_eq!(problem("crashed"), "it has no level.dat");
+    assert_eq!(problem("half"), "it has no level.dat");
+    assert!(world(&view, "old_world")["problem"].is_null());
+
+    let level_name = property(&dir, "level-name");
+    let job = finished(
+        &app,
+        &cookie,
+        app.delete(&format!("/api/v1/instances/{id}/worlds/world"), Some(&cookie))
+            .await,
+    )
+    .await;
+    assert_eq!(job["status"], "succeeded", "{job}");
+    assert!(
+        !dir.join("world").exists() && !dir.join("world_nether").exists(),
+        "the world and its parts went"
+    );
+    assert_eq!(
+        property(&dir, "level-name"),
+        level_name,
+        "level-name is left alone, so the next start makes a new world"
+    );
+    let backups = json_body(
+        app.get(&format!("/api/v1/instances/{id}/backups"), Some(&cookie))
+            .await,
+    )
+    .await;
+    assert_eq!(backups["backups"][0]["kind"], "pre_delete");
+    assert_eq!(backups["backups"][0]["scope"], "world", "the active world's");
+
+    for folder in ["crashed", "half"] {
+        let job = finished(
+            &app,
+            &cookie,
+            app.delete(&format!("/api/v1/instances/{id}/worlds/{folder}"), Some(&cookie))
+                .await,
+        )
+        .await;
+        assert_eq!(job["status"], "succeeded", "{folder}: {job}");
+        assert!(!dir.join(folder).exists());
+    }
+    let left: Vec<_> = worlds(&app, &id, &cookie).await["worlds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["folder"].clone())
+        .collect();
+    assert_eq!(left, [json!("old_world")]);
+    assert!(dir.join("logs").exists(), "logs was never a world");
 }

@@ -1,7 +1,7 @@
 /**
  * A server's worlds: each folder with a level.dat, what its files say about it, and what can be done:
- * make it the one the server plays, download it, upload another, delete one or reset the active one
- * (both back up first).
+ * make it the one the server plays, download it, upload another, delete any (the active one too, as it
+ * may be the one that won't load) or reset the active one (both back up first).
  *
  *   const worlds = createWorlds({ instanceId, can });
  *   panel.append(worlds.element);
@@ -56,7 +56,9 @@ export function createWorlds({ instanceId, can }) {
   function render() {
     note.textContent = view.running
       ? 'The server is running: stop it to download, delete or reset a world.'
-      : `The server plays “${view.active}”.`;
+      : view.worlds.some((world) => world.active)
+        ? `The server plays “${view.active}”.`
+        : `The server plays “${view.active}”, which isn’t there yet: the next start makes it, unless you make another world active.`;
     list.replaceChildren(...(view.worlds.length === 0
       ? [h('p', { class: 'c-muted' }, `No world yet: the server makes “${view.active}” when it starts.`)]
       : view.worlds.map(card)));
@@ -77,7 +79,7 @@ export function createWorlds({ instanceId, can }) {
         world.active ? h('span', { class: 'c-badge' }, 'Active') : null,
         world.name && world.name !== world.folder ? h('span', { class: 'c-muted' }, `called “${world.name}” inside`) : null),
       h('p', { class: 'c-muted' }, facts.join(' · ')),
-      world.problem ? h('p', { class: 'c-worlds__problem' }, `Its level.dat can’t be read: ${world.problem}`) : null,
+      world.problem ? h('p', { class: 'c-worlds__problem' }, `${world.problem[0].toUpperCase()}${world.problem.slice(1)}: the game may not load it.`) : null,
       h('dl', { class: 'c-details' },
         world.seed ? row('Seed', h('code', null, world.seed)) : null,
         world.parts.length ? row('Also', world.parts.join(', ')) : null,
@@ -98,9 +100,10 @@ export function createWorlds({ instanceId, can }) {
       }
     }
     if (canWrite && !view.running) {
-      buttons.push(world.active
-        ? button('Reset…', () => reset(world), 'c-button--danger-ghost')
-        : button('Delete…', () => remove(world), 'c-button--danger-ghost'));
+      // Any world can be deleted: the active one is often the one that won't load. Reset is the same for
+      // the active world, with a choice of seed for the new one.
+      if (world.active) buttons.push(button('Reset…', () => reset(world), 'c-button--danger-ghost'));
+      buttons.push(button('Delete…', () => remove(world), 'c-button--danger-ghost'));
     }
     return buttons.length ? h('div', { class: 'c-actions' }, buttons) : null;
   }
@@ -116,7 +119,10 @@ export function createWorlds({ instanceId, can }) {
   }
 
   async function remove(world) {
-    const typed = window.prompt(`Type "${world.folder}" to delete this world. It is backed up first, then moved to the trash.`);
+    const after = world.active
+      ? ` The server plays it: the next start makes a new “${world.folder}”, unless you make another world active first.`
+      : '';
+    const typed = window.prompt(`Type "${world.folder}" to delete this world. It is backed up first, then moved to the trash.${after}`);
     if (typed === null) return;
     if (typed.trim() !== world.folder) {
       toast('The name did not match; nothing was deleted.', { kind: 'error' });

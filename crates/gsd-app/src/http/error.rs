@@ -465,7 +465,6 @@ impl From<gsd_minecraft::worlds::service::WorldError> for ApiError {
             WorldError::Exists(_) => conflict("world_exists"),
             WorldError::Running => conflict("instance_running"),
             WorldError::Busy => conflict("instance_busy"),
-            WorldError::Active => conflict("world_active"),
             WorldError::NotActive => conflict("world_not_active"),
             WorldError::NoLevelDat => invalid("not_a_world"),
             WorldError::BadSeed => invalid("invalid_seed"),

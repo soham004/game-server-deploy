@@ -26,11 +26,12 @@
 - UI: grouped (Players, Mobs, Spawning, Drops, World, Chat and messages, Commands, Other), switches and number fields,
   search, "only changed from the default", a Changed mark with Reset, one Save for all edits.
 
-## Worlds (built, D-055)
-- Every top-level folder with a `level.dat`, with what its files say: version (`Data.Version.Name`), last played, game mode,
+## Worlds (built, D-055, D-059)
+- Every top-level folder with a `level.dat` (or `level.dat_old` or `session.lock`, left by a world that broke), and the
+  `level-name` folder, with what its files say: version (`Data.Version.Name`), last played, game mode,
   difficulty, hardcore, seed (`WorldGenSettings.seed`, or `data/minecraft/world_gen_settings.dat` since 1.21.11), datapacks,
   size, and whether it is the active one (`level-name`). Older Paper's `_nether`/`_the_end` folders are its parts.
 - Make active (`level-name`), download a zip (stopped), upload a zip as a new world (a folder inside it is found; no
-  `level.dat`, no world), delete another world or reset the active one (stopped; a `pre_delete` backup first; a reset may
+  `level.dat`, no world), delete any world (the active one too: the next start makes a new one) or reset the active one (stopped; a `pre_delete` backup first; a reset may
   set a new seed).
 - Later: datapacks managed (P2), a map preview (P3): link to BlueMap/Dynmap/squaremap when detected.

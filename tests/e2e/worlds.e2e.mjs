@@ -1,7 +1,8 @@
 // Worlds on a real 26.3 server, checked with the game's own answers: the seed the app reads from the
 // files is the one `seed` prints; a world downloaded and uploaded again under another name, then made
 // active, is the same world; a reset with a text seed gives a new world with that seed; deleting another
-// world backs it up first. A Paper server's nether and end are never worlds of their own.
+// world backs it up first; an active world the game can't read is deleted, and the next start makes a new
+// one. A Paper server's nether and end are never worlds of their own.
 //
 //   node --test tests/e2e/worlds.e2e.mjs
 //
@@ -129,6 +130,37 @@ test('a real world: its facts, download and upload, reset with a seed, delete af
   assert.deepEqual((await worlds()).worlds.map((w) => w.folder), ['copy']);
   const backups = (await client.call('GET', `/instances/${id}/backups`)).body.backups;
   assert.deepEqual(backups.map((b) => [b.kind, b.scope]), [['pre_delete', 'full'], ['pre_delete', 'world']]);
+
+  // A world that won't load: its level.dat and the copy the game keeps of it are garbage. The game won't
+  // play it, the app says why, and deleting it (the active one) lets the next start make a new world.
+  const files = ['copy/level.dat', 'copy/level.dat_old'];
+  const trashed = await client.call('POST', `/instances/${id}/files/delete`, { paths: files });
+  assert.ok(trashed.status < 300, JSON.stringify(trashed.body));
+  for (const file of files) {
+    const written = await client.call('PUT', `/instances/${id}/files/text`, { path: file, content: 'not a level' });
+    assert.ok(written.status < 300, JSON.stringify(written.body));
+  }
+  const broken = (await worlds()).worlds.find((w) => w.folder === 'copy');
+  assert.ok(broken?.active && broken.problem?.startsWith("its level.dat can't be read"), JSON.stringify(broken));
+  const linesBefore = (await client.console(id)).length;
+  await client.call('POST', `/instances/${id}/start`);
+  // "stopped" counts only once the game has printed something: before that, the start hasn't begun.
+  const outcome = await until('the game to give up on the world, or play it', async () => {
+    const { status } = (await client.call('GET', `/instances/${id}`)).body.state;
+    const printed = (await client.console(id)).length > linesBefore;
+    return status === 'running' || status === 'crashed' || (status === 'stopped' && printed) ? status : undefined;
+  }, 300);
+  const log = (await client.console(id)).slice(-15).join('\n');
+  t.diagnostic(`broken world: ${outcome}\n${log}`);
+  assert.notEqual(outcome, 'running', 'the game doesn’t play a world it can’t read');
+  await stop();
+  const gone = await job(await client.call('DELETE', `/instances/${id}/worlds/copy`));
+  assert.equal(gone.status, 'succeeded', gone.error);
+  assert.deepEqual((await worlds()).worlds, [], 'nothing left');
+  await start();
+  const fresh = await worlds();
+  assert.deepEqual(fresh.worlds.map((w) => [w.folder, w.problem]), [['copy', null]], 'a new world under the same name');
+  await stop();
 });
 
 test('a real Paper server’s world is one world, its nether and end with it', { skip, timeout: 60_000 }, async (t) => {
