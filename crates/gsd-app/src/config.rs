@@ -169,6 +169,11 @@ impl Config {
         self.data_dir.join("sandbox-check")
     }
 
+    /// Player heads, cut from their skins (shown while Mojang can't be reached).
+    pub fn heads_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("cache").join("heads")
+    }
+
     /// Cached catalog responses (offline fallback).
     pub fn catalog_cache_dir(&self) -> PathBuf {
         self.data_dir.join("cache").join("meta")

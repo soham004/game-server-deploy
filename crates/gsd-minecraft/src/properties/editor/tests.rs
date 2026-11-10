@@ -41,7 +41,10 @@ fn instance(dir: &std::path::Path) -> Instance {
             },
             behavior: Behavior::default(),
             backups: BackupPolicy::default(),
-            ports: Ports { game: 25565 },
+            ports: Ports {
+                game: 25565,
+                control: None,
+            },
             sandbox: SandboxIds {
                 uid: 20000,
                 gid: 20000,

@@ -728,6 +728,97 @@ Members manage only the instances they are granted. Member quotas (instance coun
   version by id through the API, or uploading it, still works, and the update then installs that Minecraft.
 - **Known limits:** servers made before the lock existed can't be updated. Uploading a different pack is allowed and then counts as that pack; the review shows
   its name. No "changelog" is shown. A pack's override that the user changed stays old until they choose to replace it.
+- Not exercised on real data, only with mocks: a kept file, a version change, an update from an upload, between two `CurseForge` versions. Nothing tests restoring a backup
+  after an update.
 - Tested: `compare` table tests; API (owned files, kept with reasons, replace, source and upload, downloaded mod re-tracked, loader version change, another
   loader, not a pack, no source, running server, missing lock, a pack bringing a lock, rights); a real pack already run once and updated (Adrenaline 26.5.0 to
   26.5.1: 9 added, 1 replaced, 8 removed), started afterwards; browser scenario for the Mods tab.
+
+**D-051: Log history and crash reports** · accepted · 2026-11-09
+- **What counts as a log:** in `logs/`, `latest.log`, `debug.log`, and other `.log` and `.log.gz` files; in `crash-reports/`, `.txt` files; in the server's folder,
+  `hs_err_pid*.log`. Only those can be read, by plain name, through `logs.read`. That right is smaller than `files.read`, so a name is looked up in that list and never treated
+  as a path. Links aren't listed.
+- **Reading is tail-first:** the last matching lines come back with `earlier`, which asks for the page before. It scans the file from the start and keeps only one page in memory, so
+  a page costs a read of the file, and `.gz` files can't be read any other way. Capped: 1,000 lines a page, 16 KB a line, 4 GB read (`truncated` says so, and also for a damaged `.gz`).
+- **Search and level:** text ignores case; `regex=true` uses the `regex` crate, which runs in linear time, with a size limit on the pattern. A line with no level of its own takes the one
+  above it, so asking for errors brings their stack traces along.
+- **Crash summaries** read the first 256 KB. A game's report gives time, description, exception and frames; a JVM's gives the failure, the signal and the problematic frame. `suspected` is what
+  the loader itself says, and `first_outside_code` is the first frame outside the game, its loaders and the JVM, shown as only that: packages aren't mapped to mods, as the plan wanted.
+- **The overview's last-crash card** shows while the server is crashed, or stopped with a non-zero exit, so a successful start clears it.
+- **Not built from the plan:** time windows (log lines only have a time of day), per-run stdout capture, next/previous match, error context lines, mapping packages to mods, sharing to mclo.gs (P2).
+- Faults found by looking at real output: "Open the report" failed when the tab had been read before the crash; the overview printed "null" when there were no diagnostics, an older bug.
+- Tested: paging, levels, search, caps, damaged `.gz`, and report formats in unit tests; API (kinds, a server with none, filters, summaries, names that aren't logs, a link, download, viewer and stranger);
+  real files as a normal user and as root: a rotated `.log.gz`, a watchdog crash (`max-tick-time=1`), and a JVM crash from a `SIGSEGV`; browser: search, levels, a bad regex, an earlier run, a phone screen,
+  and a real crash from the overview's card to its report. The suspected-mods formats come from memory of Forge and Fabric reports: no real one has been seen, since a modded crash wasn't caused.
+
+**D-052: A control channel for running servers** · accepted · 2026-11-09
+- **One channel, one internal port:** each server gets a port from the internal range at its first start (`[ports] control`), so servers made earlier get one too, and the sandbox lets it listen there. If the range runs out it
+  starts without one, with a warning. Those ports are never published.
+- **The management protocol on 1.21.9 and later:** `127.0.0.1`, no TLS (nothing leaves the machine, and a keystore is a lot to ask for that), a random 40-character secret kept in `server.properties`, written before each start. Real servers on
+  all seven loaders answer, API 3.1.0, 89 methods (NeoForge 92), each listening on loopback only. The file is written through the file manager, since the server could have made it a link.
+- **RCON stays off unless the user turns it on, against the plan's "RCON auto-setup (loopback)".** RCON has no address setting. A real 1.20.1 server listens on `::`, every network interface, unencrypted. The app won't open a remote console
+  port on its own for what console commands already do, and the players plan doesn't need RCON. If a user sets `enable-rcon=true` on an older server, it gets the control port and a random password if it has none, and works. On 1.21.9 and later,
+  `rcon.port` stays outside what the sandbox allows, so RCON doesn't work there: the management protocol replaces it.
+- **Secrets:** read from the server's file when connecting, so there is one copy; never returned by the API; removed when a server is copied (clone, import, a pack's `server.properties`), so each gets its own. `management-server-enabled`, `-host` and `-tls-enabled` became managed in the Properties editor, since a start would only change them back.
+- **Connect per use for now:** no connection is held open, so notifications aren't followed yet. That comes with the players work that needs them.
+- **Method names, from `rpc.discover` on a real 26.3 server:** notifications are `minecraft:notification/<area>/<event>`: `server/started|stopping|saving|saved|activity|status`, `world/upgrade_started|upgrade_progress|upgrade_finished|upgrade_failed`, `players/joined|left`, `operators/added|removed`, `allowlist/added|removed`, `ip_bans/added|removed`, `bans/added|removed`, `gamerules/updated`.
+- Tested: version rules, settings, RCON framing (long replies in pieces, refused password, a bad length) and the JSON-RPC client against stand-ins, a link in place of the settings file; real servers as above; a real 1.20.1 server with RCON off and then on, running `list`.
+
+**D-053: Players** · accepted · 2026-11-09
+- **One channel per state, chosen by the app:** running 1.21.9+ goes through the management protocol (D-052); running older servers through console commands (`op`, `whitelist add`, `ban`, `kick`, `tell`, …); a stopped server through its own files (`ops.json`, `whitelist.json`,
+  `banned-players.json`, `banned-ips.json`, `white-list`), which it reads when it starts; starting or stopping, nothing. If the protocol can't be reached, the console takes over for what it can say. The response says which was used.
+- **Reads always come from the server's files.** Every version saves them as soon as they change (checked on a real 26.3 server: `ops.json` is written before the protocol answers), so one reader serves every state. Who is on comes from the console's join and leave lines.
+- **Every change is confirmed in the server's own lists** before it counts, watched for up to 6 seconds, since console commands get no answer and leaves come through the console. A change the server doesn't show is reported as not confirmed, not as done.
+- **Console commands are built only from checked parts:** names an account could have (`[A-Za-z0-9_]{1,16}`: `@a` would mean everyone), IP addresses, and reasons and messages on one line of at most 256 characters. Offline servers accept odder names; the app doesn't manage those.
+- **What the console can't say is refused, not approximated:** an operator level other than the server's default, and bans that end, need the protocol or a stopped server. Vanilla bans do have an end (`expires`): the protocol and the files both take one, and the game honours it, so the plan's "we schedule the pardon" isn't needed.
+- **Rights:** `players.manage` for changes; operator levels above 2 also need `console.write`, since level 3 and 4 operators can run any command (the permission matrix already said "op up to level 2"). Banned addresses are shown only with `players.manage`.
+- **A name becomes an account** (stopped servers only; running ones do it themselves): the server's `usercache.json`, else Mojang's API in online mode (cached an hour, 10 minutes for no account), else the offline rule (`UUID.nameUUIDFromBytes("OfflinePlayer:" + name)`, matching a real server's).
+- **Heads** are cut from the skin (face, hat layer over it) and scaled to 64×64 server-side, kept on disk for a day and used beyond that while Mojang can't be reached. The skin is only fetched from the textures host, by its hash, so Mojang's answer can't send the app elsewhere.
+  An old 64×32 skin whose hat area has nothing see-through gets no hat, as in the game (Notch's real skin came out as a black square before this).
+  Players without a skin of their own get a plain letter tile of ours, not Mojang's Steve and Alex skins, which aren't ours to ship. There is no separate lookup endpoint: the card's "Look up" shows what the lists know, and adding does the lookup.
+- **History:** a visit per join (`player_sessions`), ended by the leave line or by the server stopping. Visits an earlier run left open are closed at startup without an end, and don't count towards play time. Play time comes from the game's own statistics (`<world>/stats/<uuid>.json`) where
+  they exist, since they count play from before this app, else from the visits. 10,000 visits are kept per server. It records until after the servers have stopped at shutdown, so their last visits end properly.
+- **No held protocol connection, against D-052's plan:** joins and leaves are in the console on every version, so the notifications aren't needed for this.
+- **A bug found on the way:** 26.x logs joins and leaves as `System chat: <name> joined the game`, which wasn't recognised, so nobody ever seemed to be online on 26.x servers, and "when a player joins" schedules never ran there.
+- **The server's own name cache is kept up to date:** a running 26.3 server resolves a name it hasn't cached by lowercasing it, both in console commands and in the protocol, and in offline mode that is another UUID (`Mixed_Case` and `mixed_case`
+  differ). A player who joins gets the UUID of their name as typed, so the app writes that, and also puts the name in `usercache.json`, as the game does after a lookup; otherwise the running server couldn't find the entry again to lift a ban or take an
+  operator away. Names a running offline server is given that it hasn't seen get the lowercase UUID: that is the game's own doing, through any channel. The protocol ignores an `id` next to a name, and does nothing when the two disagree, so only names are sent.
+- **26.x starts with its allowlist on** (`white-list=true` by default, seen on a real server); older versions with it off. A server that has never started has no such line yet, and shows it off until its first start writes the game's default.
+- **Not built from the plan:** temporary bans on old running servers, teleport to spawn (P2), op `bypassesPlayerLimit`, play time per world for servers with several.
+- **Tested:** visits, lists, names, actions and their commands and calls, heads (old and new skins) and Mojang answers in unit tests; the API against the fake server (files while stopped, the console, a stand-in management protocol on the control port,
+  rights, heads); real servers with a real player (`tests/e2e/lib/bot.mjs`), as a normal user and as root: 26.3 through the protocol and its files, 1.20.1 through the console, kicks and bans seen by the player, keep-alives over 35 seconds, play time from
+  the game's statistics; Mojang's real API for an account and two heads; the browser with a real account on the running NeoForge server.
+
+**D-054: Game rules** · accepted · 2026-11-10
+- **The server's own list, not ours:** the rules shown are the ones the server has: live from the management protocol on a running 1.21.9+ server, else from its world's files. A catalog (`gamerules.json`) adds a label, a group, the default and what each does; rules it doesn't
+  know (a mod's, a newer version's) still show, under Other, and can be changed. The catalog's defaults are checked in tests against real new worlds of 26.3 (58 rules) and 1.20.1 (45).
+- **Names follow the version:** 1.21.11 renamed every rule (`keepInventory` became `minecraft:keep_inventory`), and some changed meaning (`disableRaids` became `raids`, `doFireTick` became `fire_spread_radius_around_player`, a number). Older names that mean the same share the newer
+  one's description; the others have their own. Names sent anywhere are only ones the server's list has, never one from a request.
+- **Where they are, verified on real servers:** 26.3 keeps them in `<world>/data/minecraft/game_rules.dat` (a byte for true or false, an int for numbers); older versions in `level.dat`, `Data.GameRules`, every value a string. Read and written by our own NBT module
+  (`gsd-minecraft::nbt`), which keeps entry order and Java's modified UTF-8, so real files round-trip byte for byte, and only the changed values differ. Writes go through the file manager (owner, links refused, atomic, refused if the file changed meanwhile); `level.dat_old`, which the
+  game keeps itself, stays as it was.
+- **Changes, by state:** running 1.21.9+, `minecraft:gamerules/update`, one call a rule; running older, or the protocol out of reach, `gamerule <name> <value>` typed into the console, then `save-all`, waiting for the save, so the files show the change; stopped, the world's file, which
+  the server reads when it starts; starting or stopping, nothing. A change counts once the server's values show it. All of a batch is checked before any is written to a file.
+- **Values on an older running server are as of its last save** (the game saves every few minutes), and the page says so. The plan's "values queried one by one" would mean sixty console commands for every look.
+- **A server with no world yet** (never started) has no rules to show or change; the page says it gets them at its first start. The plan's "apply on next start" queue isn't needed, since a stopped world's file is written directly.
+- **Rights:** `instance.view` to see them, `properties.write` to change them (the matrix's "properties.write · gamerules.write").
+- **Not built:** bounds for numbers (the server refuses what it won't take, with its own message; the catalog's would be guesses), Paper's other worlds (each has its own rules; the main world's are shown), the protocol's `gamerules/updated` notification (the page reloads after each change).
+- **Found on Windows:** nesting 512 deep (the game's own NBT limit) overflowed a 2 MB thread stack in a debug build, so a crafted world file could have stopped the app. Files nested deeper than 64 are refused; world settings files are a handful of levels deep.
+- **Tested:** NBT round-trips of real files, the catalog's defaults against real new worlds, reading and writing both formats, a refused batch changing nothing, names allowed into commands, in unit tests; the API with real world files (26.3 and 1.20.1), no world yet, rights, and a stand-in management
+  protocol; real servers as a normal user and as root, each change checked with the game's own `gamerule` answer (26.3: protocol, then its file while stopped; 1.20.1: console and a save, then `level.dat` while stopped); the browser on the running NeoForge server.
+
+**D-055: Worlds** · accepted · 2026-11-10
+- **A world is a top-level folder with a `level.dat`;** its facts come from its own files (read with the NBT module, D-054): version, last played, game mode, difficulty and hardcore (`Data.difficulty_settings` on 26.3, `Data.Difficulty` and `Data.hardcore` before), the seed
+  (`data/minecraft/world_gen_settings.dat` since 1.21.11, `Data.WorldGenSettings` before, `Data.RandomSeed` before 1.16) as text, since seeds are 64-bit, datapacks, and the size of its folders. One that can't be read is listed with why.
+- **Paper:** older Paper and Purpur keep a world's nether and end in `<world>_nether` and `<world>_the_end`; those are its parts, sized, downloaded, deleted and reset with it. A real Paper 26.3 server keeps them inside `world/dimensions`, as vanilla does.
+- **Actions by state:** making one active (`level-name`) works any time, and says whether a restart is needed; downloading needs a stopped server (a running one writes as the zip is made; a backup gives a running server's world consistently); uploading works any time, as a new folder;
+  deleting and resetting need a stopped, idle server and run as a job that checks again under its lock.
+- **Deleting and resetting back up first,** a new backup kind `pre_delete` (a safety backup, under the safety limit; migration 0007 rebuilds the table, as 0004 did): full for deleting another world (backups can't yet hold just one folder), the world for resetting the active one. Then the folders go to the
+  server's trash. A failed backup deletes nothing. Delete is for other worlds and reset for the active one, so the server is never left playing a world that was deleted by mistake; a reset can set `level-seed` (empty for random).
+- **Uploads:** a zip of the world, zipped from inside the folder or with the folder; a `__MACOSX` folder is ignored. Without a `level.dat` it isn't a world, and what was unpacked goes to the trash. The zip itself is removed for good once unpacked (a new `remove_file`, for files the app made), not
+  left in the trash. Folder names: plain names, not hidden, 64 characters at most, not one already there.
+- **Rights:** `instance.view` lists them, seeds only with `files.read` (a seed lets players find what the world hides); `properties.write` makes one active; `files.read` downloads; `files.write` uploads, deletes and resets.
+- **Folder sizes** are added up with a list of folders to visit, not recursion: the server could nest folders deep enough to exhaust a thread's stack.
+- **Not built from the plan:** datapacks managed (only listed), a map preview (P3), regenerating without deleting.
+- **Tested:** world facts from real 26.3 and 1.20.1 files and odd ones, Paper parts, seeds from requests, and folder sizes (links not followed, deep nesting) in unit tests; the API with real `level.dat` files (list, seeds hidden from a viewer, make active, download stopped and refused running,
+  uploads with a folder inside and a `__MACOSX` folder, not a world, an existing name, delete and reset with their backups); a real 26.3 server as a normal user and as root, each step checked with the game's own `seed` answer; a real Paper server's layout; the browser on the running NeoForge server.

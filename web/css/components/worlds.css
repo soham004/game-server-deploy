@@ -1,0 +1,65 @@
+.c-worlds {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.c-worlds > p {
+  margin: 0;
+}
+
+.c-worlds__list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.c-worlds__card {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-worlds__card.is-active {
+  border-color: var(--color-accent);
+}
+
+.c-worlds__card p {
+  margin: 0;
+}
+
+.c-worlds__card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.c-worlds__name,
+.c-worlds__heading {
+  margin: 0;
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+
+.c-worlds__card code {
+  overflow-wrap: anywhere;
+}
+
+.c-worlds__problem {
+  color: var(--color-danger);
+}
+
+.c-worlds__upload {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-worlds__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.c-worlds__row > .c-input {
+  flex: 1 1 12rem;
+  width: auto;
+}

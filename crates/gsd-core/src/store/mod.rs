@@ -132,6 +132,24 @@ mod tests {
 
     use super::*;
 
+    /// Migration 0007 rebuilds the table again: a `pre_delete` backup can be recorded afterwards.
+    #[tokio::test]
+    async fn a_backup_taken_before_deleting_a_world_can_be_recorded() {
+        let pool = open_in_memory().await.unwrap();
+        sqlx::query(
+            "INSERT INTO backups (id, instance_id, kind, scope, file_name, size_bytes, sha256, created_at)              VALUES ('b3', 'i1', 'pre_delete', 'full', 'c.zip', 10, 'abc', '2026-11-10T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let refused = sqlx::query(
+            "INSERT INTO backups (id, instance_id, kind, scope, file_name, size_bytes, sha256, created_at)              VALUES ('b4', 'i1', 'whenever', 'full', 'd.zip', 10, 'abc', '2026-11-10T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(refused.is_err(), "the kinds are still checked");
+    }
+
     /// Migration 0004 rebuilds the backups table: rows made under 0002 must survive it.
     #[tokio::test]
     async fn rebuilding_the_backups_table_keeps_existing_backups() {

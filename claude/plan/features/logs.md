@@ -1,5 +1,9 @@
 # Feature: Log Viewer and Crash Reports
 
+Built (D-051): listing, reading with search and level, tail-first paging, crash summaries, the Logs tab and the overview's last-crash
+card. Below is the original plan; not built from it: time windows, per-run stdout capture, mapping packages to mods, next/previous match,
+error context lines, and sharing to mclo.gs.
+
 ## Sources
 - **Live**: supervisor ring buffer + WS (console tab).
 - **History**: `server/logs/latest.log`, `server/logs/YYYY-MM-DD-N.log.gz`, `debug.log` (Forge/NeoForge/Fabric),

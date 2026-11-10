@@ -133,6 +133,106 @@ test('starts the server and shows a clean, coloured console', { skip, timeout: 1
   assert.deepEqual(page.errors, [], 'no JavaScript errors');
 }));
 
+test('the overview says the server answers on its control channel', { skip, timeout: 60000 }, step('control', async () => {
+  await page.click('.c-tabs__tab', 'Overview');
+  await page.waitFor(() => document.querySelector('.c-details')?.textContent.includes('Management protocol (API'), { timeout: 40000, message: 'the control channel on the overview' });
+  await page.click('.c-tabs__tab', 'Console');
+}));
+
+test('players: a real account on the allowlist and as operator, its card and head, and off again', { skip, timeout: 90000 }, step('players', async () => {
+  const NOTCH = '069a79f4-44e9-4726-a5be-fca90e38aaf5';
+  await page.click('.c-tabs__tab', 'Players');
+  await page.waitFor(() => document.querySelector('.c-players__note')?.textContent.includes('management protocol'), { timeout: 20000, message: 'the players tab, changes through the management protocol' });
+  const rowsOf = (section) => page.evaluate((index) => [...document.querySelectorAll('.c-players__grid > .c-players__section')[index].querySelectorAll('[data-player]')].map((row) => row.dataset.player), section);
+
+  // The running server looks the name up itself.
+  await page.fill('input[name="player_name"]', 'notch');
+  await page.click('.c-players__add button', 'Add to the allowlist');
+  await page.waitFor(() => document.querySelectorAll('.c-players__grid > .c-players__section')[2].querySelector('[data-player="Notch"]'), { timeout: 20000, message: 'Notch on the allowlist' });
+  await page.waitFor(() => {
+    const image = document.querySelector('[data-player="Notch"] img.c-player-head');
+    return image?.complete && image.naturalWidth === 64;
+  }, { timeout: 20000, message: 'a real head from the skin' });
+
+  await page.fill('input[name="player_name"]', 'Notch');
+  await page.click('.c-players__add button', 'Make operator');
+  await page.waitFor(() => document.querySelectorAll('.c-players__grid > .c-players__section')[1].querySelector('[data-player="Notch"]'), { timeout: 20000, message: 'Notch as operator' });
+
+  await page.click('[data-player="Notch"] .c-players__open');
+  await page.waitFor((uuid) => document.querySelector('.c-player-card:not([hidden]) .c-player-card__uuid code')?.textContent === uuid, { args: [NOTCH], message: 'the card with the UUID' });
+  assert.match(await page.evaluate(() => document.querySelector('.c-player-card').textContent), /Operator, level \d/);
+  await shot('09-players');
+  await page.setViewport(375, 812, { mobile: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'the tab fits a phone');
+  await shot('09-players-phone');
+  await page.setViewport(1280, 900);
+
+  await page.click('.c-player-card button', 'Remove operator');
+  await page.waitFor(() => !document.querySelectorAll('.c-players__grid > .c-players__section')[1].querySelector('[data-player="Notch"]'), { timeout: 20000, message: 'no longer operator' });
+  await page.click('.c-player-card button', 'Take off the allowlist');
+  await page.waitFor(() => !document.querySelectorAll('.c-players__grid > .c-players__section')[2].querySelector('[data-player="Notch"]'), { timeout: 20000, message: 'off the allowlist' });
+  assert.ok(!(await rowsOf(1)).includes('Notch'), 'Notch is no operator any more');
+  await page.click('.c-player-card button', 'Close');
+  await page.click('.c-tabs__tab', 'Console');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors');
+}));
+
+test('game rules: live from the server, change one, see it changed, reset it', { skip, timeout: 90000 }, step('gamerules', async () => {
+  await page.click('.c-tabs__tab', 'Game rules');
+  await page.waitFor(() => document.querySelector('.c-gamerules__note')?.textContent.startsWith('Live from the running server'), { timeout: 20000, message: 'live game rules' });
+  const rule = '[data-rule="keep_inventory"]';
+  const state = () => page.evaluate((selector) => ({
+    checked: document.querySelector(`${selector} input`).checked,
+    changed: Boolean(document.querySelector(`${selector} .c-gamerules__changed`)),
+  }), rule);
+  assert.deepEqual(await state(), { checked: false, changed: false }, 'the default');
+
+  await page.fill('input[name="gamerule_search"]', 'inventory');
+  await page.waitFor(() => document.querySelectorAll('.c-gamerules__rule').length === 1, { message: 'one rule found' });
+  await page.evaluate((selector) => document.querySelector(`${selector} input`).click(), rule);
+  await page.waitFor(() => document.querySelector('.c-gamerules__save .c-muted').textContent === '1 change not saved', { message: 'the change held on the page' });
+  await page.click('.c-gamerules__save button', 'Save');
+  await page.waitFor((selector) => document.querySelector(`${selector} .c-gamerules__changed`) && !document.querySelector(`${selector}.is-edited`), { args: [rule], timeout: 20000, message: 'saved, and marked as changed' });
+  const asked = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/gamerules`)).json()).rules.find((r) => r.name === 'keep_inventory').value, serverId);
+  assert.equal(asked, true, 'the server has it');
+  await shot('09-gamerules');
+
+  await page.setViewport(375, 812, { mobile: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'the tab fits a phone');
+  await shot('09-gamerules-phone');
+  await page.setViewport(1280, 900);
+
+  await page.click(`${rule} button`, 'Reset');
+  await page.click('.c-gamerules__save button', 'Save');
+  await page.waitFor((selector) => !document.querySelector(`${selector} .c-gamerules__changed`) && !document.querySelector(`${selector} input`).checked, { args: [rule], timeout: 20000, message: 'back to the default' });
+  await page.fill('input[name="gamerule_search"]', '');
+  await page.click('.c-tabs__tab', 'Console');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors');
+}));
+
+test('worlds: the active world with what its files say, and nothing to break while it runs', { skip, timeout: 60000 }, step('worlds', async () => {
+  await page.click('.c-tabs__tab', 'Worlds');
+  await page.waitFor(() => document.querySelector('.c-worlds__card.is-active'), { timeout: 30000, message: 'the active world' });
+  const card = await page.evaluate(() => {
+    const active = document.querySelector('.c-worlds__card.is-active');
+    return {
+      text: active.textContent,
+      buttons: [...active.querySelectorAll('.c-button')].map((button) => button.textContent),
+      note: document.querySelector('.c-worlds > p').textContent,
+    };
+  });
+  assert.match(card.text, /Minecraft 26\.3/);
+  assert.match(card.text, /Seed-?\d+/, 'an owner sees the seed');
+  assert.match(card.note, /running/);
+  assert.deepEqual(card.buttons, [], 'no download, delete or reset while it runs');
+  await shot('09-worlds');
+  await page.setViewport(375, 812, { mobile: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'the tab fits a phone');
+  await page.setViewport(1280, 900);
+  await page.click('.c-tabs__tab', 'Console');
+  assert.deepEqual(page.errors, [], 'no JavaScript errors');
+}));
+
 test('edits server.properties visually and in the raw view', { skip, timeout: 60000 }, step('properties', async () => {
   await page.click('.c-tabs__tab', 'Properties');
   await page.waitFor(() => document.querySelector('#prop-max-players'), { message: 'the properties form' });
@@ -788,6 +888,84 @@ async function deleteOpenServer(name, ...more) {
     message: `${name} to disappear from the dashboard`,
   });
 }
+
+test('logs: the current log, searching and filtering, and an earlier run', { skip, timeout: 120000 }, step('logs', async () => {
+  await openServer(SERVER);
+  await page.click('.c-tabs__tab', 'Logs');
+  await page.waitFor(() => document.querySelector('.c-logs__file-button[data-log="latest.log"].is-active'), { timeout: 30000, message: 'the current log chosen' });
+  await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 0, { timeout: 30000, message: 'its lines' });
+  await page.waitFor(() => {
+    const viewport = document.querySelector('.c-logs__viewport');
+    return viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 2;
+  }, { message: 'the view at the end of the log' });
+  await shot('37-logs');
+
+  const lines = () => page.evaluate(() => [...document.querySelectorAll('.c-logs__line .c-logs__text')].map((line) => line.textContent));
+  const before = (await lines()).length;
+  await page.fill('input[name="log_query"]', 'Done (');
+  await page.waitFor((all) => {
+    const shown = [...document.querySelectorAll('.c-logs__line .c-logs__text')];
+    return shown.length > 0 && shown.length < all && shown.every((line) => line.textContent.includes('Done ('));
+  }, { args: [before], timeout: 15000, message: 'only matching lines' });
+
+  await page.fill('input[name="log_query"]', 'no line says this at all');
+  await page.waitFor(() => document.querySelector('.c-logs__status').textContent.includes('No lines match'), { message: 'nothing found' });
+  await page.fill('input[name="log_query"]', '');
+  await page.evaluate(() => document.querySelector('input[name="log_regex"]').click());
+  await page.fill('input[name="log_query"]', '(');
+  await page.waitFor(() => /can.t be used/.test(document.querySelector('.c-logs__status').textContent), { message: 'a bad regex is explained' });
+  await page.evaluate(() => document.querySelector('input[name="log_regex"]').click());
+  await page.fill('input[name="log_query"]', '');
+
+  await page.fill('select[name="log_level"]', 'error');
+  await page.waitFor(() => [...document.querySelectorAll('.c-logs__line')].every((line) => line.classList.contains('is-error') || line.classList.contains('is-fatal')), { message: 'errors only' });
+  await page.fill('select[name="log_level"]', '');
+
+  const archive = await page.evaluate(() => document.querySelector('.c-logs__file-button.is-archive')?.dataset.log);
+  if (archive) {
+    await page.click(`.c-logs__file-button[data-log="${archive}"]`);
+    await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 0 && document.querySelector('.c-logs__file-button.is-archive.is-active'), { timeout: 15000, message: 'the earlier run' });
+  }
+  await page.setViewport(375, 812, { mobile: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'the tab fits a phone');
+  await shot('38-logs-phone');
+  await page.setViewport(1280, 900);
+  assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+}));
+
+test('logs: a real crash shows on the overview and opens its report', { skip, timeout: 300000 }, step('crash', async () => {
+  const call = (method, path, body) => page.evaluate(async (m, p, b) => {
+    const response = await fetch(`/api/v1${p}`, { method: m, headers: { 'X-CSRF': '1', 'Content-Type': 'application/json' }, body: b === null ? undefined : JSON.stringify(b) });
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  }, method, path, body ?? null);
+  // The watchdog stops a server whose tick takes longer than this many milliseconds.
+  const properties = await call('GET', `/instances/${serverId}/files/text?path=server.properties`);
+  const original = properties.content;
+  const set = (content, revision) => call('PUT', `/instances/${serverId}/files/text`, { path: 'server.properties', content, revision });
+  const lines = original.split('\n').filter((line) => !line.startsWith('max-tick-time='));
+  await set([...lines, 'max-tick-time=1', ''].join('\n'), properties.revision);
+  try {
+    await page.click('.c-tabs__tab', 'Overview');
+    await call('POST', `/instances/${serverId}/start`);
+    await page.waitFor(() => document.querySelector('.c-overview .c-logs__crash'), { timeout: 240000, message: 'the last crash on the overview' });
+    assert.match(await page.evaluate(() => document.querySelector('.c-overview .c-logs__crash').textContent), /Watching Server/);
+    await shot('39-last-crash');
+    assert.ok(!(await page.evaluate(() => document.querySelector('.c-overview').textContent)).includes('null'), 'no stray "null" in the overview');
+    await page.click('.c-overview button', 'Open the report');
+    await page.waitFor(() => document.querySelector('.c-logs__file-button.is-crash.is-active') && document.querySelector('.c-logs__summary .c-logs__crash'), { timeout: 15000, message: 'the report in the Logs tab' });
+    await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 10, { timeout: 15000, message: 'its lines' });
+    await shot('40-crash-report');
+    assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
+  } finally {
+    await call('POST', `/instances/${serverId}/stop`);
+    await until('the server to be down', async () => !['starting', 'running', 'stopping'].includes((await call('GET', `/instances/${serverId}`)).state.status), 120);
+    // The server rewrites this file when it runs, so its revision is a new one by now.
+    const current = await call('GET', `/instances/${serverId}/files/text?path=server.properties`);
+    const restored = await set(original, current.revision);
+    assert.equal(restored.content, original, 'the setting is back as it was');
+  }
+}));
 
 test('clones a server without its world', { skip, timeout: 180000 }, step('clone', async () => {
   await openServer(SERVER);

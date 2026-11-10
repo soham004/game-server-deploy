@@ -30,6 +30,30 @@ pub fn hash_hex<D: Digest>(bytes: &[u8]) -> String {
     hex::encode(D::digest(bytes))
 }
 
+/// A skin `height` pixels high (64, or 32 as before 1.8): a red face, and a hat layer that is clear except
+/// for one blue pixel over the face's top left corner.
+pub fn test_skin(height: u32) -> Vec<u8> {
+    let mut pixels = vec![0_u8; 64 * height as usize * 4];
+    let mut set = |x: usize, y: usize, color: [u8; 4]| {
+        let at = (y * 64 + x) * 4;
+        pixels[at..at + 4].copy_from_slice(&color);
+    };
+    for y in 8..16 {
+        for x in 8..16 {
+            set(x, y, [200, 0, 0, 255]);
+        }
+    }
+    set(40, 8, [0, 0, 255, 255]);
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, 64, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().unwrap();
+    writer.write_image_data(&pixels).unwrap();
+    writer.finish().unwrap();
+    out
+}
+
 /// A mock upstream for all sources (see [`Endpoints::all_at`]). Download URLs and checksums in
 /// the recorded data are rewritten to point at the mock and match [`FAKE_JAR`].
 pub async fn mock_upstream() -> MockServer {
@@ -139,8 +163,9 @@ pub fn catalog_for(server: &MockServer, cache: &Path) -> Catalog {
 ///   would create those files (built from the real installers' `run.sh`). A `fail-installer`
 ///   file in `java_home` makes it fail with exit code 3.
 /// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`,
-///   `save-off`, `save-all flush`, `save-on`; `write <text>` puts `<text>` in
-///   `world/level.dat`). A `no-save` file in `java_home` makes it never confirm a save.
+///   `leave <name>`, `kick <name>`, `op <name>` (writes `ops.json` with just them), `save-off`,
+///   `save-all flush`, `save-on`; `write <text>` puts `<text>` in `world/level.dat`). A `no-save`
+///   file in `java_home` makes it never confirm a save.
 ///
 /// The script needs `sh`, so only Unix tests run it. On Windows it is still found as Java 25
 /// (detection reads the `release` file without running the binary), which is enough for
@@ -194,6 +219,12 @@ while IFS= read -r line; do
     stop) echo "[12:00:09] [Server thread/INFO]: Stopping the server"; exit 0 ;;
     say\ *) echo "[12:00:05] [Server thread/INFO]: [Server] ${line#say }" ;;
     join\ *) echo "[12:00:05] [Server thread/INFO]: ${line#join } joined the game" ;;
+    leave\ *) echo "[12:00:05] [Server thread/INFO]: System chat: ${line#leave } left the game" ;;
+    kick\ *) who="${line#kick }"; who="${who%% *}"
+      echo "[12:00:05] [Server thread/INFO]: System chat: $who left the game" ;;
+    op\ *) who="${line#op }"
+      printf '[{"uuid":"11111111-1111-4111-8111-111111111111","name":"%s","level":4,"bypassesPlayerLimit":false}]\n' "$who" > ops.json
+      echo "[12:00:05] [Server thread/INFO]: System chat: Made $who a server operator" ;;
     save-off) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now disabled" ;;
     save-on) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now enabled" ;;
     save-all\ flush)

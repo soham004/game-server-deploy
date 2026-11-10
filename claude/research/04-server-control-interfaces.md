@@ -21,7 +21,8 @@ optional upgrades.
   (stack traces).
 - Key patterns (all best-effort; prefer MCSMP when present):
   - Ready: `Done \(([\d.]+)s\)!`
-  - Join: `(\w{3,16}) joined the game` · Leave: `(\w{3,16}) left the game`
+  - Join: `(\w{3,16}) joined the game` · Leave: `(\w{3,16}) left the game`. **(verified)** 26.x logs both as system messages:
+    `System chat: E2E_Bot joined the game`.
   - UUID: `UUID of player (\w+) is ([0-9a-f-]{36})`
   - Save done: `Saved the game`, used to sequence backups after `save-all flush`.
   - Port bind failure: `FAILED TO BIND TO PORT` → friendly "port in use" diagnostic.
@@ -39,8 +40,8 @@ optional upgrades.
   2 = command, 0 = response. Auth failure → `request_id = -1`.
 - Responses are fragmented at **4096 bytes** with no end marker. Workaround: after the command, send an empty
   type-0 (or invalid) packet and read until its echo arrives.
-- Our use: optional "reply-capturing" commands. The app can auto-generate a random password per instance and
-  bind RCON to 127.0.0.1, so it works with zero setup.
+- **(verified)** RCON has no address setting: a real 1.20.1 server listens on `::`, every interface, so it can't be bound to
+  loopback (D-052). It stays off unless the user turns it on.
 
 ## 3. Minecraft Server Management Protocol (MCSMP), 1.21.9+
 - JSON-RPC 2.0 over WebSocket at `ws(s)://<management-server-host>:<management-server-port>`.
@@ -63,7 +64,18 @@ optional upgrades.
 - Notifications: `server/started|stopping|saving|saved|status|activity`, `players/joined|left`,
   `operators/added|removed`, `allowlist/added|removed`, `bans/…`, `ip_bans/…`, `gamerules/updated`,
   `world/upgrade_started|upgrade_progress|upgrade_finished|upgrade_failed` (API 3.1.0, 26.3 era).
-  The exact notification method strings differ between snapshot notes and the wiki, so **take them from `rpc.discover`**.
+  **(verified)** on real 26.3 servers: `minecraft:notification/<area>/<event>`, API 3.1.0, 89 methods (full list in D-052). Still **take them from `rpc.discover`**.
+- **(verified)** parameter shapes on a real 26.3 server, by name (`params: {"add": [...]}`) or position (`[[...]]`): `player` is
+  `{id?, name?}`, and a name alone is resolved by the server (offline servers: the offline UUID). `operators/add` takes
+  `{player, permissionLevel?, bypassesPlayerLimit}`; `bans/add` `{player, reason?, source?, expires?}`; `ip_bans/add`
+  `{ip | player, reason?, source?, expires?}`; `ip_bans/remove` `{ip: [addresses]}`; `players/kick`
+  `{player, message: {literal | translatable}}`, answering who it kicked (`[]` if they weren't on); `server/system_message`
+  `{message: {literal}, receivingPlayers, overlay}`. `expires` is ISO 8601 (`2026-11-09T18:01:34Z`): the files' format is
+  refused. Each change is saved to its JSON file before the answer comes.
+- **(verified)** names are resolved by the server: online players, then `usercache.json` (any case), then Mojang; a name found
+  nowhere is lowercased first, so in offline mode it gets the lowercase name's UUID. Console commands do the same. An `id` next to
+  a name is ignored, and a disagreeing one makes the call do nothing (`[]`).
+- The data generator's `reports/json-rpc-api-schema.json` has the same schema without a running server.
 - A Rust client exists (`mcsmp-rs`). Evaluate it, but we may write our own thin client (it is just JSON-RPC over `tokio-tungstenite`).
 - Older servers: a "legacy support" plugin exists on Modrinth for Bukkit-based servers. We just fall back to stdin and files.
 
@@ -82,7 +94,8 @@ optional upgrades.
 | `whitelist.json` | `[{uuid,name}]` | Same rule. |
 | `banned-players.json` / `banned-ips.json` | `[{uuid?,name?,ip?,created,source,expires,reason}]` | Same rule. |
 | `usercache.json` | `[{name,uuid,expiresOn}]` | Name ↔ UUID cache. |
-| `<world>/level.dat` | gzipped NBT | Seed, version, game type, spawn. Parse with the `fastnbt` crate. |
+| `<world>/level.dat` | gzipped NBT | Seed, version, game type, spawn; game rules before 1.21.11 (`Data.GameRules`, strings). Read and written by our own NBT module (D-054). |
+| `<world>/data/minecraft/game_rules.dat` | gzipped NBT | **(verified)** game rules since 1.21.11: `data` compound, `minecraft:<rule>` keys, a byte for true/false, an int for numbers. Written at a save. |
 | `<world>/stats/<uuid>.json` | JSON | `minecraft:custom` → `minecraft:play_time` (ticks), deaths, and so on. |
 | `logs/latest.log`, `logs/YYYY-MM-DD-N.log.gz` | text, gzip | History viewer. |
 | `crash-reports/crash-*.txt` | text | Crash viewer. |

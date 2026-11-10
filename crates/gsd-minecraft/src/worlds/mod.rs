@@ -1,7 +1,12 @@
 //! Where a server keeps its worlds: the `level-name` folder from `server.properties` (default
-//! `world`) and, on Bukkit-style servers (Paper, Purpur), its `_nether` and `_the_end`
-//! siblings. Vanilla keeps the other dimensions inside the main folder, so those siblings only
-//! appear on servers that use them.
+//! `world`) and, on older Bukkit-style servers (Paper, Purpur), its `_nether` and `_the_end`
+//! siblings. Vanilla, and a real Paper 26.3 server, keep the other dimensions inside the main folder,
+//! so those siblings only appear on servers that use them.
+//!
+//! [`info`]: what a world's files say about it; [`service`]: listing and managing worlds.
+
+pub mod info;
+pub mod service;
 
 use std::path::Path;
 
@@ -12,7 +17,12 @@ const DEFAULT_LEVEL_NAME: &str = "world";
 /// The main world's folder name, from `server.properties` (`world` when unset or unusable).
 pub fn level_name(server_dir: &Path) -> String {
     let properties = std::fs::read(server_dir.join("server.properties")).unwrap_or_default();
-    PropertiesDoc::from_bytes(&properties)
+    level_name_in(&PropertiesDoc::from_bytes(&properties))
+}
+
+/// The main world's folder name from settings already read.
+pub fn level_name_in(properties: &PropertiesDoc) -> String {
+    properties
         .get("level-name")
         .filter(|name| is_plain_folder_name(name))
         .unwrap_or(DEFAULT_LEVEL_NAME)
@@ -28,7 +38,7 @@ pub fn world_folders(server_dir: &Path) -> Vec<String> {
 }
 
 /// A single folder name: `level-name` may hold anything, and must not point elsewhere.
-fn is_plain_folder_name(name: &str) -> bool {
+pub(crate) fn is_plain_folder_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\', '\0'])
 }
 

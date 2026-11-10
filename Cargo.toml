@@ -38,6 +38,7 @@ landlock = "0.4"
 libc = "0.2"
 mime_guess = "2"
 nix = { version = "0.31", features = ["resource", "signal", "user", "process"] }
+png = "0.18"
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "query", "stream"] }
 rust-embed = "8"
@@ -64,7 +65,7 @@ wiremock = "0.6"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.rust]
-# `deny` (not `forbid`) so the Linux sandbox module can opt in for `pre_exec`.
+# No exceptions: the sandbox is applied by a launcher instead of `pre_exec` (D-048).
 unsafe_code = "forbid"
 missing_debug_implementations = "warn"
 

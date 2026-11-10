@@ -82,10 +82,12 @@ impl TestApp {
                 hangar: hangar.uri(),
                 curseforge: curseforge.uri(),
             }),
+            profiles: Some(gsd_minecraft::players::ProfileEndpoints::all_at(&upstream.uri())),
         };
         let state = AppState::build_with(config, pool.clone(), options).await.unwrap();
-        // As `serve` does; it stops with the app's shutdown token.
+        // As `serve` does; they stop with the app's shutdown token.
         state.scheduler.start(state.shutdown.clone());
+        state.history.start(state.shutdown.clone());
         let router = http::router(state.clone());
         Self {
             state,

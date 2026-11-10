@@ -21,15 +21,18 @@ pub enum BackupKind {
     PreVersionChange,
     /// The state just before mods or plugins were updated.
     PreUpdate,
+    /// The state just before a world was deleted or reset.
+    PreDelete,
 }
 
 impl BackupKind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Manual,
         Self::Scheduled,
         Self::PreRestore,
         Self::PreVersionChange,
         Self::PreUpdate,
+        Self::PreDelete,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -39,13 +42,17 @@ impl BackupKind {
             Self::PreRestore => "pre_restore",
             Self::PreVersionChange => "pre_version_change",
             Self::PreUpdate => "pre_update",
+            Self::PreDelete => "pre_delete",
         }
     }
 
     /// Safety backups are taken automatically before a risky change; they have their own limit
     /// so a burst of restores can't push the user's own backups out.
     pub fn is_safety(self) -> bool {
-        matches!(self, Self::PreRestore | Self::PreVersionChange | Self::PreUpdate)
+        matches!(
+            self,
+            Self::PreRestore | Self::PreVersionChange | Self::PreUpdate | Self::PreDelete
+        )
     }
 }
 
@@ -180,7 +187,8 @@ mod tests {
             [
                 BackupKind::PreRestore,
                 BackupKind::PreVersionChange,
-                BackupKind::PreUpdate
+                BackupKind::PreUpdate,
+                BackupKind::PreDelete
             ]
         );
     }

@@ -88,9 +88,12 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       the imported `mods/*.jar` into the packwiz index (D-045).
 
 ## M5: Minecraft-aware admin
-- [ ] Log history + crash report viewer.
-- [ ] RCON auto-setup (loopback, random password); MCSMP client for 1.21.9+.
-- [ ] Players (online, heads, op/whitelist/ban/kick, lookup, history), gamerules editor, worlds manager.
+- [x] Log history + crash report viewer (D-051).
+- [x] MCSMP set up automatically on 1.21.9+ (loopback, random secret) with a client; RCON client, on older servers, only if the user
+      turns it on: it can't be bound to loopback (D-052).
+- [x] Players: online, heads, op/allowlist/ban/kick/message, lookup by name, visit history (D-053).
+- [x] Gamerules editor: live, through the console, or in a stopped world's own file (D-054).
+- [x] Worlds manager: facts from the files, make active, download, upload, delete and reset after a backup (D-055).
 - [ ] Command autocomplete (datagen tree + help parsing + dynamic values).
 - [ ] Code editor: CodeMirror 6 vendored as one ESM file (D-008; deferred in D-031) for the file manager, the raw
       `server.properties` view and the log viewer: syntax highlighting (json, yaml, toml, properties, cfg/ini, mcfunction,

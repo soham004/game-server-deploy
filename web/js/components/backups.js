@@ -20,6 +20,7 @@ const KIND_LABELS = {
   pre_restore: 'Before a restore',
   pre_version_change: 'Before a version change',
   pre_update: 'Before updating mods or plugins',
+  pre_delete: 'Before deleting or resetting a world',
 };
 
 const SCOPE_LABELS = {

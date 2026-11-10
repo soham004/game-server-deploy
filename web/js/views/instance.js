@@ -1,6 +1,6 @@
 /**
- * One server: header with state and lifecycle buttons, then tabs (Console, Overview, Properties,
- * Files, Mods or Plugins, Backups, Schedules, Settings).
+ * One server: header with state and lifecycle buttons, then tabs (Console, Overview, Players, Logs,
+ * Properties, Game rules, Worlds, Files, Mods or Plugins, Backups, Schedules, Settings).
  * Live updates come from the "instances" and "jobs" topics.
  */
 import { api } from '../core/api.js';
@@ -12,12 +12,19 @@ import { toast } from '../core/toast.js';
 import { live } from '../core/ws.js';
 import { createBackups } from '../components/backups.js';
 import { createConsole } from '../components/console.js';
+import { createLastCrash, createLogs } from '../components/logs.js';
+import { createPlayers } from '../components/players.js';
 import { createContent } from '../components/content.js';
 import { createFileBrowser } from '../components/file-browser.js';
+import { createGamerules } from '../components/gamerules.js';
 import { createInstanceSettings } from '../components/instance-settings.js';
 import { createPropertiesEditor } from '../components/properties-editor.js';
 import { createSchedules } from '../components/schedules.js';
 import { createVersionChange } from '../components/version-change.js';
+import { createWorlds } from '../components/worlds.js';
+
+const CONTROL_TRIES = 6;
+const CONTROL_RETRY_MS = 3000;
 
 export async function mount(root, { id }) {
   let instance;
@@ -35,6 +42,9 @@ export async function mount(root, { id }) {
   const can = (permission) => instance.permissions.includes(permission);
   let players = [];
   let diagnostics = [];
+  /** How the control channel is doing, and which run of the server that was asked about. */
+  let control = null;
+  let controlRun = null;
 
   const title = h('h1', { class: 'l-page-header__title' });
   const software = h('span', { class: 'c-badge' });
@@ -49,6 +59,17 @@ export async function mount(root, { id }) {
     ? createPropertiesEditor({ instanceId: id, onRestart: () => lifecycle('restart') })
     : null;
   const files = can('files.read') ? createFileBrowser({ instanceId: id, canWrite: can('files.write') }) : null;
+  const logs = isMinecraft && can('logs.read') ? createLogs({ instanceId: id }) : null;
+  const lastCrash = logs ? createLastCrash({
+    instanceId: id,
+    onOpen: (name) => {
+      tabs.select('logs');
+      logs.open(name);
+    },
+  }) : null;
+  const playersTab = isMinecraft ? createPlayers({ instanceId: id, can }) : null;
+  const gamerulesTab = isMinecraft ? createGamerules({ instanceId: id, canWrite: can('properties.write') }) : null;
+  const worldsTab = isMinecraft ? createWorlds({ instanceId: id, can }) : null;
   const loader = instance.server?.loader;
   const content = isMinecraft && loader && loader !== 'vanilla'
     ? createContent({ instanceId: id, can, isRunning: () => ['starting', 'running'].includes(instance.state.status) })
@@ -62,7 +83,11 @@ export async function mount(root, { id }) {
   const tabs = createTabs([
     { id: 'console', label: 'Console', panel: terminal ? terminal.element : h('p', null, 'You cannot view this console.') },
     { id: 'overview', label: 'Overview', panel: overview },
+    playersTab ? { id: 'players', label: 'Players', panel: playersTab.element, onFirstOpen: playersTab.load } : null,
+    logs ? { id: 'logs', label: 'Logs', panel: logs.element, onFirstOpen: logs.load } : null,
     properties ? { id: 'properties', label: 'Properties', panel: properties.element, onFirstOpen: properties.load } : null,
+    gamerulesTab ? { id: 'gamerules', label: 'Game rules', panel: gamerulesTab.element, onFirstOpen: gamerulesTab.load } : null,
+    worldsTab ? { id: 'worlds', label: 'Worlds', panel: worldsTab.element, onFirstOpen: worldsTab.load } : null,
     files ? { id: 'files', label: 'Files', panel: files.element, onFirstOpen: files.load } : null,
     content ? { id: 'content', label: contentLabel, panel: content.element, onFirstOpen: content.load } : null,
     { id: 'backups', label: 'Backups', panel: backups.element, onFirstOpen: backups.load },
@@ -169,6 +194,25 @@ export async function mount(root, { id }) {
     }
   }
 
+  /** Asks how the control channel is doing, once per run of the server. It starts listening just after the server says it is ready, so it gets a few tries. */
+  async function refreshControl() {
+    const run = `${instance.state.status}:${instance.state.since}`;
+    if (run === controlRun) return;
+    controlRun = run;
+    control = null;
+    if (instance.state.status !== 'running') return;
+    for (let tries = 0; tries < CONTROL_TRIES && run === controlRun; tries += 1) {
+      try {
+        control = await api.get(`/instances/${id}/control`);
+      } catch {
+        return;
+      }
+      if (control.connected) break;
+      await new Promise((resolve) => { setTimeout(resolve, CONTROL_RETRY_MS); });
+    }
+    if (run === controlRun) renderOverview();
+  }
+
   /** Whether to delete the server's backups too: true, false, or null if the lookup failed. */
   async function askAboutBackups() {
     let count;
@@ -187,7 +231,10 @@ export async function mount(root, { id }) {
 
   function renderOverview() {
     const address = `${window.location.hostname}:${instance.port}`;
+    lastCrash?.refresh(instance);
+    refreshControl();
     overview.replaceChildren(
+      lastCrash?.element ?? '',
       h('dl', { class: 'c-details' },
         detail('Connect address', h('code', null, address)),
         detail('Software', softwareLabel(instance) + (instance.server.loader_version ? ` (${instance.server.loader_version})` : '')),
@@ -195,6 +242,7 @@ export async function mount(root, { id }) {
         detail('Memory', memoryLabel(instance.max_memory_mb)),
         detail('Created', shortDate(instance.created_at)),
         detail('Folder', h('code', null, instance.slug)),
+        control ? detail('Control channel', controlLabel(control)) : null,
       ),
       h('section', { class: 'c-overview__section' },
         h('h2', { class: 'c-overview__heading' }, `Players online (${players.length})`),
@@ -202,7 +250,7 @@ export async function mount(root, { id }) {
           ? h('p', { class: 'c-muted' }, 'Nobody is online.')
           : h('ul', { class: 'c-tag-list' }, players.map((name) => h('li', { class: 'c-tag' }, name))),
       ),
-      diagnostics.length === 0 ? null : h('section', { class: 'c-overview__section' },
+      diagnostics.length === 0 ? '' : h('section', { class: 'c-overview__section' },
         h('h2', { class: 'c-overview__heading' }, 'Problems detected'),
         h('ul', { class: 'c-diagnostics' }, diagnostics.map((d) => h('li', { class: `c-diagnostic is-${d.severity}` },
           h('strong', null, d.title), h('p', null, d.detail),
@@ -248,12 +296,17 @@ export async function mount(root, { id }) {
     } else if (event.type === 'state') {
       instance.state = event.data;
       render();
+      // Who can change what follows the state: the files while stopped, the server while running.
+      playersTab?.refresh();
+      gamerulesTab?.refresh();
+      worldsTab?.refresh();
     } else if (event.type === 'diagnostic') {
       // One per code: a later, more specific explanation replaces the earlier one.
       diagnostics = [...diagnostics.filter((d) => d.code !== event.data.code), event.data];
       renderOverview();
       toast(event.data.title, { kind: 'error' });
     } else {
+      if (event.type === 'signal' && ['player_joined', 'player_left'].includes(event.data.kind)) playersTab?.refresh();
       refresh();
     }
   });
@@ -274,8 +327,15 @@ export async function mount(root, { id }) {
     terminal?.destroy();
     backups.destroy();
     content?.destroy();
+    playersTab?.destroy();
     schedules.destroy();
   };
+}
+
+function controlLabel({ channel, connected, problem, api_version: version }) {
+  if (connected) return channel === 'management' ? `Management protocol (API ${version})` : 'RCON';
+  if (problem) return `Not connected: ${problem}`;
+  return 'Console only';
 }
 
 function detail(term, description) {
@@ -310,5 +370,5 @@ function createTabs(tabs) {
     panels.append(h('div', { class: 'c-tabs__panel', role: 'tabpanel', dataset: { tab: tab.id } }, tab.panel));
   }
   select(tabs[0].id);
-  return { element: h('div', { class: 'c-tabs' }, tablist, panels) };
+  return { element: h('div', { class: 'c-tabs' }, tablist, panels), select };
 }

@@ -5,19 +5,24 @@ pub mod auth;
 pub mod backups;
 pub mod catalog;
 pub mod content;
+pub mod control;
 pub mod files;
+pub mod gamerules;
 pub mod imports;
 pub mod instances;
 pub mod java;
 pub mod jobs;
+pub mod logs;
 pub mod me;
 pub mod modpacks;
+pub mod players;
 pub mod properties;
 pub mod schedules;
 pub mod settings;
 pub mod setup;
 pub mod system;
 pub mod users;
+pub mod worlds;
 
 use axum::{
     Json,

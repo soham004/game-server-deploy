@@ -35,6 +35,7 @@ async fn fixture_with(host: HostSandbox) -> Fixture {
     let events = EventBus::new();
     let policy = AllocationPolicy {
         game_ports: "25565-25570".parse().unwrap(),
+        control_ports: "35565-35570".parse().unwrap(),
         sandbox_uids: 20000..=20010,
         probe_ports: false,
     };

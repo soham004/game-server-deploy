@@ -380,6 +380,102 @@ impl From<gsd_mods::modpack::ModpackError> for ApiError {
     }
 }
 
+impl From<gsd_minecraft::logs::LogError> for ApiError {
+    fn from(error: gsd_minecraft::logs::LogError) -> Self {
+        use gsd_minecraft::logs::LogError;
+        let message = error.to_string();
+        match error {
+            LogError::NotFound => Self::new(StatusCode::NOT_FOUND, "log_not_found", message),
+            LogError::BadSearch(_) => Self::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_log_search", message),
+            LogError::Files(error) => error.into(),
+            LogError::Io(_) => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_minecraft::players::PlayersError> for ApiError {
+    fn from(error: gsd_minecraft::players::PlayersError) -> Self {
+        use gsd_minecraft::players::PlayersError;
+        let message = error.to_string();
+        let conflict = |code| Self::new(StatusCode::CONFLICT, code, message.clone());
+        let invalid = |code| Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message.clone());
+        match error {
+            PlayersError::Invalid(_) => invalid("invalid_player_action"),
+            PlayersError::Busy => conflict("instance_busy"),
+            PlayersError::NotRunning => conflict("not_running"),
+            PlayersError::NotOnline(_) => conflict("player_not_online"),
+            PlayersError::NeedsManagement(_) => conflict("needs_management_protocol"),
+            PlayersError::LevelNotAllowed => Self::forbidden("missing_permission", message),
+            PlayersError::NoAccount(_) => Self::new(StatusCode::NOT_FOUND, "no_such_account", message),
+            PlayersError::Refused(_) => invalid("refused_by_server"),
+            PlayersError::NotConfirmed => Self::new(StatusCode::BAD_GATEWAY, "not_confirmed", message),
+            PlayersError::Mojang(_) => {
+                tracing::warn!(%error, "Mojang lookup failed");
+                Self::new(StatusCode::BAD_GATEWAY, "mojang_unavailable", message)
+            }
+            PlayersError::Control(_) => {
+                tracing::warn!(%error, "control channel failed");
+                Self::new(StatusCode::BAD_GATEWAY, "control_unavailable", message)
+            }
+            PlayersError::Files(error) => error.into(),
+            PlayersError::Instance(error) => error.into(),
+            PlayersError::History(_) => Self::internal(&error),
+        }
+    }
+}
+
+impl From<gsd_minecraft::gamerules::GameruleError> for ApiError {
+    fn from(error: gsd_minecraft::gamerules::GameruleError) -> Self {
+        use gsd_minecraft::gamerules::GameruleError;
+        let message = error.to_string();
+        let invalid = |code| Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message.clone());
+        match error {
+            GameruleError::Busy => Self::new(StatusCode::CONFLICT, "instance_busy", message),
+            GameruleError::NoWorld => Self::new(StatusCode::CONFLICT, "no_world", message),
+            GameruleError::UnknownRule(_) => invalid("unknown_gamerule"),
+            GameruleError::WrongType { .. } => invalid("wrong_gamerule_type"),
+            GameruleError::NothingToChange => invalid("nothing_to_change"),
+            GameruleError::Refused(_) => invalid("refused_by_server"),
+            GameruleError::NotConfirmed | GameruleError::Save(_) => {
+                Self::new(StatusCode::BAD_GATEWAY, "not_confirmed", message)
+            }
+            GameruleError::Nbt(_) => {
+                tracing::warn!(%error, "a world file can't be read");
+                Self::new(StatusCode::UNPROCESSABLE_ENTITY, "unreadable_world", message)
+            }
+            GameruleError::Control(_) => {
+                tracing::warn!(%error, "control channel failed");
+                Self::new(StatusCode::BAD_GATEWAY, "control_unavailable", message)
+            }
+            GameruleError::Files(error) => error.into(),
+            GameruleError::Instance(error) => error.into(),
+        }
+    }
+}
+
+impl From<gsd_minecraft::worlds::service::WorldError> for ApiError {
+    fn from(error: gsd_minecraft::worlds::service::WorldError) -> Self {
+        use gsd_minecraft::worlds::service::WorldError;
+        let message = error.to_string();
+        let conflict = |code| Self::new(StatusCode::CONFLICT, code, message.clone());
+        let invalid = |code| Self::new(StatusCode::UNPROCESSABLE_ENTITY, code, message.clone());
+        match error {
+            WorldError::NotFound(_) => Self::new(StatusCode::NOT_FOUND, "world_not_found", message),
+            WorldError::InvalidName(_) => invalid("invalid_world_name"),
+            WorldError::Exists(_) => conflict("world_exists"),
+            WorldError::Running => conflict("instance_running"),
+            WorldError::Busy => conflict("instance_busy"),
+            WorldError::Active => conflict("world_active"),
+            WorldError::NotActive => conflict("world_not_active"),
+            WorldError::NoLevelDat => invalid("not_a_world"),
+            WorldError::BadSeed => invalid("invalid_seed"),
+            WorldError::Files(error) => error.into(),
+            WorldError::Instance(error) => error.into(),
+            WorldError::Job(error) => error.into(),
+        }
+    }
+}
+
 impl From<gsd_mods::SourceError> for ApiError {
     fn from(error: gsd_mods::SourceError) -> Self {
         use gsd_mods::SourceError;

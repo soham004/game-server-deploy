@@ -4,10 +4,12 @@
 //! stop; backups need to know where the worlds are and how to pause saving. Everything else
 //! game-specific (versions, installers) lives in the adapter crate.
 
-use std::path::Path;
+use std::{path::Path, pin::Pin};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+
+use crate::instances::Instance;
 
 /// Severity of a console line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -117,6 +119,14 @@ pub trait GameAdapter: Send + Sync + std::fmt::Debug {
     /// The console command that shows `message` to everyone online (schedules' broadcasts and
     /// restart warnings), if the game has one.
     fn broadcast_command(&self, message: &str) -> Option<String>;
+    /// Runs before each start, with the server stopped: sets up the channel the app controls it through.
+    /// A failure is logged and the server starts anyway: it works without that channel.
+    fn prepare_start<'a>(
+        &'a self,
+        _instance: &'a Instance,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Console commands that hold world saving still while a backup reads the files.

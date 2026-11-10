@@ -56,10 +56,16 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | GET | `/instances/{id}/complete?input=/tp Al&cursor=7` | autocomplete suggestions |
 | GET | `/instances/{id}/diagnostics` | current detected problems |
 
+### Control channel
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/instances/{id}/control` | `{channel, connected, problem, api_version, methods}` (`instance.view`, D-052); tries it only while the server runs; never returns a secret |
+
 ### Logs
-| GET | `/instances/{id}/logs` | list log files (latest, archived, crash reports) |
-| GET | `/instances/{id}/logs/{name}?q=&level=&from=&to=` | read with filter (gz decompressed server-side, paged) |
-| POST | `/instances/{id}/logs/{name}/share` | upload to mclo.gs (explicit user action) |
+| GET | `/instances/{id}/logs` | `[{name, kind, size, modified}]`, the current log first; `kind`: `latest`, `archive`, `debug`, `crash`, `jvm_crash` (`logs.read`, as these all, D-051) |
+| GET | `/instances/{id}/logs/{name}?q=&regex=&level=&before=&limit=` | the last matching lines before line `before` (end of file if absent), gz decompressed server-side: `{lines: [{number, level, text}], earlier, truncated, crash}` · `404 log_not_found`, `422 bad_log_search` |
+| GET | `/instances/{id}/logs/{name}/download` | the file as it is |
+| POST | `/instances/{id}/logs/{name}/share` | upload to mclo.gs (explicit user action; P2, not built) |
 
 ### Files (built, D-031)
 | GET | `/instances/{id}/files?path=` | list a directory |
@@ -70,12 +76,16 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 
 ### Properties, gamerules, players, worlds
 | GET/PUT | `/instances/{id}/properties` | values + schema + `revision` · `{revision, changes}` (key → value or null) or `{revision, text}`; `422` with per-key `details`, managed keys (ports) refused (built, D-029) |
-| GET/PATCH | `/instances/{id}/gamerules` | via MCSMP or commands (running only) |
-| GET | `/instances/{id}/players` | online + known players, ops, whitelist, bans |
-| POST | `/instances/{id}/players/actions` | `{action: op|deop|whitelist_add|whitelist_remove|ban|pardon|kick|ban_ip, target, reason?}` |
-| GET | `/players/lookup?name=` | name → UUID (cached) |
-| GET | `/players/{uuid}/head.png` | rendered head (cached) |
-| GET | `/instances/{id}/worlds` · POST `/worlds/{name}/reset` · upload/download | world manager |
+| GET/PATCH | `/instances/{id}/gamerules` | `instance.view` · `properties.write`: `{channel, values: server \| last_save \| files \| null (no world yet), world, rules: [{name, type: bool \| int, value, default, category, label, description}]}` · `{changes: {name: value}}` → `{via, gamerules}` once the server shows them; `422 unknown_gamerule \| wrong_gamerule_type \| refused_by_server`, `409 no_world` (built, D-054) |
+| GET | `/instances/{id}/players` | `instance.view`: `channel` (`management`, `console`, `files`, or null while starting/stopping), `online_mode`, `default_op_level`, `online` (name, uuid, since), `allowlist` (`on`, `enforced`, players), `operators`, `bans`, `ip_bans` (only with `players.manage`), `known` (first/last seen, visits, `played_seconds`) (built, D-053) |
+| POST | `/instances/{id}/players/actions` | `players.manage`: `{action: op (name, level?) \| deop \| allow \| disallow \| ban (name, reason?, expires?) \| pardon \| ban_ip (target: an address or an online player, reason?, expires?) \| pardon_ip (ip) \| kick (name, reason?) \| message (name, text) \| allowlist (on)}` → `{via, players}` once the server's lists show it done; levels above 2 also need `console.write`; `409 needs_management_protocol` for what the console can't say, `409 player_not_online`, `404 no_such_account`, `502 not_confirmed` (built, D-053) |
+| GET | `/instances/{id}/players/{name}/sessions` | the latest 50 visits, newest first (built, D-053) |
+| GET | `/players/{uuid}/head.png` | any signed-in user: 64×64 head from the skin, kept a day; `404 no_head` without a skin of its own (offline players, default skins). No separate lookup endpoint: adding a player looks the name up (built, D-053) |
+| GET | `/instances/{id}/worlds` | `instance.view` (seeds only with `files.read`): `{running, active, worlds: [{folder, active, parts, size_bytes, name, version, last_played, game_mode, difficulty, hardcore, seed (text), datapacks: {enabled, disabled}, problem}]}` (built, D-055) |
+| POST | `/instances/{id}/worlds/{folder}/activate` | `properties.write`: sets `level-name` → `{restart_needed}` (built, D-055) |
+| GET | `/instances/{id}/worlds/{folder}/download` | `files.read`: the folder (or a part) as a zip; `409 instance_running` (built, D-055) |
+| PUT | `/instances/{id}/worlds/{folder}?activate=` | `files.write`: a zip as the raw body (16 GB at most) → 201 the world; `level.dat` at its top or in its one folder; `409 world_exists`, `422 not_a_world` (built, D-055) |
+| DELETE · POST | `/instances/{id}/worlds/{folder}` · `…/{folder}/reset` `{seed?}` | `files.write`, stopped: 202 `{job_id}`, a `pre_delete` backup (full; the world's for a reset), then to the trash. Delete is for other worlds (`409 world_active`), reset for the active one (`409 world_not_active`); `seed` absent keeps `level-seed`, empty makes it random (built, D-055) |
 
 ### Mods / plugins / packs
 | GET | `/content/search?source=modrinth&type=mod&q=&instance={id}` | search pre-filtered for the instance |

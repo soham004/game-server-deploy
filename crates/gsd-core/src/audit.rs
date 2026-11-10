@@ -51,6 +51,11 @@ pub mod actions {
     pub const CONTENT_IDENTIFIED: &str = "content.identified";
     pub const CONTENT_UPLOADED: &str = "content.uploaded";
     pub const CURSEFORGE_KEY_CHANGED: &str = "settings.curseforge_key_changed";
+    /// An operator, allowlist, ban or kick change, or a message to a player.
+    pub const PLAYER_ACTION: &str = "players.action";
+    pub const GAMERULES_CHANGED: &str = "gamerules.changed";
+    /// A world made active, uploaded, deleted or reset.
+    pub const WORLDS_CHANGED: &str = "worlds.changed";
 }
 
 /// One event to record.

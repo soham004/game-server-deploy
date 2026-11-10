@@ -25,5 +25,5 @@ mod swap;
 pub use archive::{MANIFEST_NAME, read_manifest};
 pub use error::{BackupError, MAX_NOTE_CHARS};
 pub use model::{BackupKind, BackupRecord, BackupScope, Manifest};
-pub use quiesce::QuiesceError;
+pub use quiesce::{QuiesceError, wait_for_save};
 pub use service::{BackupChange, BackupRequest, BackupService, RestoreOptions};

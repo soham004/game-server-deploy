@@ -54,6 +54,28 @@ impl ServerFiles {
             .await
     }
 
+    /// Bytes in the files under a folder; links aren't followed.
+    pub async fn folder_size(&self, path: SafeRelPath) -> Result<u64, FilesError> {
+        self.run(move |root| root.folder_size(&path)).await
+    }
+
+    /// A binary file and its revision (world settings); the same size limit as text.
+    pub async fn read_bytes(&self, path: SafeRelPath) -> Result<(Vec<u8>, String), FilesError> {
+        self.run(move |root| root.read_bytes(&path)).await
+    }
+
+    /// As [`Self::write_text`], for bytes: atomic, owned by the server's user, refused if the file
+    /// changed since `expected_revision`.
+    pub async fn write_bytes(
+        &self,
+        path: SafeRelPath,
+        content: Vec<u8>,
+        expected_revision: Option<String>,
+    ) -> Result<(), FilesError> {
+        self.run(move |root| root.write_bytes(&path, &content, expected_revision.as_deref()))
+            .await
+    }
+
     pub async fn create_dir(&self, path: SafeRelPath) -> Result<(), FilesError> {
         self.run(move |root| root.create_dir(&path)).await
     }
@@ -64,6 +86,11 @@ impl ServerFiles {
 
     pub async fn copy(&self, from: SafeRelPath, to: SafeRelPath) -> Result<(), FilesError> {
         self.run(move |root| root.copy(&from, &to)).await
+    }
+
+    /// Removes one file the app made itself, for good (see [`Root::remove_file`]).
+    pub async fn remove_file(&self, path: SafeRelPath) -> Result<(), FilesError> {
+        self.run(move |root| root.remove_file(&path)).await
     }
 
     /// Moves `paths` to the instance's trash.

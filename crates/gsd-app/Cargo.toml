@@ -41,6 +41,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
+flate2.workspace = true
 futures-util.workspace = true
 sqlx.workspace = true
 gsd-minecraft = { workspace = true, features = ["test-support"] }

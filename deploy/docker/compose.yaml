@@ -12,9 +12,7 @@
 #   ownership capabilities. Everything else is dropped.
 services:
   app:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
+    image: ghcr.io/soham004/game-server-deploy:latest
     restart: unless-stopped
     cap_drop: [ALL]
     cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, KILL]

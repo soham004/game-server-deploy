@@ -46,6 +46,11 @@ static ANSI: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\x1b\[[0-9;]*[A-Za-z]").unwrap_or_else(|e| unreachable!("static regex: {e}"))
 });
 
+/// The line without colour sequences.
+pub fn strip_ansi(raw: &str) -> std::borrow::Cow<'_, str> {
+    ANSI.replace_all(raw, "")
+}
+
 pub fn parse_line(raw: &str) -> ParsedLine {
     let without_ansi = ANSI.replace_all(raw, "");
     // JLine (Paper's console) prefixes lines with its "> " prompt when stdout isn't a terminal.
@@ -74,21 +79,23 @@ pub fn detect_signal(text: &str) -> Option<GameSignal> {
     if DONE.is_match(text) {
         return Some(GameSignal::Ready);
     }
-    if command_reply(text) == "Saved the game" {
+    let message = command_reply(text);
+    if message == "Saved the game" {
         return Some(GameSignal::Saved);
     }
-    if let Some(captures) = JOINED.captures(text) {
+    if let Some(captures) = JOINED.captures(message) {
         return Some(GameSignal::PlayerJoined {
             name: captures["name"].to_owned(),
         });
     }
-    LEFT.captures(text).map(|captures| GameSignal::PlayerLeft {
+    LEFT.captures(message).map(|captures| GameSignal::PlayerLeft {
         name: captures["name"].to_owned(),
     })
 }
 
-/// The reply to a console command without its prefix: Minecraft 26.x logs replies as
-/// `System chat: Saved the game`; older versions as plain `Saved the game`.
+/// A system message without its prefix: Minecraft 26.x logs command replies and announcements such as
+/// joins as `System chat: Saved the game`; older versions as plain `Saved the game`. Chat from players
+/// starts with their name in brackets, so it can't pass for one.
 fn command_reply(text: &str) -> &str {
     text.strip_prefix("System chat: ").unwrap_or(text)
 }
@@ -211,5 +218,27 @@ mod tests {
         }
         let chat = parse_line("[03:12:59] [Server thread/INFO]: <Steve> System chat: Saved the game");
         assert_eq!(detect_signal(&chat.text), None, "a player can't fake it");
+    }
+
+    /// Regression (a real 26.3 server with a real client): joins and leaves are system messages too, and
+    /// were missed, so nobody ever seemed to be online there.
+    #[test]
+    fn joins_and_leaves_are_recognised_in_26_3_system_messages() {
+        let join = parse_line("[17:01:05] [Server thread/INFO]: System chat: E2E_Bot joined the game");
+        assert_eq!(
+            detect_signal(&join.text),
+            Some(GameSignal::PlayerJoined {
+                name: "E2E_Bot".into()
+            })
+        );
+        let leave = parse_line("[17:01:30] [Server thread/INFO]: System chat: E2E_Bot left the game");
+        assert_eq!(
+            detect_signal(&leave.text),
+            Some(GameSignal::PlayerLeft {
+                name: "E2E_Bot".into()
+            })
+        );
+        let chat = parse_line("[17:01:31] [Server thread/INFO]: <Alex> System chat: Notch joined the game");
+        assert_eq!(detect_signal(&chat.text), None, "chat can't fake a join");
     }
 }

@@ -1,4 +1,4 @@
-/* Buttons: .c-button + modifier (--primary, --ghost, --danger, --block). */
+/* Buttons: .c-button + modifier (--primary, --ghost, --danger, --block, --small). */
 .c-button {
   display: inline-flex;
   align-items: center;
@@ -53,6 +53,12 @@
 
 .c-button--block {
   width: 100%;
+}
+
+/* In a list row, next to the text it acts on. */
+.c-button--small {
+  min-height: 1.75rem;
+  padding: var(--space-1) var(--space-2);
 }
 
 /* A quiet destructive action (e.g. Delete in a table row). */

@@ -53,6 +53,8 @@ pub struct NewInstance {
 #[derive(Debug, Clone)]
 pub struct AllocationPolicy {
     pub game_ports: PortRange,
+    /// Internal ports, never published, for the channel the app controls a server through.
+    pub control_ports: PortRange,
     pub sandbox_uids: RangeInclusive<u32>,
     /// Skip ports another program is listening on (disabled in tests).
     pub probe_ports: bool,
@@ -197,7 +199,10 @@ impl InstanceRegistry {
             java: new.java,
             behavior: new.behavior,
             backups: BackupPolicy::default(),
-            ports: Ports { game: game_port },
+            ports: Ports {
+                game: game_port,
+                control: None,
+            },
             sandbox: ids,
             modpack: None,
         };
@@ -213,6 +218,32 @@ impl InstanceRegistry {
             .events
             .publish(Some(instance.id()), EventKind::InstanceChanged);
         Ok(instance)
+    }
+
+    /// Gives the server its control port if it has none. With the range used up, the server still runs,
+    /// only without the control channel, so that is a warning and not a failure to start.
+    pub async fn ensure_control_port(&self, id: InstanceId) -> Result<Instance, RegistryError> {
+        let mut entries = self.inner.entries.write().await;
+        let instance = entries.get(&id).ok_or(RegistryError::NotFound)?;
+        if instance.definition.ports.control.is_some() {
+            return Ok(instance.clone());
+        }
+        let used: HashSet<u16> = entries
+            .values()
+            .flat_map(|other| [Some(other.definition.ports.game), other.definition.ports.control])
+            .flatten()
+            .collect();
+        let range = self.inner.policy.control_ports;
+        let Some(port) = pick_port(range, &used, self.inner.policy.probe_ports) else {
+            tracing::warn!(%range, "no free control port left; this server runs without a control channel");
+            return Ok(instance.clone());
+        };
+        let instance = entries.get_mut(&id).ok_or(RegistryError::NotFound)?;
+        let mut updated = instance.definition.clone();
+        updated.ports.control = Some(port);
+        updated.save(&instance.layout.definition_path())?;
+        instance.definition = updated;
+        Ok(instance.clone())
     }
 
     /// Applies `change` to the definition and saves it.
@@ -281,6 +312,7 @@ mod tests {
     fn policy(ports: &str) -> AllocationPolicy {
         AllocationPolicy {
             game_ports: ports.parse().unwrap(),
+            control_ports: "35565-35566".parse().unwrap(),
             sandbox_uids: 20000..=20001,
             probe_ports: false,
         }

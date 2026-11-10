@@ -21,7 +21,7 @@ pub async fn write_eula(server_dir: &Path, accepted_at: DateTime<Utc>) -> Result
 }
 
 /// Points an existing configuration at `port` (`server-port` and `query.port`): the sandbox
-/// only lets a server bind its own port. Used for copied servers (clones, imports); creates the
+/// only lets a server bind its own port. Used for copied servers (clones, imports, packs); creates the
 /// file if there is none. Everything else in the file stays as it was.
 pub fn point_at_port(server_dir: &Path, port: u16) -> Result<(), InstallError> {
     let path = server_dir.join("server.properties");
@@ -37,6 +37,9 @@ pub fn point_at_port(server_dir: &Path, port: u16) -> Result<(), InstallError> {
     let mut doc = crate::properties::PropertiesDoc::from_bytes(&bytes);
     doc.set("server-port", &port.to_string());
     doc.set("query.port", &port.to_string());
+    // Its control channel's secrets stay with the server they came from; the next start makes new ones.
+    doc.remove("rcon.password");
+    doc.remove("management-server-secret");
     std::fs::write(&path, doc.render()).map_err(io)
 }
 

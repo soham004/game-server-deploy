@@ -13,6 +13,7 @@ use gsd_core::{
     java::JavaRuntimes,
     jobs::JobRunner,
     net::http_client,
+    players::PlayerHistory,
     random::random_token,
     scheduler::Scheduler,
     store::SqlitePool,
@@ -21,7 +22,12 @@ use gsd_core::{
         sandbox::{cgroup::CgroupTree, check},
     },
 };
-use gsd_minecraft::{Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService};
+use gsd_minecraft::{
+    Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService,
+    gamerules::GameruleService,
+    players::{Mojang, PlayerService, ProfileEndpoints},
+    worlds::service::WorldService,
+};
 use gsd_mods::{ContentService, SourceApis, Sources};
 use tokio_util::sync::CancellationToken;
 
@@ -43,6 +49,11 @@ pub struct AppState {
     pub minecraft: MinecraftService,
     pub content: ContentService,
     pub settings: AppSettings,
+    /// Visits, recorded from the event bus once started (see `serve`).
+    pub history: PlayerHistory,
+    pub players: PlayerService,
+    pub gamerules: GameruleService,
+    pub worlds: WorldService,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
 }
@@ -69,6 +80,8 @@ pub struct BuildOptions {
     pub backup_save_timeout: Option<std::time::Duration>,
     /// Where the content sources' APIs are (mocks in tests).
     pub source_apis: Option<SourceApis>,
+    /// Where Mojang's profile API and skins are (a mock in tests).
+    pub profiles: Option<ProfileEndpoints>,
 }
 
 impl AppState {
@@ -94,6 +107,7 @@ impl AppState {
         };
         let policy = AllocationPolicy {
             game_ports: config.game_ports,
+            control_ports: config.internal_ports,
             sandbox_uids: AllocationPolicy::DEFAULT_SANDBOX_UIDS,
             probe_ports: options.probe_ports.unwrap_or(true),
         };
@@ -107,16 +121,7 @@ impl AppState {
             Some(host) => host,
             None => detect_host_sandbox(&config).await,
         };
-        let supervisors = Supervisors::new(events.clone(), host.clone());
-        let mut adapters: HashMap<String, Arc<dyn GameAdapter>> = HashMap::new();
-        adapters.insert(GAME_ID.to_owned(), Arc::new(MinecraftAdapter));
-        let instances = InstanceService::new(
-            registry.clone(),
-            supervisors,
-            java.clone(),
-            jobs.clone(),
-            adapters,
-        );
+        let instances = instance_service(&registry, &events, &host, &java, &jobs);
 
         let mut backups = BackupService::new(
             pool.clone(),
@@ -147,6 +152,9 @@ impl AppState {
         let settings = AppSettings::new(pool.clone());
         load_curseforge_key(&settings, &content).await;
 
+        let history = PlayerHistory::new(pool.clone(), events.clone());
+        let players = player_service(&config, &client, options.profiles, &instances, &history);
+
         let catalog = Catalog::new(
             client,
             options.endpoints.unwrap_or_default(),
@@ -165,6 +173,8 @@ impl AppState {
         );
 
         Ok(Self {
+            gamerules: GameruleService::new(instances.clone(), events.clone()),
+            worlds: WorldService::new(instances.clone(), backups.clone(), jobs.clone()),
             config: Arc::new(config),
             auth,
             audit: AuditLog::new(pool),
@@ -178,9 +188,47 @@ impl AppState {
             minecraft,
             content,
             settings,
+            history,
+            players,
             shutdown: CancellationToken::new(),
         })
     }
+}
+
+/// Running servers: a supervisor for each, and the games the app knows.
+fn instance_service(
+    registry: &InstanceRegistry,
+    events: &EventBus,
+    host: &HostSandbox,
+    java: &JavaRuntimes,
+    jobs: &JobRunner,
+) -> InstanceService {
+    let supervisors = Supervisors::new(events.clone(), host.clone());
+    let mut adapters: HashMap<String, Arc<dyn GameAdapter>> = HashMap::new();
+    adapters.insert(GAME_ID.to_owned(), Arc::new(MinecraftAdapter));
+    InstanceService::new(
+        registry.clone(),
+        supervisors,
+        java.clone(),
+        jobs.clone(),
+        adapters,
+    )
+}
+
+/// Players of every server, with Mojang (or what a test says) for accounts and heads.
+fn player_service(
+    config: &Config,
+    client: &reqwest::Client,
+    profiles: Option<ProfileEndpoints>,
+    instances: &InstanceService,
+    history: &PlayerHistory,
+) -> PlayerService {
+    let mojang = Mojang::new(
+        client.clone(),
+        profiles.unwrap_or_default(),
+        config.heads_cache_dir(),
+    );
+    PlayerService::new(instances.clone(), history.clone(), mojang)
 }
 
 /// Where the content sources are: what a test says, else the real ones (with the configured

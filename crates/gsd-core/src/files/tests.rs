@@ -99,6 +99,47 @@ async fn lists_folders_first_then_files_by_name() {
 }
 
 #[tokio::test]
+async fn a_folders_size_counts_its_files_and_not_what_links_point_at() {
+    let f = fixture().await;
+    f.write("world/level.dat", "12345");
+    f.write("world/region/r.0.0.mca", "1234567890");
+    let mut deep = String::from("world/deep");
+    for _ in 0..300 {
+        deep.push_str("/d");
+    }
+    f.write(&format!("{deep}/x"), "1");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&f.outside, f.server().join("world/elsewhere")).unwrap();
+    assert_eq!(f.files.folder_size(p("world")).await.unwrap(), 16);
+}
+
+#[tokio::test]
+async fn binary_files_are_read_and_saved_with_conflict_detection() {
+    let f = fixture().await;
+    std::fs::create_dir_all(f.server().join("world")).unwrap();
+    std::fs::write(f.server().join("world/level.dat"), [0x1f, 0x8b, 0, 0xff]).unwrap();
+    let (bytes, opened) = f.files.read_bytes(p("world/level.dat")).await.unwrap();
+    assert_eq!(bytes, [0x1f, 0x8b, 0, 0xff]);
+    f.files
+        .write_bytes(p("world/level.dat"), vec![1, 2, 0, 3], Some(opened.clone()))
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(f.server().join("world/level.dat")).unwrap(),
+        [1, 2, 0, 3]
+    );
+    let stale = f
+        .files
+        .write_bytes(p("world/level.dat"), vec![9], Some(opened))
+        .await;
+    assert!(matches!(stale, Err(FilesError::Conflict(_))), "{stale:?}");
+    assert_eq!(
+        std::fs::read(f.server().join("world/level.dat")).unwrap(),
+        [1, 2, 0, 3]
+    );
+}
+
+#[tokio::test]
 async fn reads_and_saves_text_with_conflict_detection() {
     let f = fixture().await;
     f.write("config/paper.yml", "a: 1\n");

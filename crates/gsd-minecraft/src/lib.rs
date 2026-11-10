@@ -6,16 +6,23 @@
 //! - [`adapter`]: the core's `GameAdapter` (console parsing, events, diagnostics).
 //! - [`properties`]: the format-preserving `server.properties` editor.
 //!
-//! Coming next (see `claude/plan/06-roadmap.md`): RCON, the Server Management Protocol,
-//! command autocomplete.
+//! - [`logs`]: log history and crash reports; [`control`]: the channel the app controls a server through.
+//! - [`players`]: who plays, operators, the allowlist and bans, and changes to them.
+//!
+//! Coming next (see `claude/plan/06-roadmap.md`): gamerules, worlds, command autocomplete.
 
 pub mod adapter;
 pub mod catalog;
+pub mod control;
 pub mod diagnostics;
+pub mod gamerules;
 pub mod import;
 pub mod install;
 pub mod loader;
 pub mod log_parser;
+pub mod logs;
+pub mod nbt;
+pub mod players;
 pub mod properties;
 pub mod service;
 pub mod settings;

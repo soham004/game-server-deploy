@@ -1,10 +1,13 @@
 //! The Minecraft implementation of the core's [`GameAdapter`].
 
-use std::path::Path;
+use std::{path::Path, pin::Pin};
 
-use gsd_core::game::{Diagnostic, GameAdapter, GameSignal, LineSource, LogLine, ParsedLine, SaveCommands};
+use gsd_core::{
+    game::{Diagnostic, GameAdapter, GameSignal, LineSource, LogLine, ParsedLine, SaveCommands},
+    instances::Instance,
+};
 
-use crate::{diagnostics, log_parser, settings::MinecraftServer, worlds};
+use crate::{control, diagnostics, log_parser, settings::MinecraftServer, worlds};
 
 /// Game id stored in `instance.toml`.
 pub const GAME_ID: &str = "minecraft";
@@ -44,6 +47,13 @@ impl GameAdapter for MinecraftAdapter {
 
     fn world_folders(&self, server_dir: &Path) -> Vec<String> {
         worlds::world_folders(server_dir)
+    }
+
+    fn prepare_start<'a>(
+        &'a self,
+        instance: &'a Instance,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(control::prepare_start(instance))
     }
 
     fn backup_excludes(&self) -> &[&str] {

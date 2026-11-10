@@ -145,8 +145,18 @@ impl InstanceService {
             .ok_or_else(|| InstanceError::UnknownGame(instance.definition.game.clone()))
     }
 
+    /// What every start does first: the server gets its control port, and its game sets that channel up.
+    async fn prepare_control(&self, id: InstanceId) -> Result<Instance, InstanceError> {
+        let instance = self.registry.ensure_control_port(id).await?;
+        if let Err(error) = self.adapter(&instance)?.prepare_start(&instance).await {
+            tracing::warn!(%id, %error, "could not set up the server's control channel");
+        }
+        Ok(instance)
+    }
+
     async fn start_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
-        let (instance, handle) = self.prepare(id, caller).await?;
+        let (_, handle) = self.prepare(id, caller).await?;
+        let instance = self.prepare_control(id).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
         handle
@@ -165,7 +175,8 @@ impl InstanceService {
     }
 
     async fn restart_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
-        let (instance, handle) = self.prepare(id, caller).await?;
+        let (_, handle) = self.prepare(id, caller).await?;
+        let instance = self.prepare_control(id).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
         handle

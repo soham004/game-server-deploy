@@ -162,6 +162,10 @@ impl Default for BackupPolicy {
 pub struct Ports {
     /// The public game port.
     pub game: u16,
+    /// The internal, never published port of the channel the app controls the server through. Given out
+    /// at its first start, so servers made before this existed get one too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control: Option<u16>,
 }
 
 /// The dedicated user the server runs as (Linux sandbox).
@@ -264,7 +268,10 @@ pub(crate) mod tests {
             },
             behavior: Behavior::default(),
             backups: BackupPolicy::default(),
-            ports: Ports { game: 25565 },
+            ports: Ports {
+                game: 25565,
+                control: None,
+            },
             sandbox: SandboxIds {
                 uid: 20000,
                 gid: 20000,

@@ -25,7 +25,7 @@ Ask the user, or verify during implementation. Move answered items into `decisio
 - [ ] CurseForge class ids (`GET /categories?gameId=432&classesOnly=true`).
 - [ ] The data generator command on 26.x still `-DbundlerMainClass=net.minecraft.data.Main --reports`.
 - [x] `server.properties` defaults for 26.3: `white-list=true`, no `pvp` key (D-029).
-- [ ] MCSMP notification method names via `rpc.discover` on a real 26.3 server.
+- [x] MCSMP notification method names via `rpc.discover` on a real 26.3 server (D-052).
 - [ ] Generational ZGC flag status on Java 25.
 - [ ] Sandbox: Landlock ABI on target hosts (Debian 12 kernel 6.1 = no net rules; Ubuntu 24.04 = yes). Verified on the dev
       machine: Docker's default seccomp allows `landlock_*` (isolation level Strong in the container), the JVM runs with a

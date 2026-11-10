@@ -121,7 +121,7 @@ impl<C: Console> Drop for SavingPaused<C> {
 }
 
 /// Waits for this instance's "saved" signal; fails early if the server stops meanwhile.
-async fn wait_for_save(
+pub async fn wait_for_save(
     events: &mut broadcast::Receiver<Event>,
     instance: InstanceId,
     timeout: Duration,

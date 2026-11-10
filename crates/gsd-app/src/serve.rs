@@ -12,6 +12,7 @@ use gsd_core::{
     trash::{self, Purged},
 };
 use tokio::{net::TcpListener, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::Config,
@@ -62,6 +63,10 @@ pub async fn run(config: Config) -> Result<(), ServeError> {
     // Before auto-start, so "when the server starts" schedules see those starts. It stops on
     // the shutdown token, before the servers are stopped below.
     let scheduler = state.scheduler.start(state.shutdown.clone());
+    // Before auto-start too, so those servers' first players are recorded. It has its own token: it
+    // stops after the servers, whose stops end the last visits.
+    let history_stop = CancellationToken::new();
+    let history = state.history.start(history_stop.clone());
     state.instances.start_auto_start_instances().await;
 
     let shutdown = state.shutdown.clone();
@@ -77,6 +82,8 @@ pub async fn run(config: Config) -> Result<(), ServeError> {
     let _ = scheduler.await;
     tracing::info!("stopping game servers");
     instances.stop_all(SERVER_STOP_TIMEOUT).await;
+    history_stop.cancel();
+    let _ = history.await;
     housekeeping.abort();
     pool.close().await;
     tracing::info!("shut down cleanly");

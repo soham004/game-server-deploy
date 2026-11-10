@@ -147,7 +147,9 @@ fn sandbox_for(definition: &InstanceDefinition, layout: &InstanceLayout, java: &
         user: Some(definition.sandbox),
         read_write,
         read_only,
-        bind_tcp: vec![definition.ports.game],
+        bind_tcp: std::iter::once(definition.ports.game)
+            .chain(definition.ports.control)
+            .collect(),
         connect_tcp: DEFAULT_CONNECT_PORTS.to_vec(),
         limits: ResourceLimits::default(),
         cgroup: Some(CgroupRequest {

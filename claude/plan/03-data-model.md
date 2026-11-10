@@ -42,12 +42,7 @@ extra_connect_ports = []       # admin/owner-only allow-list for outbound connec
 [ports]
 game = 25565                   # from the public game port range (default 25565–25584, D-022)
 query = 25565                  # same as game unless changed
-rcon = 35565                   # internal loopback range (default 35565–35664), never published
-management = 35566
-
-[integrations]
-rcon = { enabled = true, port = 25575 }                  # password stored in server.properties only
-management = { enabled = true, port = 25585 }            # MCSMP, loopback-only, secret in server.properties
+control = 35565                # the control channel, given at the first start (default 35565–35664), never published (D-052)
 
 [modpack]                      # present if created from a pack (D-049)
 source = "modrinth"            # modrinth | curseforge | file (uploaded; no ids then)
@@ -88,7 +83,7 @@ CREATE TABLE schedule_runs (id INTEGER PRIMARY KEY, schedule_id TEXT NOT NULL, s
                             finished_at TEXT, outcome TEXT, message TEXT);
 
 -- backups
-CREATE TABLE backups (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, kind TEXT NOT NULL,  -- manual|scheduled|pre_update|pre_restore|pre_version_change
+CREATE TABLE backups (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, kind TEXT NOT NULL,  -- manual|scheduled|pre_update|pre_restore|pre_version_change|pre_delete (D-055)
                       scope TEXT NOT NULL,             -- world|full|custom
                       path TEXT NOT NULL, size_bytes INTEGER, sha256 TEXT, mc_version TEXT, loader TEXT,
                       note TEXT, pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, status TEXT NOT NULL);
@@ -97,9 +92,10 @@ CREATE TABLE backups (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL, kind TEXT 
 CREATE TABLE jobs (id TEXT PRIMARY KEY, instance_id TEXT, kind TEXT NOT NULL, status TEXT NOT NULL,
                    started_at TEXT NOT NULL, finished_at TEXT, error TEXT, log TEXT);
 
--- player history
-CREATE TABLE player_sessions (id INTEGER PRIMARY KEY, instance_id TEXT NOT NULL, uuid TEXT NOT NULL, name TEXT NOT NULL,
-                              joined_at TEXT NOT NULL, left_at TEXT);
+-- player history (built, D-053): by name, as the console has it; the server's files pair names with UUIDs.
+-- left_at NULL with open = 0: a visit whose end the app didn't see. 10,000 kept per server.
+CREATE TABLE player_sessions (id INTEGER PRIMARY KEY, instance_id TEXT NOT NULL, name TEXT NOT NULL,
+                              joined_at TEXT NOT NULL, left_at TEXT, open INTEGER NOT NULL DEFAULT 1);
 
 -- metrics (downsampled; raw ring buffer stays in memory)
 CREATE TABLE metrics (instance_id TEXT NOT NULL, ts INTEGER NOT NULL, resolution INTEGER NOT NULL, -- secs per bucket

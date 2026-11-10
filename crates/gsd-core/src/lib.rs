@@ -3,6 +3,7 @@
 //! This crate knows nothing about HTTP or Minecraft:
 //! - persistence (`store`), identity and access control (`auth`), the audit trail (`audit`);
 //! - the event bus (`events`) and background jobs (`jobs`);
+//! - who played on each server, and when (`players`);
 //! - instances on disk (`instances`), Java runtimes (`java`), and running, sandboxed server
 //!   processes (`supervisor`);
 //! - the seam to a game adapter (`game`).
@@ -25,6 +26,7 @@ pub mod instances;
 pub mod java;
 pub mod jobs;
 pub mod net;
+pub mod players;
 pub mod ports;
 pub mod random;
 pub mod scheduler;

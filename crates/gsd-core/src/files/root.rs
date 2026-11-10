@@ -127,6 +127,22 @@ impl Root {
     }
 
     pub(crate) fn read_text(&self, path: &SafeRelPath) -> Result<TextFile, FilesError> {
+        let (bytes, modified) = self.read_limited(path, MAX_TEXT_BYTES)?;
+        text_file(path, bytes, modified)
+    }
+
+    /// A file's bytes and its revision, for binary files the app edits (world settings). Same limit as text.
+    pub(crate) fn read_bytes(&self, path: &SafeRelPath) -> Result<(Vec<u8>, String), FilesError> {
+        let (bytes, _) = self.read_limited(path, MAX_TEXT_BYTES)?;
+        let revision = revision(&bytes);
+        Ok((bytes, revision))
+    }
+
+    fn read_limited(
+        &self,
+        path: &SafeRelPath,
+        limit: u64,
+    ) -> Result<(Vec<u8>, Option<DateTime<Utc>>), FilesError> {
         let metadata = self
             .dir
             .metadata(path.as_path())
@@ -134,10 +150,10 @@ impl Root {
         if metadata.is_dir() {
             return Err(FilesError::IsADirectory(path.clone()));
         }
-        if metadata.len() > MAX_TEXT_BYTES {
+        if metadata.len() > limit {
             return Err(FilesError::TooLarge {
                 path: path.clone(),
-                limit: MAX_TEXT_BYTES,
+                limit,
             });
         }
         let bytes = self
@@ -145,7 +161,7 @@ impl Root {
             .read(path.as_path())
             .map_err(|e| FilesError::io(path, e))?;
         let modified = metadata.modified().ok().map(|t| to_utc(t.into_std()));
-        text_file(path, bytes, modified)
+        Ok((bytes, modified))
     }
 
     /// Saves `content`. `expected_revision`: the revision the editor opened (`None` creates a
@@ -156,6 +172,17 @@ impl Root {
         content: &str,
         expected_revision: Option<&str>,
     ) -> Result<TextFile, FilesError> {
+        self.write_bytes(path, content.as_bytes(), expected_revision)?;
+        self.read_text(path)
+    }
+
+    /// As [`Self::write_text`], for any bytes.
+    pub(crate) fn write_bytes(
+        &self,
+        path: &SafeRelPath,
+        content: &[u8],
+        expected_revision: Option<&str>,
+    ) -> Result<(), FilesError> {
         let name = path
             .file_name()
             .ok_or_else(|| FilesError::InvalidOperation("choose a file name".into()))?;
@@ -180,7 +207,7 @@ impl Root {
         }
         let temp = temp_sibling(path, name)?;
         self.dir
-            .write(temp.as_path(), content.as_bytes())
+            .write(temp.as_path(), content)
             .map_err(|e| FilesError::io(path, e))?;
         let replaced = self.own(&temp).and_then(|()| {
             self.dir
@@ -191,7 +218,7 @@ impl Root {
             let _ = self.dir.remove_file(temp.as_path());
             return Err(error);
         }
-        self.read_text(path)
+        Ok(())
     }
 
     pub(crate) fn create_dir(&self, path: &SafeRelPath) -> Result<(), FilesError> {
@@ -258,6 +285,21 @@ impl Root {
         Ok(())
     }
 
+    /// Removes one file for good, not to the trash: for files the app made itself, such as an upload it has
+    /// unpacked. A link is removed, not what it points at; a folder is refused.
+    pub(crate) fn remove_file(&self, path: &SafeRelPath) -> Result<(), FilesError> {
+        let metadata = self
+            .dir
+            .symlink_metadata(path.as_path())
+            .map_err(|e| FilesError::io(path, e))?;
+        if metadata.is_dir() {
+            return Err(FilesError::IsADirectory(path.clone()));
+        }
+        self.dir
+            .remove_file(path.as_path())
+            .map_err(|e| FilesError::io(path, e))
+    }
+
     /// The listing entry for one path.
     pub(crate) fn entry(&self, path: &SafeRelPath) -> Result<Entry, FilesError> {
         let parent = path.parent().unwrap_or_default();
@@ -265,6 +307,23 @@ impl Root {
             .into_iter()
             .find(|entry| &entry.path == path)
             .ok_or_else(|| FilesError::NotFound(path.clone()))
+    }
+
+    /// Bytes in the files under a folder, links not followed. Walked with a list rather than recursion:
+    /// the server could nest folders deeply enough to exhaust a thread's stack.
+    pub(crate) fn folder_size(&self, path: &SafeRelPath) -> Result<u64, FilesError> {
+        let mut total = 0_u64;
+        let mut folders = vec![path.clone()];
+        while let Some(folder) = folders.pop() {
+            for entry in self.list(&folder)? {
+                match entry.kind {
+                    EntryKind::Directory => folders.push(entry.path),
+                    EntryKind::File => total = total.saturating_add(entry.size.unwrap_or(0)),
+                    EntryKind::Symlink | EntryKind::Other => {}
+                }
+            }
+        }
+        Ok(total)
     }
 
     /// Whether `path` exists (without following a final symlink).
