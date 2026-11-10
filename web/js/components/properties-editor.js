@@ -10,6 +10,7 @@
  * change set with the revision they started from; the server refuses stale revisions.
  */
 import { api } from '../core/api.js';
+import { createCodeEditor } from '../core/code-editor.js';
 import { h } from '../core/dom.js';
 import { toast } from '../core/toast.js';
 
@@ -45,10 +46,29 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
   };
   const notice = h('div', { class: 'c-banner is-info', role: 'status', hidden: true });
   const form = h('div', { class: 'c-props__form' });
-  const raw = h('textarea', {
-    class: 'c-input c-props__raw', spellcheck: 'false', 'aria-label': 'server.properties', rows: 30,
-    onInput: renderFooter,
+  // The raw view is the code editor once it has loaded; until then its text is kept here.
+  const raw = h('div', { class: 'c-props__raw' });
+  let rawEditor = null;
+  let rawText = '';
+  const rawValue = () => rawEditor?.value ?? rawText;
+  createCodeEditor({
+    value: rawText,
+    language: 'properties',
+    label: 'server.properties',
+    onChange: () => renderFooter(),
+    onSave: () => { if (pendingCount() > 0) saveChanges(); },
+  }).then((editor) => {
+    rawEditor = editor;
+    editor.setValue(rawText);
+    editor.setReadOnly(!data?.can_edit);
+    raw.append(editor.element);
   });
+  function setRaw(text) {
+    rawText = text;
+    rawEditor?.setValue(text);
+    rawEditor?.setReadOnly(!data?.can_edit);
+    rawEditor?.setProblems([]);
+  }
   const rawErrors = h('ul', { class: 'c-props__raw-errors', hidden: true });
   const footerText = h('span', { class: 'c-props__footer-text' });
   const discard = h('button', { class: 'c-button c-button--ghost', type: 'button', onClick: discardChanges }, 'Discard');
@@ -80,8 +100,7 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
     data = response;
     edits = new Map();
     errors = new Map();
-    raw.value = data.text;
-    raw.readOnly = !data.can_edit;
+    setRaw(data.text);
     rawErrors.hidden = true;
     renderNotice();
     renderForm();
@@ -223,7 +242,7 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
 
   function pendingCount() {
     if (!data) return 0;
-    if (view === 'raw') return raw.value !== data.text ? 1 : 0;
+    if (view === 'raw') return rawValue() !== data.text ? 1 : 0;
     return edits.size;
   }
 
@@ -236,14 +255,14 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
   function discardChanges() {
     edits = new Map();
     errors = new Map();
-    raw.value = data.text;
+    setRaw(data.text);
     rawErrors.hidden = true;
     renderForm();
   }
 
   async function saveChanges() {
     const body = view === 'raw'
-      ? { revision: data.revision, text: raw.value }
+      ? { revision: data.revision, text: rawValue() }
       : { revision: data.revision, changes: Object.fromEntries(edits) };
     save.disabled = true;
     try {
@@ -273,6 +292,7 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
       errors = new Map(error.details.map((detail) => [detail.key, detail.message]));
       rawErrors.replaceChildren(...error.details.map((d) => h('li', null, `${d.key} ${d.message}`)));
       rawErrors.hidden = view !== 'raw';
+      rawEditor?.setProblems(problemsAt(rawValue(), error.details));
       renderForm();
       toast('Some values are invalid. They are marked below.', { kind: 'error' });
     } else if (error.code === 'file_changed') {
@@ -286,4 +306,13 @@ export function createPropertiesEditor({ instanceId, onRestart }) {
   }
 
   return { element, load, hasUnsavedChanges: () => pendingCount() > 0 };
+}
+
+/** The lines the invalid keys are on, to mark them in the raw view. */
+function problemsAt(text, details) {
+  const lines = text.split('\n');
+  return details.flatMap(({ key, message }) => {
+    const index = lines.findIndex((line) => line.trimStart().startsWith(`${key}=`) || line.trimStart().startsWith(`${key}:`));
+    return index < 0 ? [] : [{ line: index + 1, column: 1, message: `${key} ${message}` }];
+  });
 }

@@ -113,3 +113,83 @@
 .ansi-underline { text-decoration: underline; }
 .ansi-strike { text-decoration: line-through; }
 .ansi-underline.ansi-strike { text-decoration: underline line-through; }
+
+/* Autocomplete (js/components/command-assist.js): the list opens upwards over the console from
+   above the command's shape, which sits just above the field. */
+.c-assist {
+  display: grid;
+  gap: var(--space-1);
+  position: relative;
+  min-height: 1.4em;
+}
+
+.c-assist__signature,
+.c-assist__hint,
+.c-assist__status {
+  margin: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.c-assist__signature {
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.c-assist__signature strong {
+  color: var(--color-text);
+}
+
+.c-assist__signature:empty,
+.c-assist__hint:empty {
+  display: none;
+}
+
+.c-assist__list {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: var(--space-4);
+  z-index: 5;
+  width: min(36rem, calc(100% - var(--space-4)));
+  max-height: 18rem;
+  margin: 0;
+  padding: var(--space-1) 0;
+  overflow-y: auto;
+  list-style: none;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.c-assist__option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.c-assist__option:hover,
+.c-assist__option.is-selected {
+  background: var(--color-surface-muted);
+}
+
+.c-assist__text {
+  white-space: nowrap;
+}
+
+.c-assist__detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-sans);
+}
+
+.c-assist__kind {
+  margin-left: auto;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}

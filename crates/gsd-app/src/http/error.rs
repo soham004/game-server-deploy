@@ -476,6 +476,20 @@ impl From<gsd_minecraft::worlds::service::WorldError> for ApiError {
     }
 }
 
+impl From<gsd_minecraft::commands::CommandsError> for ApiError {
+    fn from(error: gsd_minecraft::commands::CommandsError) -> Self {
+        use gsd_minecraft::commands::CommandsError;
+        match error {
+            CommandsError::Instance(error) => error.into(),
+            CommandsError::Files(error) => error.into(),
+            other => {
+                tracing::warn!(error = %other, "autocomplete failed");
+                Self::internal(&other)
+            }
+        }
+    }
+}
+
 impl From<gsd_mods::SourceError> for ApiError {
     fn from(error: gsd_mods::SourceError) -> Self {
         use gsd_mods::SourceError;

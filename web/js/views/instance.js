@@ -111,7 +111,7 @@ export async function mount(root, { id }) {
     pill.className = `c-pill is-${stateKey(instance)}`;
     renderActions();
     renderOverview();
-    terminal?.setRunning(['starting', 'running'].includes(instance.state.status) && !instance.busy);
+    terminal?.setRunning(['starting', 'running'].includes(instance.state.status) && !instance.busy, instance.state.status === 'running');
     version?.update();
   }
 

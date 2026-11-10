@@ -4,6 +4,7 @@ pub mod app_settings;
 pub mod auth;
 pub mod backups;
 pub mod catalog;
+pub mod commands;
 pub mod content;
 pub mod control;
 pub mod files;

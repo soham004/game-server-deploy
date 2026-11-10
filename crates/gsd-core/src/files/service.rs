@@ -35,6 +35,19 @@ impl ServerFiles {
         Ok(Self { root: Arc::new(root) })
     }
 
+    /// The instance's `tmp/` instead of its server folder: for work the app runs in the server's
+    /// sandbox (the data generator). The same rules hold: the server owns that folder too.
+    pub async fn open_tmp(instance: &Instance) -> Result<Self, FilesError> {
+        let layout = instance.layout.clone();
+        let ids = instance.definition.sandbox;
+        let root = run_blocking(move || {
+            Root::at(&layout.tmp_dir(), layout.trash_dir(), ids)
+                .map_err(|e| FilesError::io(&SafeRelPath::root(), e))
+        })
+        .await?;
+        Ok(Self { root: Arc::new(root) })
+    }
+
     pub async fn list(&self, path: SafeRelPath) -> Result<Vec<Entry>, FilesError> {
         self.run(move |root| root.list(&path)).await
     }
@@ -91,6 +104,11 @@ impl ServerFiles {
     /// Removes one file the app made itself, for good (see [`Root::remove_file`]).
     pub async fn remove_file(&self, path: SafeRelPath) -> Result<(), FilesError> {
         self.run(move |root| root.remove_file(&path)).await
+    }
+
+    /// Removes a folder the app made, with everything in it, for good (see [`Root::remove_tree`]).
+    pub async fn remove_tree(&self, path: SafeRelPath) -> Result<(), FilesError> {
+        self.run(move |root| root.remove_tree(&path)).await
     }
 
     /// Moves `paths` to the instance's trash.

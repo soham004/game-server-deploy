@@ -158,14 +158,35 @@
   overflow-wrap: anywhere;
 }
 
-.c-editor .c-editor__text {
-  width: 100%;
-  min-height: 28rem;
+.c-editor__header {
+  flex-wrap: wrap;
+}
+
+.c-editor__body {
+  height: min(70vh, 40rem);
+  min-height: 20rem;
+}
+
+.c-editor__problems {
+  margin: 0;
+  color: var(--color-danger);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  line-height: 1.5;
-  resize: vertical;
-  tab-size: 4;
+}
+
+.c-editor__conflict {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.c-editor__conflict p {
+  margin: 0;
+}
+
+.c-editor__conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 @media (max-width: 720px) {

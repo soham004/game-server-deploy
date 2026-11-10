@@ -53,6 +53,31 @@ async function shot(name) {
   await page.screenshot(join(SHOTS, `${name}.png`));
 }
 
+/**
+ * The text in the code editor at `selector` (the editor's host, or an element holding one), read
+ * from CodeMirror itself: it only draws the lines on screen.
+ */
+function editorText(selector) {
+  return page.evaluate(async (sel) => {
+    const { EditorView } = await import('/vendor/codemirror.js');
+    const found = document.querySelector(sel);
+    const host = found.matches('.c-code-host') ? found : found.querySelector('.c-code-host');
+    return EditorView.findFromDOM(host.shadowRoot.querySelector('.cm-editor')).state.doc.toString();
+  }, selector);
+}
+
+/** Focuses the code editor at `selector`, selects everything in it and types `text` over it. */
+async function typeInEditor(selector, text) {
+  await page.evaluate(async (sel) => {
+    const { EditorView } = await import('/vendor/codemirror.js');
+    const found = document.querySelector(sel);
+    const host = found.matches('.c-code-host') ? found : found.querySelector('.c-code-host');
+    EditorView.findFromDOM(host.shadowRoot.querySelector('.cm-editor')).focus();
+  }, selector);
+  await page.press('a', { modifiers: 2 });
+  await page.type(text);
+}
+
 before(async () => {
   if (skip) return;
   browser = await Browser.launch({ width: 1280, height: 900 });
@@ -137,6 +162,51 @@ test('the overview says the server answers on its control channel', { skip, time
   await page.click('.c-tabs__tab', 'Overview');
   await page.waitFor(() => document.querySelector('.c-details')?.textContent.includes('Management protocol (API'), { timeout: 40000, message: 'the control channel on the overview' });
   await page.click('.c-tabs__tab', 'Console');
+}));
+
+test('console: autocomplete from the version’s own commands and the mods’', { skip, timeout: 420000 }, step('autocomplete', async () => {
+  // The console asked for them when it opened: the data generator (once per version) and the
+  // server's `help` (it runs, and it's modded).
+  const status = await page.waitFor(async (id) => {
+    const commands = await (await fetch(`/api/v1/instances/${id}/commands`)).json();
+    return commands.vanilla.state === 'ready' && commands.learned.state === 'current' && commands;
+  }, { args: [serverId], timeout: 400000, interval: 2000, message: 'the commands ready' });
+  assert.ok(status.learned_commands >= 1, `the mod loader's own commands learned: ${JSON.stringify(status)}`);
+  const options = () => page.evaluate(() => [...document.querySelectorAll('.c-assist__list:not([hidden]) .c-assist__text')].map((option) => option.textContent));
+  const value = () => page.evaluate(() => document.querySelector('.c-console__input').value);
+
+  await page.evaluate(() => document.querySelector('.c-console__input').focus());
+  await page.type('gamer');
+  await page.waitFor(() => document.querySelector('.c-assist__list:not([hidden]) .c-assist__text')?.textContent === 'gamerule', { message: 'gamerule suggested' });
+  await page.press('Tab');
+  assert.equal(await value(), 'gamerule ');
+  await page.type('keep_inv');
+  await page.waitFor(() => document.querySelector('.c-assist__list:not([hidden]) .c-assist__text')?.textContent === 'keep_inventory', { message: 'the rule suggested first' });
+  await page.press('ArrowDown');
+  assert.equal(await page.evaluate(() => document.querySelector('.c-console__input').getAttribute('aria-activedescendant')?.endsWith('-0')), true, 'the first one chosen');
+  await page.press('Enter');
+  assert.equal(await value(), 'gamerule keep_inventory ');
+  await page.waitFor(() => /gamerule keep_inventory/.test(document.querySelector('.c-assist__signature').textContent) && document.querySelector('.c-assist__hint').textContent === 'true or false', { message: 'the shape and what the value takes' });
+  assert.deepEqual(await options(), ['false', 'true']);
+  await shot('03-console-autocomplete');
+  await page.press('Escape');
+  assert.deepEqual(await options(), [], 'Esc closes the list');
+
+  // A command only the mod loader has, learned from its help.
+  await page.fill('.c-console__input', '');
+  await page.type('neofor');
+  await page.waitFor(() => [...document.querySelectorAll('.c-assist__list:not([hidden]) .c-assist__text')].some((o) => o.textContent === 'neoforge'), { message: 'neoforge suggested' });
+  // Tab straight after typing, before any list showed: the first suggestion for this text.
+  await page.fill('.c-console__input', '');
+  await page.type('difficul');
+  await page.press('Tab');
+  await page.waitFor(() => document.querySelector('.c-console__input').value === 'difficulty ', { message: 'completed with Tab at once' });
+  // With nothing chosen, Enter sends what's typed.
+  await page.fill('.c-console__input', '');
+  await page.type('list');
+  await page.press('Enter');
+  await page.waitFor(() => document.querySelector('.c-console__input').value === '', { message: 'list sent' });
+  assert.deepEqual(page.errors, [], 'no JavaScript errors');
 }));
 
 test('players: a real account on the allowlist and as operator, its card and head, and off again', { skip, timeout: 90000 }, step('players', async () => {
@@ -270,7 +340,8 @@ test('edits server.properties visually and in the raw view', { skip, timeout: 60
 
   // The raw view shows the saved file.
   await page.click('.c-segmented button', 'Raw file');
-  const raw = await page.evaluate(() => document.querySelector('.c-props__raw').value);
+  await page.waitFor(() => !!document.querySelector('.c-props__raw .c-code-host'), { message: 'the raw view in the code editor' });
+  const raw = await editorText('.c-props__raw');
   assert.ok(raw.includes('max-players=7'), 'raw text has the saved value');
   await shot('06-properties-raw');
 
@@ -318,18 +389,64 @@ test('manages files: folders, upload, edit, rename, compress, extract, delete', 
   await page.setFiles('[data-upload-input]', [upload]);
   await waitForRow('e2e-folder/gsd-e2e-upload.txt');
 
-  // Open it in the editor, change it, save with the button.
+  // Open it in the code editor, change it, save with the button.
   await page.click('.c-files__row[data-path="e2e-folder/gsd-e2e-upload.txt"] .c-files__name');
-  await page.waitFor(() => document.querySelector('.c-editor:not([hidden]) .c-editor__text')?.value.startsWith('uploaded'));
-  const editorHeight = await page.evaluate(() => document.querySelector('.c-editor__text').getBoundingClientRect().height);
+  await page.waitFor(() => !!document.querySelector('.c-editor:not([hidden]) .c-code-host'), { message: 'the code editor' });
+  assert.ok((await editorText('.c-editor')).startsWith('uploaded'));
+  const editorHeight = await page.evaluate(() => document.querySelector('.c-editor .c-code-host').getBoundingClientRect().height);
   assert.ok(editorHeight > 300, `the editor is tall enough to edit in (${editorHeight}px)`);
-  await page.fill('.c-editor__text', 'edited in the browser\n');
+  await typeInEditor('.c-editor', 'edited in the browser');
+  await page.press('Enter');
+  await page.waitFor(() => document.querySelector('.c-editor__status')?.textContent === 'Unsaved changes', { message: 'unsaved changes noticed' });
   await page.click('.c-editor__header button', 'Save');
   await page.waitFor(() => document.querySelector('.c-editor__status')?.textContent === 'Saved', { message: 'the saved status' });
   await shot('08-files-editor');
-  const saved = await page.evaluate(async (id) => (await (await fetch(`/api/v1/instances/${id}/files/text?path=e2e-folder/gsd-e2e-upload.txt`)).json()).content, serverId);
-  assert.equal(saved, 'edited in the browser\n');
+  const fileText = (path) => page.evaluate(async (id, file) => (await (await fetch(`/api/v1/instances/${id}/files/text?path=${file}`)).json()), serverId, path);
+  assert.equal((await fileText('e2e-folder/gsd-e2e-upload.txt')).content, 'edited in the browser\n');
   await page.click('.c-editor__header button', 'Close');
+
+  // A JSON file: a mistake is shown where it is, saving it asks first, and the changes can be seen.
+  const putText = (body) => page.evaluate(async (id, json) => (await fetch(`/api/v1/instances/${id}/files/text`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-CSRF': '1' }, body: JSON.stringify(json),
+  })).status, serverId, body);
+  assert.equal(await putText({ path: 'e2e-folder/check.json', content: '{\n  "a": 1\n}\n' }), 200);
+  await page.click('.c-files__toolbar button', 'Refresh').catch(() => {});
+  await waitForRow('e2e-folder/check.json');
+  await page.click('.c-files__row[data-path="e2e-folder/check.json"] .c-files__name');
+  await page.waitFor(() => !!document.querySelector('.c-editor:not([hidden]) .c-code-host'), { message: 'the JSON file open' });
+  await typeInEditor('.c-editor', '{\n"a": 1,\n"b": 2,\n}');
+  await page.waitFor(() => /^Line 4, column 1: trailing comma/.test(document.querySelector('.c-editor__problems:not([hidden])')?.textContent ?? ''), { message: 'the mistake and where it is' });
+  assert.ok(await page.evaluate(() => !!document.querySelector('.c-editor .c-code-host').shadowRoot.querySelector('.cm-lintRange-error')), 'marked in the text');
+  page.answerDialogs(false);
+  const dialogsBefore = page.dialogs.length;
+  await page.click('.c-editor__header button', 'Save');
+  await until('the question before saving', async () => page.dialogs.length > dialogsBefore, 15);
+  assert.match(page.dialogs.at(-1), /has a mistake: Line 4, column 1: trailing comma/);
+  assert.equal(await page.evaluate(() => document.querySelector('.c-editor__status').textContent), 'Unsaved changes', 'not saved after Cancel');
+  assert.equal((await fileText('e2e-folder/check.json')).content, '{\n  "a": 1\n}\n', 'the file is as it was');
+  await typeInEditor('.c-editor', '{\n  "a": 1,\n  "b": 2\n}\n');
+  await page.waitFor(() => document.querySelector('.c-editor__problems').hidden, { message: 'the mistake gone' });
+  await page.click('.c-editor__header button', 'Show changes');
+  await page.waitFor(() => !!document.querySelector('.c-editor .c-code-host').shadowRoot.querySelector('.cm-deletedChunk, .cm-changedLine'), { message: 'the changes shown' });
+  await shot('08-files-editor-changes');
+  await page.click('.c-editor__header button', 'Save');
+  await page.waitFor(() => document.querySelector('.c-editor__status')?.textContent === 'Saved', { message: 'saved' });
+
+  // Changed on disk meanwhile: the difference is shown, and the operator chooses.
+  const onDisk = await fileText('e2e-folder/check.json');
+  assert.equal(await putText({ path: 'e2e-folder/check.json', content: '{"changed": "elsewhere"}\n', revision: onDisk.revision }), 200);
+  await typeInEditor('.c-editor', '{"mine": true}\n');
+  await page.click('.c-editor__header button', 'Save');
+  await page.waitFor(() => document.querySelector('.c-editor__conflict:not([hidden])')?.textContent.includes('changed on disk'), { message: 'the conflict explained' });
+  await shot('08-files-editor-conflict');
+  await page.click('.c-editor__conflict button', 'Save mine over it');
+  await page.waitFor(() => document.querySelector('.c-editor__status')?.textContent === 'Saved' && document.querySelector('.c-editor__conflict').hidden, { message: 'mine saved' });
+  assert.equal((await fileText('e2e-folder/check.json')).content, '{"mine": true}\n');
+  await page.click('.c-editor__header button', 'Close');
+  await page.evaluate(async (id) => fetch(`/api/v1/instances/${id}/files/delete`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF': '1' }, body: JSON.stringify({ paths: ['e2e-folder/check.json'] }),
+  }), serverId);
+  await page.click('.c-files__toolbar button', 'Refresh').catch(() => {});
 
   // Rename, then go back up and compress the folder.
   page.answerDialogs('renamed.txt');
@@ -893,19 +1010,20 @@ test('logs: the current log, searching and filtering, and an earlier run', { ski
   await openServer(SERVER);
   await page.click('.c-tabs__tab', 'Logs');
   await page.waitFor(() => document.querySelector('.c-logs__file-button[data-log="latest.log"].is-active'), { timeout: 30000, message: 'the current log chosen' });
-  await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 0, { timeout: 30000, message: 'its lines' });
+  await page.waitFor(() => document.querySelector('.c-logs__viewport .c-code-host')?.shadowRoot.querySelectorAll('.c-logs__line').length > 0, { timeout: 30000, message: 'its lines' });
   await page.waitFor(() => {
-    const viewport = document.querySelector('.c-logs__viewport');
-    return viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - 2;
+    const scroller = document.querySelector('.c-logs__viewport .c-code-host').shadowRoot.querySelector('.cm-scroller');
+    return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2;
   }, { message: 'the view at the end of the log' });
   await shot('37-logs');
 
-  const lines = () => page.evaluate(() => [...document.querySelectorAll('.c-logs__line .c-logs__text')].map((line) => line.textContent));
-  const before = (await lines()).length;
+  const before = (await editorText('.c-logs__viewport')).split('\n').length;
   await page.fill('input[name="log_query"]', 'Done (');
-  await page.waitFor((all) => {
-    const shown = [...document.querySelectorAll('.c-logs__line .c-logs__text')];
-    return shown.length > 0 && shown.length < all && shown.every((line) => line.textContent.includes('Done ('));
+  await page.waitFor(async (all) => {
+    const { EditorView } = await import('/vendor/codemirror.js');
+    const editor = document.querySelector('.c-logs__viewport .c-code-host').shadowRoot.querySelector('.cm-editor');
+    const shown = EditorView.findFromDOM(editor).state.doc.toString().split('\n').filter(Boolean);
+    return shown.length > 0 && shown.length < all && shown.every((line) => line.includes('Done ('));
   }, { args: [before], timeout: 15000, message: 'only matching lines' });
 
   await page.fill('input[name="log_query"]', 'no line says this at all');
@@ -918,13 +1036,13 @@ test('logs: the current log, searching and filtering, and an earlier run', { ski
   await page.fill('input[name="log_query"]', '');
 
   await page.fill('select[name="log_level"]', 'error');
-  await page.waitFor(() => [...document.querySelectorAll('.c-logs__line')].every((line) => line.classList.contains('is-error') || line.classList.contains('is-fatal')), { message: 'errors only' });
+  await page.waitFor(() => [...document.querySelector('.c-logs__viewport .c-code-host').shadowRoot.querySelectorAll('.cm-line')].every((line) => !line.textContent || line.classList.contains('is-error') || line.classList.contains('is-fatal')), { message: 'errors only' });
   await page.fill('select[name="log_level"]', '');
 
   const archive = await page.evaluate(() => document.querySelector('.c-logs__file-button.is-archive')?.dataset.log);
   if (archive) {
     await page.click(`.c-logs__file-button[data-log="${archive}"]`);
-    await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 0 && document.querySelector('.c-logs__file-button.is-archive.is-active'), { timeout: 15000, message: 'the earlier run' });
+    await page.waitFor(() => document.querySelector('.c-logs__viewport .c-code-host').shadowRoot.querySelectorAll('.c-logs__line').length > 0 && !!document.querySelector('.c-logs__file-button.is-archive.is-active'), { timeout: 15000, message: 'the earlier run' });
   }
   await page.setViewport(375, 812, { mobile: true });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'the tab fits a phone');
@@ -954,7 +1072,7 @@ test('logs: a real crash shows on the overview and opens its report', { skip, ti
     assert.ok(!(await page.evaluate(() => document.querySelector('.c-overview').textContent)).includes('null'), 'no stray "null" in the overview');
     await page.click('.c-overview button', 'Open the report');
     await page.waitFor(() => document.querySelector('.c-logs__file-button.is-crash.is-active') && document.querySelector('.c-logs__summary .c-logs__crash'), { timeout: 15000, message: 'the report in the Logs tab' });
-    await page.waitFor(() => document.querySelectorAll('.c-logs__line').length > 10, { timeout: 15000, message: 'its lines' });
+    await page.waitFor(() => document.querySelector('.c-logs__viewport .c-code-host').shadowRoot.querySelectorAll('.c-logs__line').length > 10, { timeout: 15000, message: 'its lines' });
     await shot('40-crash-report');
     assert.deepEqual(page.errors, [], 'no JavaScript errors or unexpected dialogs');
   } finally {

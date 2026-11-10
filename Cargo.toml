@@ -56,6 +56,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = "0.30"
 tokio-util = { version = "0.7", features = ["io", "io-util"] }
 toml = "1"
+# The file editor checks YAML before saving (D-058); only its event parser is used.
+yaml-rust2 = { version = "0.13", default-features = false }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.7", features = ["trace", "compression-gzip", "compression-br", "set-header"] }
 tracing = "0.1"

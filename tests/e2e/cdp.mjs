@@ -121,6 +121,9 @@ export class Page {
         this.errors.push(message.params.exceptionDetails.exception?.description ?? message.params.exceptionDetails.text);
       } else if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') {
         this.errors.push(message.params.args.map((arg) => arg.value ?? arg.description).join(' '));
+      } else if (message.method === 'Log.entryAdded' && message.params.entry.source === 'security') {
+        // Content-Security-Policy violations (a blocked style or script) land here.
+        this.errors.push(`security: ${message.params.entry.text}`);
       }
     });
   }
@@ -132,6 +135,7 @@ export class Page {
   async init() {
     await this.send('Page.enable');
     await this.send('Runtime.enable');
+    await this.send('Log.enable');
     const { width, height } = this.browser.viewport;
     await this.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   }
@@ -204,6 +208,28 @@ export class Page {
       element.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     }, selector, value);
+  }
+
+  /** Types `text` into the focused element, as a keyboard would (fires the editor's own input handling). */
+  async type(text) {
+    await this.send('Input.insertText', { text });
+  }
+
+  /**
+   * Presses one key in the focused element: `Tab`, `Enter`, `Escape`, `ArrowDown`, `Backspace`, or
+   * a letter; `modifiers` is CDP's bit set (2 Ctrl, 8 Shift).
+   */
+  async press(key, { modifiers = 0 } = {}) {
+    const keys = {
+      Tab: [9, '\t'], Enter: [13, '\r'], Escape: [27, ''], Backspace: [8, ''], ArrowDown: [40, ''], ArrowUp: [38, ''],
+      ArrowLeft: [37, ''], ArrowRight: [39, ''], ' ': [32, ' '],
+    };
+    const [code, text] = keys[key] ?? [key.toUpperCase().charCodeAt(0), key];
+    const name = key === ' ' ? 'Space' : key.length === 1 ? `Key${key.toUpperCase()}` : key;
+    const base = { key, windowsVirtualKeyCode: code, modifiers, code: name };
+    const typed = modifiers & 2 ? '' : text;
+    await this.send('Input.dispatchKeyEvent', { type: typed ? 'keyDown' : 'rawKeyDown', ...base, text: typed });
+    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
   }
 
   /**

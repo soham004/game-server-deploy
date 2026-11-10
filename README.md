@@ -21,7 +21,8 @@ warnings and backups by time or event. Deleted servers and files wait in a trash
 | `crates/gsd-minecraft` | Minecraft adapter: version catalog and installers for every loader, import, clone, `server.properties`, log parsing, diagnostics |
 | `crates/gsd-mods` | Modrinth / CurseForge / Hangar (from M4) |
 | `crates/gsd-app` | The binary: config, CLI, HTTP API, embedded web UI |
-| `web/` | Frontend: plain HTML, CSS (design tokens in `css/tokens.css`) and ES modules |
+| `web/` | Frontend: plain HTML, CSS (design tokens in `css/tokens.css`) and ES modules; `web/vendor/codemirror.js` is the one prebuilt file (the code editor) |
+| `tools/codemirror` | Builds `web/vendor/codemirror.js` with npm and esbuild, pinned (not needed to run or develop the app) |
 | `deploy/docker` | Container entrypoint and an example compose file |
 
 ## Develop (Linux / WSL2)

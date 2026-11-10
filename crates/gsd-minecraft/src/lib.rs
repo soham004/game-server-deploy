@@ -9,10 +9,11 @@
 //! - [`logs`]: log history and crash reports; [`control`]: the channel the app controls a server through.
 //! - [`players`]: who plays, operators, the allowlist and bans, and changes to them.
 //!
-//! Coming next (see `claude/plan/06-roadmap.md`): gamerules, worlds, command autocomplete.
+//! - [`gamerules`], [`worlds`]: game rules and world folders; [`commands`]: console autocomplete.
 
 pub mod adapter;
 pub mod catalog;
+pub mod commands;
 pub mod control;
 pub mod diagnostics;
 pub mod gamerules;

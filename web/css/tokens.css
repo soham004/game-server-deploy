@@ -66,6 +66,16 @@
   --shadow-sm: 0 1px 2px rgb(16 24 40 / 0.06);
   --shadow-md: 0 4px 16px rgb(16 24 40 / 0.10);
 
+  /* Code editor highlighting (css/components/code-editor.css) */
+  --code-keyword: #8a3ab9;
+  --code-string: #2a7a3b;
+  --code-number: #a0521a;
+  --code-comment: #6b7280;
+  --code-property: #1d5fa8;
+  --code-atom: #b03a6e;
+  --code-added: rgb(47 125 79 / 0.16);
+  --code-deleted: rgb(194 54 43 / 0.16);
+
   /* Console (dark in both themes, like a terminal) */
   --color-console-bg: #0d1014;
   --color-console-text: #d7dde5;
@@ -113,6 +123,14 @@
     --color-focus: #6b9cff;
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+    --code-keyword: #c792ea;
+    --code-string: #a5d6a7;
+    --code-number: #f3a25b;
+    --code-comment: #8b93a3;
+    --code-property: #82b1ff;
+    --code-atom: #f48fb1;
+    --code-added: rgb(79 177 118 / 0.18);
+    --code-deleted: rgb(239 106 94 / 0.18);
   }
 }
 
@@ -134,4 +152,12 @@
   --color-focus: #6b9cff;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-md: 0 6px 20px rgb(0 0 0 / 0.45);
+  --code-keyword: #c792ea;
+  --code-string: #a5d6a7;
+  --code-number: #f3a25b;
+  --code-comment: #8b93a3;
+  --code-property: #82b1ff;
+  --code-atom: #f48fb1;
+  --code-added: rgb(79 177 118 / 0.18);
+  --code-deleted: rgb(239 106 94 / 0.18);
 }

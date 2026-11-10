@@ -12,6 +12,7 @@
  *   crash.refresh(instance);  // shows the last crash while the server is down because of it
  */
 import { api } from '../core/api.js';
+import { createCodeEditor } from '../core/code-editor.js';
 import { debounce } from '../core/debounce.js';
 import { h } from '../core/dom.js';
 import { relativeTime, sizeLabel } from '../core/format.js';
@@ -59,9 +60,23 @@ export function createLogs({ instanceId }) {
   const refreshButton = h('button', { class: 'c-button c-button--ghost', type: 'button', onClick: () => load() }, 'Refresh');
   const summary = h('div', { class: 'c-logs__summary' });
   const earlier = h('button', { class: 'c-button c-button--ghost c-logs__earlier', type: 'button', hidden: true, onClick: () => loadEarlier() }, 'Show earlier lines');
-  const lines = h('ol', { class: 'c-logs__lines is-wrapped', 'aria-label': 'Log' });
   const status = h('p', { class: 'c-muted c-logs__status', role: 'status' });
-  const viewport = h('div', { class: 'c-logs__viewport' }, earlier, lines);
+  const viewport = h('div', { class: 'c-logs__viewport' });
+  /** The lines in the viewer, as the server sent them: their numbers and levels. */
+  let shown = [];
+  // A read-only code editor: highlighting, the file's own line numbers, Ctrl+F, and only the lines
+  // on screen drawn, so a long log stays quick.
+  const viewer = createCodeEditor({
+    language: 'log',
+    readOnly: true,
+    wrap: true,
+    label: 'Log',
+    lineNumber: (n) => shown[n - 1]?.number,
+    lineClass: (n) => (shown[n - 1] ? `c-logs__line is-${shown[n - 1].level}` : null),
+  }).then((editor) => {
+    viewport.append(editor.element);
+    return editor;
+  });
   const element = h('section', { class: 'c-logs' },
     h('div', { class: 'c-logs__side' }, refreshButton, files),
     h('div', { class: 'c-logs__main' },
@@ -71,7 +86,7 @@ export function createLogs({ instanceId }) {
         level,
         h('label', { class: 'c-check' }, wrap, h('span', null, 'Wrap')),
         download),
-      summary, status, viewport));
+      summary, status, earlier, viewport));
 
   let chosen = null;
   let earlierLine = null;
@@ -88,9 +103,7 @@ export function createLogs({ instanceId }) {
     return text ? `?${text}` : '';
   };
 
-  const lineElement = (line) => h('li', { class: `c-logs__line is-${line.level}`, dataset: { line: line.number } },
-    h('span', { class: 'c-logs__number', 'aria-hidden': 'true' }, String(line.number)),
-    h('span', { class: 'c-logs__text' }, line.text));
+  const textOf = (page) => page.lines.map((line) => line.text).join('\n');
 
   /** Lists the files, and keeps showing the chosen one if it is still there. */
   async function load() {
@@ -139,12 +152,16 @@ export function createLogs({ instanceId }) {
       const page = await api.get(url(instanceId, chosen, query()));
       if (thisRead !== latestRead) return;
       summary.replaceChildren(...(page.crash ? [summaryCard(page.crash)] : []));
-      lines.replaceChildren(...page.lines.map(lineElement));
+      const editor = await viewer;
+      if (thisRead !== latestRead) return;
+      shown = page.lines;
+      editor.setValue(textOf(page));
       describe(page);
-      viewport.scrollTop = viewport.scrollHeight;
+      editor.scrollToEnd();
     } catch (error) {
       if (thisRead !== latestRead) return;
-      lines.replaceChildren();
+      shown = [];
+      (await viewer).setValue('');
       summary.replaceChildren();
       earlier.hidden = true;
       status.textContent = error.message;
@@ -158,9 +175,8 @@ export function createLogs({ instanceId }) {
       const page = await api.get(url(instanceId, chosen, query(earlierLine)));
       if (thisRead !== latestRead) return;
       // The view stays on the lines it was showing.
-      const fromEnd = viewport.scrollHeight - viewport.scrollTop;
-      lines.prepend(...page.lines.map(lineElement));
-      viewport.scrollTop = viewport.scrollHeight - fromEnd;
+      shown = [...page.lines, ...shown];
+      if (page.lines.length) (await viewer).prepend(`${textOf(page)}\n`);
       describe(page);
     } catch (error) {
       status.textContent = error.message;
@@ -172,7 +188,7 @@ export function createLogs({ instanceId }) {
   function describe(page) {
     earlierLine = page.earlier;
     earlier.hidden = page.earlier === null;
-    const count = lines.childElementCount;
+    const count = shown.length;
     const parts = [count === 0 ? 'No lines match.' : `${count.toLocaleString()} ${count === 1 ? 'line' : 'lines'} shown.`];
     if (page.truncated) parts.push('This file is damaged or too big, so this isn’t all of it.');
     status.textContent = parts.join(' ');
@@ -182,7 +198,7 @@ export function createLogs({ instanceId }) {
   search.addEventListener('input', () => searchSoon());
   regex.addEventListener('change', () => show());
   level.addEventListener('change', () => show());
-  wrap.addEventListener('change', () => lines.classList.toggle('is-wrapped', wrap.checked));
+  wrap.addEventListener('change', async () => (await viewer).setWrap(wrap.checked));
 
   return { element, load, open };
 }

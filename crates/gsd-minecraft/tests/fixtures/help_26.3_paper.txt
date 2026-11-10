@@ -1,0 +1,215 @@
+--------- Help: Index ---------------------------------
+Use /help [n] to get page n of help.
+Aliases: Lists command aliases
+Bukkit: All commands for Bukkit
+Chunky: All commands for Chunky
+Minecraft: All commands for Minecraft
+Paper: All commands for Paper
+/about: Gets the version of this server including any plugins in use
+/advancement: A Mojang provided command.
+/attribute: A Mojang provided command.
+/ban: A Mojang provided command.
+/ban-ip: A Mojang provided command.
+/banlist: A Mojang provided command.
+/bossbar: A Mojang provided command.
+/bukkit:about: Gets the version of this server including any plugins in use
+/bukkit:pl: Gets a list of plugins running on the server
+/bukkit:plugins: Gets a list of plugins running on the server
+/bukkit:ver: Gets the version of this server including any plugins in use
+/bukkit:version: Gets the version of this server including any plugins in use
+/chunky: Generates chunks
+/chunky:chunky: Generates chunks
+/chunky:cy: Generates chunks
+/clear: A Mojang provided command.
+/clone: A Mojang provided command.
+/compute: A Mojang provided command.
+/cy: Generates chunks
+/damage: A Mojang provided command.
+/data: A Mojang provided command.
+/datapack: A Mojang provided command.
+/debug: A Mojang provided command.
+/defaultgamemode: A Mojang provided command.
+/deop: A Mojang provided command.
+/dialog: A Mojang provided command.
+/difficulty: A Mojang provided command.
+/effect: A Mojang provided command.
+/enchant: A Mojang provided command.
+/execute: A Mojang provided command.
+/experience: A Mojang provided command.
+/fetchprofile: A Mojang provided command.
+/fill: A Mojang provided command.
+/fillbiome: A Mojang provided command.
+/forceload: A Mojang provided command.
+/function: A Mojang provided command.
+/gamemode: A Mojang provided command.
+/gamerule: A Mojang provided command.
+/give: A Mojang provided command.
+/help: Shows the help menu
+/item: A Mojang provided command.
+/jfr: A Mojang provided command.
+/kick: A Mojang provided command.
+/kill: A Mojang provided command.
+/list: A Mojang provided command.
+/locate: A Mojang provided command.
+/loot: A Mojang provided command.
+/me: A Mojang provided command.
+/minecraft:advancement: A Mojang provided command.
+/minecraft:attribute: A Mojang provided command.
+/minecraft:ban: A Mojang provided command.
+/minecraft:ban-ip: A Mojang provided command.
+/minecraft:banlist: A Mojang provided command.
+/minecraft:bossbar: A Mojang provided command.
+/minecraft:clear: A Mojang provided command.
+/minecraft:clone: A Mojang provided command.
+/minecraft:compute: A Mojang provided command.
+/minecraft:damage: A Mojang provided command.
+/minecraft:data: A Mojang provided command.
+/minecraft:datapack: A Mojang provided command.
+/minecraft:debug: A Mojang provided command.
+/minecraft:defaultgamemode: A Mojang provided command.
+/minecraft:deop: A Mojang provided command.
+/minecraft:dialog: A Mojang provided command.
+/minecraft:difficulty: A Mojang provided command.
+/minecraft:effect: A Mojang provided command.
+/minecraft:enchant: A Mojang provided command.
+/minecraft:execute: A Mojang provided command.
+/minecraft:experience: A Mojang provided command.
+/minecraft:fetchprofile: A Mojang provided command.
+/minecraft:fill: A Mojang provided command.
+/minecraft:fillbiome: A Mojang provided command.
+/minecraft:forceload: A Mojang provided command.
+/minecraft:function: A Mojang provided command.
+/minecraft:gamemode: A Mojang provided command.
+/minecraft:gamerule: A Mojang provided command.
+/minecraft:give: A Mojang provided command.
+/minecraft:help: A Mojang provided command.
+/minecraft:item: A Mojang provided command.
+/minecraft:jfr: A Mojang provided command.
+/minecraft:kick: A Mojang provided command.
+/minecraft:kill: A Mojang provided command.
+/minecraft:list: A Mojang provided command.
+/minecraft:locate: A Mojang provided command.
+/minecraft:loot: A Mojang provided command.
+/minecraft:me: A Mojang provided command.
+/minecraft:msg: A Mojang provided command.
+/minecraft:op: A Mojang provided command.
+/minecraft:pardon: A Mojang provided command.
+/minecraft:pardon-ip: A Mojang provided command.
+/minecraft:particle: A Mojang provided command.
+/minecraft:perf: A Mojang provided command.
+/minecraft:place: A Mojang provided command.
+/minecraft:playsound: A Mojang provided command.
+/minecraft:posteffect: A Mojang provided command.
+/minecraft:random: A Mojang provided command.
+/minecraft:recipe: A Mojang provided command.
+/minecraft:reload: A Mojang provided command.
+/minecraft:return: A Mojang provided command.
+/minecraft:ride: A Mojang provided command.
+/minecraft:rotate: A Mojang provided command.
+/minecraft:save-all: A Mojang provided command.
+/minecraft:save-off: A Mojang provided command.
+/minecraft:save-on: A Mojang provided command.
+/minecraft:say: A Mojang provided command.
+/minecraft:schedule: A Mojang provided command.
+/minecraft:scoreboard: A Mojang provided command.
+/minecraft:seed: A Mojang provided command.
+/minecraft:setblock: A Mojang provided command.
+/minecraft:setidletimeout: A Mojang provided command.
+/minecraft:setworldspawn: A Mojang provided command.
+/minecraft:spawnpoint: A Mojang provided command.
+/minecraft:spectate: A Mojang provided command.
+/minecraft:spreadplayers: A Mojang provided command.
+/minecraft:stop: A Mojang provided command.
+/minecraft:stopsound: A Mojang provided command.
+/minecraft:stopwatch: A Mojang provided command.
+/minecraft:summon: A Mojang provided command.
+/minecraft:swing: A Mojang provided command.
+/minecraft:tag: A Mojang provided command.
+/minecraft:team: A Mojang provided command.
+/minecraft:teammsg: A Mojang provided command.
+/minecraft:teleport: A Mojang provided command.
+/minecraft:tell: A Mojang provided command.
+/minecraft:tellraw: A Mojang provided command.
+/minecraft:test: A Mojang provided command.
+/minecraft:tick: A Mojang provided command.
+/minecraft:time: A Mojang provided command.
+/minecraft:title: A Mojang provided command.
+/minecraft:tm: A Mojang provided command.
+/minecraft:tp: A Mojang provided command.
+/minecraft:transfer: A Mojang provided command.
+/minecraft:trigger: A Mojang provided command.
+/minecraft:version: A Mojang provided command.
+/minecraft:w: A Mojang provided command.
+/minecraft:waypoint: A Mojang provided command.
+/minecraft:weather: A Mojang provided command.
+/minecraft:whitelist: A Mojang provided command.
+/minecraft:worldborder: A Mojang provided command.
+/minecraft:xp: A Mojang provided command.
+/msg: A Mojang provided command.
+/mspt: View server tick times
+/op: A Mojang provided command.
+/paper: Paper related commands
+/paper:mspt: View server tick times
+/paper:spark: 
+/pardon: A Mojang provided command.
+/pardon-ip: A Mojang provided command.
+/particle: A Mojang provided command.
+/perf: A Mojang provided command.
+/pl: Gets a list of plugins running on the server
+/place: A Mojang provided command.
+/playsound: A Mojang provided command.
+/plugins: Gets a list of plugins running on the server
+/posteffect: A Mojang provided command.
+/random: A Mojang provided command.
+/recipe: A Mojang provided command.
+/reload: A Mojang provided command.
+/restart: Restarts the server
+/return: A Mojang provided command.
+/ride: A Mojang provided command.
+/rotate: A Mojang provided command.
+/save-all: A Mojang provided command.
+/save-off: A Mojang provided command.
+/save-on: A Mojang provided command.
+/say: A Mojang provided command.
+/schedule: A Mojang provided command.
+/scoreboard: A Mojang provided command.
+/seed: A Mojang provided command.
+/setblock: A Mojang provided command.
+/setidletimeout: A Mojang provided command.
+/setworldspawn: A Mojang provided command.
+/spark: 
+/spawnpoint: A Mojang provided command.
+/spectate: A Mojang provided command.
+/spigot: Spigot related commands
+/spreadplayers: A Mojang provided command.
+/stop: A Mojang provided command.
+/stopsound: A Mojang provided command.
+/stopwatch: A Mojang provided command.
+/summon: A Mojang provided command.
+/swing: A Mojang provided command.
+/tag: A Mojang provided command.
+/team: A Mojang provided command.
+/teammsg: A Mojang provided command.
+/teleport: A Mojang provided command.
+/tell: A Mojang provided command.
+/tellraw: A Mojang provided command.
+/test: A Mojang provided command.
+/tick: A Mojang provided command.
+/time: A Mojang provided command.
+/timings: Manages Spigot Timings data to see performance of the server.
+/title: A Mojang provided command.
+/tm: A Mojang provided command.
+/tp: A Mojang provided command.
+/tps: Gets the current ticks per second for the server
+/transfer: A Mojang provided command.
+/trigger: A Mojang provided command.
+/ver: Gets the version of this server including any plugins in use
+/version: Gets the version of this server including any plugins in use
+/w: A Mojang provided command.
+/waypoint: A Mojang provided command.
+/weather: A Mojang provided command.
+/whitelist: A Mojang provided command.
+/worldborder: A Mojang provided command.
+/xp: A Mojang provided command.
+*** Currently you are 2 builds behind ***
+*** It is highly recommended to download the latest build from https://papermc.io/downloads/paper ***

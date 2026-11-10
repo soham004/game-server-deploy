@@ -52,6 +52,9 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 | POST | `/instances/{id}/change-version` | `{mc_version, loader_version?, allow_downgrade?}` → 202 `{job_id}`; full backup first; same loader; stopped server (built) |
 | POST | `/instances/{id}/start` · `/stop` · `/restart` · `/kill` | lifecycle |
 | POST | `/instances/{id}/command` | `{command}` → write to stdin |
+| GET | `/instances/{id}/commands` | `console.write`: autocomplete's state: `{vanilla: {state: ready, mc_version, commands} \| {state: preparing, job_id} \| {state: unavailable, reason} \| {state: missing}, learned: {state: not_needed \| current \| learning \| stale \| failed, reason?}, learned_commands}` (built, D-056) |
+| POST | `/instances/{id}/commands/prepare` | `console.write`, `{retry?}`: starts what's missing (the data generator's job `commands.prepare`; `help` if the server runs and its mods or plugins changed) → the state; idempotent (built, D-056) |
+| GET | `/instances/{id}/commands/complete?input=&cursor=` | `console.write`: `{suggestions: [{text, from, to, kind, detail?}] (≤ 50; offsets in UTF-16 units), signature: {parts: [{text, current?}], hint?} \| null}`; `422 input_too_long` (built, D-056) |
 | GET | `/instances/{id}/console?lines=500` | recent ring-buffer lines |
 | GET | `/instances/{id}/complete?input=/tp Al&cursor=7` | autocomplete suggestions |
 | GET | `/instances/{id}/diagnostics` | current detected problems |
@@ -70,6 +73,7 @@ Sections marked **(built)** describe what exists after M2; the rest is the plan.
 ### Files (built, D-031)
 | GET | `/instances/{id}/files?path=` | list a directory |
 | GET/PUT | `/instances/{id}/files/text` | read `?path=` (≤ 5 MiB) with its `revision` · write `{path, content, revision?}` (`409 file_changed` if it moved on) |
+| POST | `/instances/{id}/files/check` | `files.read`, `{path, content}` → `{format: json \| yaml \| toml \| null, problems: [{line, column, message}]}`: syntax only, the first mistake, by the file's name; nothing is read from disk (built, D-058) |
 | GET | `/instances/{id}/files/download?path=` | file, or a folder as a streamed zip (always an attachment) |
 | PUT | `/instances/{id}/files/upload?path=&overwrite=` | raw body streamed to a temp file, renamed when complete |
 | POST | `/instances/{id}/files/folder` · `rename` · `copy` · `delete` · `extract` · `compress` | one operation each; delete moves to the instance's trash |

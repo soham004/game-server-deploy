@@ -80,15 +80,10 @@ async fn download(
     cache_dir: &Path,
     job: &JobContext,
 ) -> Result<(), InstallError> {
-    let Some(key) = cache_key(&artifact.hash) else {
+    if cache_key(&artifact.hash).is_none() {
         return fetch(catalog, artifact, destination, job).await;
-    };
-    let cached = cache_dir.join(format!("{key}.jar"));
-    if tokio::fs::try_exists(&cached).await.unwrap_or(false) {
-        job.log(format!("Using cached {}", cached.display()));
-    } else {
-        fetch(catalog, artifact, &cached, job).await?;
     }
+    let cached = cached_download(catalog, artifact, cache_dir, job).await?;
     tokio::fs::copy(&cached, destination)
         .await
         .map_err(|source| InstallError::Io {
@@ -96,6 +91,26 @@ async fn download(
             source,
         })?;
     Ok(())
+}
+
+/// The artifact in the shared cache, downloaded (and verified) first if it isn't there yet. Only for
+/// artifacts with a checksum: the cache is keyed by it.
+pub(crate) async fn cached_download(
+    catalog: &Catalog,
+    artifact: &Artifact,
+    cache_dir: &Path,
+    job: &JobContext,
+) -> Result<std::path::PathBuf, InstallError> {
+    let key = cache_key(&artifact.hash).ok_or_else(|| InstallError::LaunchNotFound {
+        detail: format!("{} has no checksum to cache it by", artifact.url),
+    })?;
+    let cached = cache_dir.join(format!("{key}.jar"));
+    if tokio::fs::try_exists(&cached).await.unwrap_or(false) {
+        job.log(format!("Using cached {}", cached.display()));
+    } else {
+        fetch(catalog, artifact, &cached, job).await?;
+    }
+    Ok(cached)
 }
 
 async fn fetch(

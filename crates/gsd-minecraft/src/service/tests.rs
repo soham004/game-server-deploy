@@ -10,7 +10,7 @@ use gsd_core::{
 };
 
 use super::*;
-use crate::test_support::{FAKE_JAR, catalog_for, install_fake_java, mock_upstream};
+use crate::test_support::{catalog_for, fake_jar, install_fake_java, mock_upstream};
 
 struct Fixture {
     service: MinecraftService,
@@ -119,7 +119,7 @@ async fn installs_a_vanilla_server() {
     let instance = create_and_wait(&fixture, request(LoaderKind::Vanilla)).await;
     let server_dir = instance.layout.server_dir();
 
-    assert_eq!(std::fs::read(server_dir.join("server.jar")).unwrap(), FAKE_JAR);
+    assert_eq!(std::fs::read(server_dir.join("server.jar")).unwrap(), fake_jar());
     assert!(
         std::fs::read_to_string(server_dir.join("eula.txt"))
             .unwrap()
@@ -169,7 +169,7 @@ async fn server_jar_loaders_record_the_recommended_version() {
         let jar = launch_jar(&instance).to_owned();
         assert_eq!(
             std::fs::read(instance.layout.server_dir().join(&jar)).unwrap(),
-            FAKE_JAR,
+            fake_jar(),
             "{loader}"
         );
     }

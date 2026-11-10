@@ -1,0 +1,153 @@
+/* The code editor (js/core/code-editor.js): CodeMirror's parts (cm-*) and its highlighting
+   classes (tok-*, from @lezer/highlight's classHighlighter), in the app's colours. Each editor is
+   in a shadow root that adopts this file; the page links it too, for the host and the stand-in. */
+.c-code-host,
+:host {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.c-code {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.c-code.cm-editor {
+  height: 100%;
+}
+
+.c-code.cm-focused {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+
+.c-code .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+.c-code .cm-content {
+  caret-color: var(--color-text);
+}
+
+.c-code .cm-gutters {
+  border-right: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.c-code .cm-activeLine,
+.c-code .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--color-surface-muted) 60%, transparent);
+}
+
+.c-code.cm-focused .cm-selectionBackground,
+.c-code .cm-selectionBackground,
+.c-code ::selection {
+  background: color-mix(in srgb, var(--color-focus) 30%, transparent);
+}
+
+.c-code .cm-selectionMatch,
+.c-code .cm-searchMatch {
+  background: color-mix(in srgb, var(--color-warning) 25%, transparent);
+}
+
+.c-code .cm-searchMatch-selected {
+  background: color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+
+.c-code .cm-matchingBracket {
+  outline: 1px solid var(--color-text-muted);
+  background: none;
+}
+
+/* The search panel and lint tooltips use the app's controls' look. */
+.c-code .cm-panels {
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.c-code .cm-panel input,
+.c-code .cm-panel button {
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.c-code .cm-textfield {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.c-code .cm-button {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  background-image: none;
+  color: var(--color-text);
+}
+
+.c-code .cm-tooltip {
+  border-color: var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.c-code .cm-diagnostic-error {
+  border-left-color: var(--color-danger);
+}
+
+/* Changes against the opened text (unified diff). */
+.c-code .cm-changedLine,
+.c-code .cm-insertedLine {
+  background: var(--code-added);
+}
+
+.c-code .cm-deletedChunk {
+  background: var(--code-deleted);
+}
+
+.c-code .cm-changedText {
+  background: var(--code-added);
+}
+
+/* Highlighting. */
+.c-code .tok-keyword { color: var(--code-keyword); }
+.c-code .tok-string,
+.c-code .tok-string2 { color: var(--code-string); }
+.c-code .tok-number { color: var(--code-number); }
+.c-code .tok-comment { color: var(--code-comment); font-style: italic; }
+.c-code .tok-propertyName,
+.c-code .tok-definition { color: var(--code-property); }
+.c-code .tok-atom,
+.c-code .tok-bool,
+.c-code .tok-null { color: var(--code-atom); }
+.c-code .tok-variableName { color: var(--code-property); }
+.c-code .tok-meta { color: var(--color-text-muted); }
+.c-code .tok-invalid { color: var(--color-danger); }
+.c-code .tok-heading { font-weight: 700; }
+
+/* The stand-in when CodeMirror can't load. */
+.c-code--plain {
+  width: 100%;
+  min-height: 20rem;
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+/* Log levels on the log viewer's lines (js/components/logs.js). */
+.cm-line.is-warn {
+  color: var(--color-warning);
+}
+
+.cm-line.is-error,
+.cm-line.is-fatal {
+  color: var(--color-danger);
+}

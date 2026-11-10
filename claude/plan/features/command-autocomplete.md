@@ -1,5 +1,11 @@
 # Feature: Minecraft Command Autocomplete
 
+**As built (D-056):** as below, with these differences. The generator runs per server, in its sandbox, when the
+console is first opened by someone who may type commands; ids of data-driven registries come from the jar's data
+pack. `help` is asked through the console in the open (`[autocomplete] > help`), once per set of mods or plugins;
+Paper's index gives names and descriptions. The `misode/mcmeta` fallback isn't built: when the generator can't
+run, `help` alone is used, on vanilla too. The plan's `GET /instances/{id}/complete` is `…/commands/complete`.
+
 **Feasible.** Here is how, in three layers of data.
 
 ## Layer 1: Vanilla Brigadier tree (exact, per MC version)

@@ -146,12 +146,7 @@
 }
 
 .c-props .c-props__raw {
-  width: 100%;
-  min-height: 28rem;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: 1.5;
-  resize: vertical;
+  height: min(70vh, 36rem);
 }
 
 .c-props__raw-errors {

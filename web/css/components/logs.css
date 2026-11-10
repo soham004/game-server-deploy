@@ -111,57 +111,15 @@
   padding-left: var(--space-3);
 }
 
+/* The lines are a read-only code editor (js/core/code-editor.js); their level colours are in
+   code-editor.css, inside its shadow root. */
 .c-logs__viewport {
-  max-height: 70vh;
-  overflow: auto;
-  padding: var(--space-2);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+  height: min(70vh, 40rem);
+  min-height: 16rem;
 }
 
 .c-logs__earlier {
-  margin-bottom: var(--space-2);
-}
-
-.c-logs__lines {
-  margin: 0;
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  list-style: none;
-}
-
-.c-logs__line {
-  display: flex;
-  gap: var(--space-2);
-  white-space: pre;
-}
-
-.c-logs__lines.is-wrapped .c-logs__line {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.c-logs__number {
-  flex: none;
-  min-width: 3.5em;
-  color: var(--color-text-muted);
-  text-align: right;
-  user-select: none;
-}
-
-.c-logs__text {
-  min-width: 0;
-}
-
-.c-logs__line.is-warn .c-logs__text {
-  color: var(--color-warning);
-}
-
-.c-logs__line.is-error .c-logs__text,
-.c-logs__line.is-fatal .c-logs__text {
-  color: var(--color-danger);
+  justify-self: start;
 }
 
 @media (max-width: 900px) {

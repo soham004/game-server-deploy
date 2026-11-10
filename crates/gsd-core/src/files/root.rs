@@ -300,6 +300,40 @@ impl Root {
             .map_err(|e| FilesError::io(path, e))
     }
 
+    /// Removes a folder and everything in it for good: work folders the app made itself. Links are
+    /// removed, not followed; walked with a list rather than recursion, as in [`Self::folder_size`].
+    pub(crate) fn remove_tree(&self, path: &SafeRelPath) -> Result<(), FilesError> {
+        let io = |e| FilesError::io(path, e);
+        if path.is_root() {
+            return Err(FilesError::InvalidOperation(
+                "the folder itself can't be removed".into(),
+            ));
+        }
+        if !self.dir.symlink_metadata(path.as_path()).map_err(io)?.is_dir() {
+            return self.remove_file(path);
+        }
+        // Folders in the order found; removed last first, so each is empty by then.
+        let mut folders = vec![path.as_path().to_path_buf()];
+        let mut index = 0;
+        while index < folders.len() {
+            let folder = folders[index].clone();
+            index += 1;
+            for entry in self.dir.read_dir(&folder).map_err(io)? {
+                let entry = entry.map_err(io)?;
+                let child = folder.join(entry.file_name());
+                if entry.file_type().map_err(io)?.is_dir() {
+                    folders.push(child);
+                } else {
+                    self.dir.remove_file(&child).map_err(io)?;
+                }
+            }
+        }
+        for folder in folders.iter().rev() {
+            self.dir.remove_dir(folder).map_err(io)?;
+        }
+        Ok(())
+    }
+
     /// The listing entry for one path.
     pub(crate) fn entry(&self, path: &SafeRelPath) -> Result<Entry, FilesError> {
         let parent = path.parent().unwrap_or_default();

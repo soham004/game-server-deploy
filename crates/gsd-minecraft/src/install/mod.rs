@@ -13,6 +13,7 @@ mod server_files;
 
 use std::path::PathBuf;
 
+pub(crate) use execute::cached_download;
 pub use pipeline::{InstallTarget, finish_existing, install};
 pub use plan::{InstallPlan, InstallStep, LaunchPlan, SERVER_JAR};
 pub use server_files::point_at_port;

@@ -24,6 +24,7 @@ use gsd_core::{
 };
 use gsd_minecraft::{
     Catalog, Endpoints, GAME_ID, MinecraftAdapter, MinecraftPaths, MinecraftService,
+    commands::CommandService,
     gamerules::GameruleService,
     players::{Mojang, PlayerService, ProfileEndpoints},
     worlds::service::WorldService,
@@ -53,6 +54,7 @@ pub struct AppState {
     pub history: PlayerHistory,
     pub players: PlayerService,
     pub gamerules: GameruleService,
+    pub commands: CommandService,
     pub worlds: WorldService,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
@@ -160,6 +162,7 @@ impl AppState {
             options.endpoints.unwrap_or_default(),
             config.catalog_cache_dir(),
         );
+        let commands = command_service(&config, &instances, &events, &jobs, &catalog, &java, &host);
         let minecraft = MinecraftService::new(
             catalog,
             registry,
@@ -175,6 +178,7 @@ impl AppState {
         Ok(Self {
             gamerules: GameruleService::new(instances.clone(), events.clone()),
             worlds: WorldService::new(instances.clone(), backups.clone(), jobs.clone()),
+            commands,
             config: Arc::new(config),
             auth,
             audit: AuditLog::new(pool),
@@ -193,6 +197,28 @@ impl AppState {
             shutdown: CancellationToken::new(),
         })
     }
+}
+
+/// Console autocomplete: runs the data generator like an install (the same catalog, Java, sandbox
+/// and download cache).
+fn command_service(
+    config: &Config,
+    instances: &InstanceService,
+    events: &EventBus,
+    jobs: &JobRunner,
+    catalog: &Catalog,
+    java: &JavaRuntimes,
+    host: &HostSandbox,
+) -> CommandService {
+    CommandService::new(
+        instances.clone(),
+        events.clone(),
+        jobs.clone(),
+        catalog.clone(),
+        java.clone(),
+        host.clone(),
+        config.download_cache_dir(),
+    )
 }
 
 /// Running servers: a supervisor for each, and the games the app knows.

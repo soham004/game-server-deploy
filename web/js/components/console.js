@@ -7,13 +7,15 @@
  *   console.destroy();          // on unmount
  *
  * Lines come from the REST snapshot plus the `console:<id>` live topic; sequence numbers
- * de-duplicate the overlap. The view follows new output unless the user scrolled up.
+ * de-duplicate the overlap. The view follows new output unless the user scrolled up. Those who may
+ * type commands get autocomplete (command-assist.js).
  */
 import { ansiToNodes } from '../core/ansi.js';
 import { api } from '../core/api.js';
 import { h } from '../core/dom.js';
 import { clockTime } from '../core/format.js';
 import { live } from '../core/ws.js';
+import { createCommandAssist } from './command-assist.js';
 
 const MAX_LINES = 2000;
 const HISTORY_LIMIT = 100;
@@ -22,6 +24,8 @@ export function createConsole({ instanceId, canWrite }) {
   let lastSeq = 0;
   let follow = true;
   let running = false;
+  /** Finished starting: it answers commands such as `help`. */
+  let answering = false;
   const history = loadHistory(instanceId);
   let historyIndex = history.length;
 
@@ -41,10 +45,13 @@ export function createConsole({ instanceId, canWrite }) {
     input,
     h('button', { class: 'c-button c-button--primary', type: 'submit', disabled: true }, 'Send'),
   );
+  const assist = canWrite ? createCommandAssist({ instanceId, input }) : null;
   const element = h('section', { class: 'c-console' },
     h('div', { class: 'c-console__viewport' }, lines, jump),
+    assist?.element,
     canWrite ? form : null,
   );
+  assist?.prepare();
 
   const viewport = element.querySelector('.c-console__viewport');
   viewport.addEventListener('scroll', () => {
@@ -65,11 +72,14 @@ export function createConsole({ instanceId, canWrite }) {
       await api.post(`/instances/${instanceId}/command`, { command });
       remember(command);
       input.value = '';
+      assist?.reset();
     } catch (error) {
       appendLocal(`Could not send: ${error.message}`);
     }
   });
   input.addEventListener('keydown', (event) => {
+    // An open suggestion list takes the arrows, Tab, Enter (when one is chosen) and Esc.
+    if (assist?.handleKey(event)) return;
     if (event.key === 'ArrowUp' && historyIndex > 0) {
       historyIndex -= 1;
       input.value = history[historyIndex];
@@ -128,15 +138,20 @@ export function createConsole({ instanceId, canWrite }) {
   return {
     element,
     ready,
-    setRunning(isRunning) {
+    /** `isRunning`: it takes commands (also while starting); `started`: it has finished starting. */
+    setRunning(isRunning, started = isRunning) {
+      // Finished starting: the server can now be asked for its mods' commands.
+      if (started && !answering) assist?.prepare();
+      answering = started;
       running = isRunning;
       input.disabled = !running;
       form.querySelector('[type="submit"]').disabled = !running;
-      input.placeholder = running ? 'Type a command (without /) and press Enter' : 'Start the server to send commands';
+      input.placeholder = running ? 'Type a command (Tab completes it) and press Enter' : 'Start the server to send commands';
     },
     destroy() {
       offLive();
       offResync();
+      assist?.destroy();
     },
   };
 }

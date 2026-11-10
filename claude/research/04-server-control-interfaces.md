@@ -116,6 +116,19 @@ The server holds them in memory and will overwrite our edits.
   `plan/features/command-autocomplete.md`.
 - Pre-built per-version data also exists in `misode/mcmeta` (GitHub, branch `summary`/`commands`). Generating
   locally is preferred (offline, exact version), with mcmeta as a fallback.
+- **(verified on 26.3, D-056)** The bundler command still works and writes `reports/commands.json` (572 KB, 94 commands,
+  14 levels deep), `registries.json` (95 built-in registries, items 1,658, blocks 1,286, sounds 1,991), `blocks.json`,
+  `packets.json`, `datapack.json` and `json-rpc-api-schema.json`. Nodes since 26.x carry `permissions`
+  (`{"type": "minecraft:require", "permission": {"type": "minecraft:command_level", "level": "gamemasters"}}`).
+  A redirect to the root (`execute run`) is left out: such a node has no children, no `executable` and no `redirect`.
+  Data-driven registries (enchantments, biomes, advancements, recipes, loot tables) aren't in `registries.json`:
+  they are files in the game's jar, `data/minecraft/<registry>/<id>.json`, plural folder names before 1.21.
+- **(verified on 26.3)** `help` from the console, on vanilla, Fabric and `NeoForge`: one line per command,
+  Brigadier's smart usage after `System chat: ` (`/give <targets> <item> [<count>]`, `/xp -> experience`,
+  `/difficulty [peaceful|easy|normal|hard]`); a mod's commands among them (`/chunky [cancel|center|…]`, `/neoforge (…)`).
+  Paper prints Bukkit's index instead, all on one page for the console: a header, topic lines
+  (`Chunky: All commands for Chunky`), then `/name: description` for every command and alias, namespaced ones too
+  (`/bukkit:version`, `/minecraft:give`, `/chunky:chunky`); vanilla ones say "A Mojang provided command."
 
 ## 7. Performance metrics
 - `tick query` (vanilla 1.20.3+): average and percentile tick times. Run it via RCON (the reply is needed) or parse it from stdout.

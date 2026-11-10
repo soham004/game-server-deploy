@@ -31,5 +31,5 @@
 - Two panes: tree (lazy-loaded) + table of the current folder with breadcrumbs; multi-select; context menu; keyboard shortcuts (F2 rename, Del, Ctrl+C/V for copy/move inside the app).
 - Editor: CodeMirror 6 with modes by extension (json/json5, yaml, toml, properties, cfg/ini, mcfunction (simple
   highlighter), snbt, txt, log). Dirty indicator, Ctrl+S to save, diff view before save (P2), JSON/YAML/TOML
-  validation on save with error location.
+  validation on save with error location. (Built: D-057, D-058; the rest of this section is still to come.)
 - Image preview (png, e.g. `server-icon.png`, with a "64×64 required" check), and a "set server icon" helper that resizes uploads.

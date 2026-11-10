@@ -23,7 +23,7 @@ Ask the user, or verify during implementation. Move answered items into `decisio
 - [ ] Fill v3: is there a `builds/latest` route, and the exact `channel` values.
 - [ ] Modrinth search facet syntax + `POST /version_files/update` body against the live API.
 - [ ] CurseForge class ids (`GET /categories?gameId=432&classesOnly=true`).
-- [ ] The data generator command on 26.x still `-DbundlerMainClass=net.minecraft.data.Main --reports`.
+- [x] The data generator command on 26.x still `-DbundlerMainClass=net.minecraft.data.Main --reports` (yes, run on 26.3; D-056).
 - [x] `server.properties` defaults for 26.3: `white-list=true`, no `pvp` key (D-029).
 - [x] MCSMP notification method names via `rpc.discover` on a real 26.3 server (D-052).
 - [ ] Generational ZGC flag status on Java 25.

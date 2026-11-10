@@ -14,8 +14,27 @@ use wiremock::{
 
 use crate::catalog::{Catalog, Endpoints};
 
-/// Stand-in for every jar (server or installer) served by the mock.
-pub const FAKE_JAR: &[u8] = b"PK\x03\x04 not really a jar";
+/// Stand-in for every jar (server or installer) served by the mock. A real zip, so code that opens a
+/// jar can: a bundler (`META-INF/versions.list`) with one data pack file, which the data generator's
+/// path reads ids from (`commands/datagen.rs`).
+pub fn fake_jar() -> &'static [u8] {
+    static JAR: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored)
+            .last_modified_time(zip::DateTime::default());
+        for (name, contents) in [
+            ("META-INF/versions.list", ""),
+            ("data/minecraft/enchantment/sharpness.json", "{}"),
+        ] {
+            writer.start_file(name, options).unwrap();
+            writer.write_all(contents.as_bytes()).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    });
+    &JAR
+}
 
 pub fn fixture(name: &str) -> serde_json::Value {
     serde_json::from_str(&fixture_text(name)).unwrap()
@@ -55,7 +74,7 @@ pub fn test_skin(height: u32) -> Vec<u8> {
 }
 
 /// A mock upstream for all sources (see [`Endpoints::all_at`]). Download URLs and checksums in
-/// the recorded data are rewritten to point at the mock and match [`FAKE_JAR`].
+/// the recorded data are rewritten to point at the mock and match [`fake_jar()`].
 pub async fn mock_upstream() -> MockServer {
     let server = MockServer::start().await;
     for (route, body) in json_routes(&server.uri()) {
@@ -75,12 +94,12 @@ pub async fn mock_upstream() -> MockServer {
     // Maven side files, then every jar.
     Mock::given(method("GET"))
         .and(path_regex(r"\.jar\.sha1$"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(hash_hex::<sha1::Sha1>(FAKE_JAR)))
+        .respond_with(ResponseTemplate::new(200).set_body_string(hash_hex::<sha1::Sha1>(fake_jar())))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path_regex(r"(\.jar|/download|/server/jar)$"))
-        .respond_with(ResponseTemplate::new(200).set_body_bytes(FAKE_JAR))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(fake_jar()))
         .mount(&server)
         .await;
     server
@@ -94,7 +113,7 @@ fn json_routes(base: &str) -> Vec<(String, serde_json::Value)> {
     }
     let mut detail = fixture("mojang_version_26.3.json");
     detail["downloads"]["server"]["url"] = format!("{base}/downloads/vanilla-26.3.jar").into();
-    detail["downloads"]["server"]["sha1"] = hash_hex::<sha1::Sha1>(FAKE_JAR).into();
+    detail["downloads"]["server"]["sha1"] = hash_hex::<sha1::Sha1>(fake_jar()).into();
     // 26.2 is served as a copy of 26.3's detail (only the id differs), for version changes.
     let mut older = detail.clone();
     older["id"] = "26.2".into();
@@ -104,10 +123,10 @@ fn json_routes(base: &str) -> Vec<(String, serde_json::Value)> {
         let id = build["id"].clone();
         let download = &mut build["downloads"]["server:default"];
         download["url"] = format!("{base}/downloads/paper-{id}.jar").into();
-        download["checksums"]["sha256"] = hash_hex::<sha2::Sha256>(FAKE_JAR).into();
+        download["checksums"]["sha256"] = hash_hex::<sha2::Sha256>(fake_jar()).into();
     }
     let mut purpur_build = fixture("purpur_build_26.3_2657.json");
-    purpur_build["md5"] = hash_hex::<md5::Md5>(FAKE_JAR).into();
+    purpur_build["md5"] = hash_hex::<md5::Md5>(fake_jar()).into();
 
     vec![
         ("/mojang/manifest.json".into(), manifest),
@@ -162,9 +181,13 @@ pub fn catalog_for(server: &MockServer, cache: &Path) -> Catalog {
 ///   the working directory, then copies `installer-output/<jar>/` there, like the real installer
 ///   would create those files (built from the real installers' `run.sh`). A `fail-installer`
 ///   file in `java_home` makes it fail with exit code 3.
+/// - run with `--reports --output <dir>` (the data generator): refuses unless `server.jar` is in
+///   the working directory, then copies `datagen-output/` (the real 26.3 `commands.json` and
+///   `registries.json`) to `<dir>`. A `fail-datagen` file makes it fail with exit code 5.
 /// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`,
 ///   `leave <name>`, `kick <name>`, `op <name>` (writes `ops.json` with just them), `save-off`,
-///   `save-all flush`, `save-on`; `write <text>` puts `<text>` in `world/level.dat`). A `no-save`
+///   `save-all flush`, `save-on`; `write <text>` puts `<text>` in `world/level.dat`; `help`
+///   answers with `help.txt`, one usage a line, a mod's `chunky` among vanilla ones). A `no-save`
 ///   file in `java_home` makes it never confirm a save.
 ///
 /// The script needs `sh`, so only Unix tests run it. On Windows it is still found as Java 25
@@ -193,15 +216,50 @@ pub fn install_fake_java(java_home: &Path) {
             std::fs::write(path, contents).unwrap();
         }
     }
+    let reports = java_home.join("datagen-output").join("reports");
+    std::fs::create_dir_all(&reports).unwrap();
+    for (fixture, name) in [
+        ("commands_26.3.json.gz", "commands.json"),
+        ("registries_26.3.json.gz", "registries.json"),
+    ] {
+        std::fs::write(reports.join(name), gunzip_fixture(fixture)).unwrap();
+    }
+    std::fs::write(
+        java_home.join("help.txt"),
+        "/give <targets> <item> [<count>]\n/chunky [start|pause|cancel]\n/xp -> experience\n",
+    )
+    .unwrap();
+}
+
+fn gunzip_fixture(name: &str) -> Vec<u8> {
+    use std::io::Read;
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
+    let mut bytes = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).unwrap())
+        .read_to_end(&mut bytes)
+        .unwrap();
+    bytes
 }
 
 const FAKE_JAVA: &str = r#"#!/bin/sh
 home="$(cd "$(dirname "$0")/.." && pwd)"
-jar=""; previous=""
+jar=""; previous=""; output=""; reports=""
 for arg in "$@"; do
   [ "$previous" = "-jar" ] && jar="$arg"
+  [ "$previous" = "--output" ] && output="$arg"
+  [ "$arg" = "--reports" ] && reports=1
   previous="$arg"
 done
+if [ -n "$reports" ]; then
+  echo "fake data generator: $*"
+  [ -f server.jar ] || { echo "server.jar was not copied into $(pwd)" >&2; exit 4; }
+  if [ -e "$home/fail-datagen" ]; then echo "java.lang.IllegalStateException: boom" >&2; exit 5; fi
+  mkdir -p "$output" && cp -R "$home/datagen-output/." "$output/"
+  echo "All providers took: 1 ms"
+  exit 0
+fi
 case "$jar" in
   *-installer.jar)
     echo "fake installer: $*"
@@ -231,6 +289,7 @@ while IFS= read -r line; do
       echo "[12:00:06] [Server thread/INFO]: System chat: Saving the game (this may take a moment!)"
       [ -e "$home/no-save" ] || echo "[12:00:06] [Server thread/INFO]: System chat: Saved the game" ;;
     write\ *) mkdir -p world; printf '%s' "${line#write }" > world/level.dat ;;
+    help) while IFS= read -r usage; do echo "[12:00:05] [Server thread/INFO]: System chat: $usage"; done < "$home/help.txt" ;;
     *) echo "[12:00:05] [Server thread/INFO]: Unknown or incomplete command" ;;
   esac
 done

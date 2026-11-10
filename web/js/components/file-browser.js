@@ -10,6 +10,7 @@ import { api } from '../core/api.js';
 import { h } from '../core/dom.js';
 import { relativeTime, sizeLabel } from '../core/format.js';
 import { toast } from '../core/toast.js';
+import { createFileEditor } from './file-editor.js';
 
 /** Files the server rewrites while running: edit them through the app's own tools instead. */
 const LIVE_FILES = new Set(['ops.json', 'whitelist.json', 'banned-players.json', 'banned-ips.json', 'usercache.json']);
@@ -38,7 +39,12 @@ export function createFileBrowser({ instanceId, canWrite }) {
   const progress = h('div', { class: 'c-files__progress', hidden: true });
   const table = h('table', { class: 'c-files__table' });
   const dropZone = h('div', { class: 'c-files__drop' }, table);
-  const editor = createEditor();
+  const editor = createFileEditor({
+    base,
+    canWrite,
+    notice: (path) => (LIVE_FILES.has(path.split('/').pop()) && listing?.running ? 'The running server rewrites this file; prefer the Players tools.' : ''),
+    onSaved: () => open(path),
+  });
   const element = h('section', { class: 'c-files' }, toolbar, notice, selectionBar, progress, dropZone, editor.element);
 
   if (canWrite) {
@@ -258,61 +264,6 @@ export function createFileBrowser({ instanceId, canWrite }) {
         toast(error.message, { kind: 'error' });
       }
     }
-  }
-
-  // ---- text editor ----
-
-  function createEditor() {
-    let file = null;
-    const title = h('h2', { class: 'c-editor__title' });
-    const status = h('span', { class: 'c-editor__status c-muted' });
-    const area = h('textarea', {
-      class: 'c-input c-editor__text', spellcheck: 'false', 'aria-label': 'File contents', readOnly: !canWrite,
-      onInput: () => { status.textContent = area.value === file.content ? '' : 'Unsaved changes'; },
-      onKeydown: (event) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === 's') { event.preventDefault(); save(); }
-      },
-    });
-    const saveButton = h('button', { class: 'c-button c-button--primary', type: 'button', onClick: save, hidden: !canWrite }, 'Save');
-    const close = h('button', { class: 'c-button c-button--ghost', type: 'button', onClick: () => hide() }, 'Close');
-    const panel = h('section', { class: 'c-editor', hidden: true, 'aria-label': 'File editor' },
-      h('header', { class: 'c-editor__header' }, title, status, saveButton, close),
-      area,
-    );
-
-    function show(next) {
-      file = next;
-      title.textContent = file.path;
-      area.value = file.content;
-      status.textContent = LIVE_FILES.has(file.path.split('/').pop()) && listing?.running
-        ? 'The running server rewrites this file; prefer the Players tools.'
-        : '';
-      panel.hidden = false;
-      area.focus();
-    }
-
-    function hide() {
-      if (file && area.value !== file.content && !window.confirm('Discard unsaved changes?')) return;
-      panel.hidden = true;
-      file = null;
-    }
-
-    async function save() {
-      if (!file || !canWrite) return;
-      try {
-        file = await api.put(`${base}/text`, { path: file.path, content: area.value, revision: file.revision });
-        status.textContent = 'Saved';
-        await open(path);
-      } catch (error) {
-        if (error.code === 'file_changed') {
-          toast(`${file.path} changed on disk since you opened it. Copy your changes, then reopen the file.`, { kind: 'error' });
-        } else {
-          toast(error.message, { kind: 'error' });
-        }
-      }
-    }
-
-    return { element: panel, show };
   }
 
   return { element, load: () => open('') };

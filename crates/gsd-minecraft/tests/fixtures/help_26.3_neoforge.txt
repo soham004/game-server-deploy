@@ -1,0 +1,94 @@
+System chat: /advancement (grant|revoke)
+System chat: /attribute <target> <attribute> (get|base|modifier)
+System chat: /execute (run|if|unless|as|at|store|positioned|rotated|facing|align|anchored|in|summon|on)
+System chat: /bossbar (add|remove|list|set|get)
+System chat: /clear [<targets>]
+System chat: /clone (<begin>|from)
+System chat: /compute (default|block|entity)
+System chat: /damage <target> <amount> [<damageType>]
+System chat: /data (merge|get|remove|modify)
+System chat: /datapack (enable|disable|list|create)
+System chat: /debug (start|stop|function)
+System chat: /defaultgamemode <gamemode>
+System chat: /dialog (show|clear)
+System chat: /difficulty [peaceful|easy|normal|hard]
+System chat: /effect (clear|give)
+System chat: /me <action>
+System chat: /enchant <targets> <enchantment> [<level>]
+System chat: /experience (add|set|query)
+System chat: /xp -> experience
+System chat: /fill <from> <to> <block> [outline|hollow|destroy|strict|replace|keep]
+System chat: /fillbiome <from> <to> <biome> [replace]
+System chat: /forceload (add|remove|query)
+System chat: /function <name> [<arguments>|with]
+System chat: /gamemode <gamemode> [<target>]
+System chat: /gamerule (fire_spread_radius_around_player|minecraft:fire_spread_radius_around_player|universal_anger|minecraft:universal_anger|mob_griefing|minecraft:mob_griefing|max_command_forks|minecraft:max_command_forks|spread_vines|minecraft:spread_vines|forgive_dead_players|minecraft:forgive_dead_players|locator_bar|minecraft:locator_bar|immediate_respawn|minecraft:immediate_respawn|spawn_wandering_traders|minecraft:spawn_wandering_traders|advance_weather|minecraft:advance_weather|fire_damage|minecraft:fire_damage|spawner_blocks_work|minecraft:spawner_blocks_work|tnt_explosion_drop_decay|minecraft:tnt_explosion_drop_decay|max_snow_accumulation_height|minecraft:max_snow_accumulation_height|allow_entering_nether_using_portals|minecraft:allow_entering_nether_using_portals|spawn_mobs|minecraft:spawn_mobs|command_block_output|minecraft:command_block_output|natural_health_regeneration|minecraft:natural_health_regeneration|spawn_monsters|minecraft:spawn_monsters|mob_explosion_drop_decay|minecraft:mob_explosion_drop_decay|random_tick_speed|minecraft:random_tick_speed|show_death_messages|minecraft:show_death_messages|fall_damage|minecraft:fall_damage|elytra_movement_check|minecraft:elytra_movement_check|advance_time|minecraft:advance_time|freeze_damage|minecraft:freeze_damage|send_command_feedback|minecraft:send_command_feedback|command_blocks_work|minecraft:command_blocks_work|spawn_phantoms|minecraft:spawn_phantoms|max_entity_cramming|minecraft:max_entity_cramming|respawn_radius|minecraft:respawn_radius|projectiles_can_break_blocks|minecraft:projectiles_can_break_blocks|log_admin_commands|minecraft:log_admin_commands|block_drops|minecraft:block_drops|keep_inventory|minecraft:keep_inventory|players_nether_portal_default_delay|minecraft:players_nether_portal_default_delay|max_command_sequence_length|minecraft:max_command_sequence_length|lava_source_conversion|minecraft:lava_source_conversion|reduced_debug_info|minecraft:reduced_debug_info|mob_drops|minecraft:mob_drops|spectators_generate_chunks|minecraft:spectators_generate_chunks|players_sleeping_percentage|minecraft:players_sleeping_percentage|show_advancement_messages|minecraft:show_advancement_messages|pvp|minecraft:pvp|raids|minecraft:raids|spawn_patrols|minecraft:spawn_patrols|block_explosion_drop_decay|minecraft:block_explosion_drop_decay|tnt_explodes|minecraft:tnt_explodes|players_nether_portal_creative_delay|minecraft:players_nether_portal_creative_delay|max_block_modifications|minecraft:max_block_modifications|spawn_wardens|minecraft:spawn_wardens|entity_drops|minecraft:entity_drops|ender_pearls_vanish_on_death|minecraft:ender_pearls_vanish_on_death|drowning_damage|minecraft:drowning_damage|player_movement_check|minecraft:player_movement_check|global_sound_events|minecraft:global_sound_events|water_source_conversion|minecraft:water_source_conversion|limited_crafting|minecraft:limited_crafting)
+System chat: /give <targets> <item> [<count>]
+System chat: /help [<command>]
+System chat: /item (replace|fill|override|modify)
+System chat: /kick <targets> [<reason>]
+System chat: /kill [<targets>]
+System chat: /list [uuids]
+System chat: /locate (structure|biome|poi)
+System chat: /loot (replace|insert|give|spawn)
+System chat: /msg <targets> <message>
+System chat: /tell -> msg
+System chat: /w -> msg
+System chat: /swing [<targets>]
+System chat: /particle <name> [<pos>]
+System chat: /place (feature|jigsaw|structure|template)
+System chat: /playsound <sound> [master|music|record|weather|block|hostile|neutral|player|ambient|voice|ui]
+System chat: /posteffect (add|clear|list|remove)
+System chat: /random (value|roll|reset)
+System chat: /reload
+System chat: /recipe (give|take)
+System chat: /fetchprofile (name|id|entity)
+System chat: /return (<value>|fail|run)
+System chat: /ride <target> (mount|dismount)
+System chat: /rotate <target> (<rotation>|facing)
+System chat: /say <message>
+System chat: /schedule (function|clear)
+System chat: /scoreboard (objectives|players)
+System chat: /seed
+System chat: /version
+System chat: /setblock <pos> <block> [destroy|keep|replace|strict]
+System chat: /spawnpoint [<targets>]
+System chat: /setworldspawn [<pos>]
+System chat: /spectate [<target>]
+System chat: /spreadplayers <center> <spreadDistance> <maxRange> (<respectTeams>|under)
+System chat: /stopsound <targets> [*|master|music|record|weather|block|hostile|neutral|player|ambient|voice|ui]
+System chat: /stopwatch (create|query|restart|remove)
+System chat: /summon <entity> [<pos>]
+System chat: /tag <targets> (add|remove|list)
+System chat: /team (list|add|remove|empty|join|leave|modify)
+System chat: /teammsg <message>
+System chat: /tm -> teammsg
+System chat: /teleport (<location>|<destination>|<targets>)
+System chat: /tp -> teleport
+System chat: /tellraw <targets> <message>
+System chat: /test (run|runmultiple|runthese|runclosest|runthat|runfailed|verify|locate|resetclosest|resetthese|resetthat|clearthat|clearthese|clearall|stop|pos|create)
+System chat: /tick (query|rate|step|sprint|unfreeze|freeze)
+System chat: /time (set|add|pause|resume|rate|query|of)
+System chat: /title <targets> (clear|reset|title|subtitle|actionbar|times)
+System chat: /trigger <objective> [add|set]
+System chat: /waypoint (list|modify)
+System chat: /weather (clear|rain|thunder)
+System chat: /worldborder (add|set|center|damage|get|warning)
+System chat: /jfr (start|stop)
+System chat: /ban-ip <target> [<reason>]
+System chat: /banlist [ips|players]
+System chat: /ban <targets> [<reason>]
+System chat: /deop <targets>
+System chat: /op <targets>
+System chat: /pardon <targets>
+System chat: /pardon-ip <target>
+System chat: /perf (start|stop)
+System chat: /save-all [flush]
+System chat: /save-off
+System chat: /save-on
+System chat: /setidletimeout <minutes>
+System chat: /stop
+System chat: /transfer <hostname> [<port>]
+System chat: /whitelist (on|off|list|add|remove|reload)
+System chat: /chunky [cancel|center|confirm|continue|corners|debug|help|limit|pattern|pause|progress|quiet|radius|reload|selection|shape|silent|spawn|start|trim|worldborder|world]
+System chat: /neoforge (tps|track|entity|generate|dimensions|mods|tags|dump|day|data_components)

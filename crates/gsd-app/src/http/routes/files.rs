@@ -14,7 +14,10 @@ use axum::{
 };
 use gsd_core::{
     audit::{AuditEntry, actions},
-    files::{Entry, ExtractLimits, ExtractSummary, SafeRelPath, ServerFiles, TextFile},
+    files::{
+        Entry, ExtractLimits, ExtractSummary, MAX_TEXT_BYTES, SafeRelPath, ServerFiles, TextFile,
+        check::{self, CheckedFormat, Problem},
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -38,6 +41,7 @@ pub fn routes() -> Router<AppState> {
             "/instances/{instance_id}/files/text",
             get(read_text).put(write_text),
         )
+        .route("/instances/{instance_id}/files/check", post(check_text))
         .route("/instances/{instance_id}/files/download", get(download))
         .route(
             "/instances/{instance_id}/files/upload",
@@ -111,6 +115,49 @@ async fn write_text(
         .await?;
     audit(&state, &auth, "save", &[&path]).await;
     Ok(Json(saved))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CheckText {
+    /// The file's name decides the format; nothing is read from disk.
+    path: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Checked {
+    /// `json`, `yaml` or `toml`; absent for files that aren't checked.
+    format: Option<CheckedFormat>,
+    problems: Vec<Problem>,
+}
+
+/// Checks the editor's text before it is saved: syntax only, the first mistake with its place.
+async fn check_text(
+    _auth: Authorized<perm::FilesRead>,
+    ApiJson(body): ApiJson<CheckText>,
+) -> Result<Json<Checked>, ApiError> {
+    let path = parse(&body.path)?;
+    let Some(format) = CheckedFormat::for_path(path.as_str()) else {
+        return Ok(Json(Checked {
+            format: None,
+            problems: Vec::new(),
+        }));
+    };
+    if body.content.len() as u64 > MAX_TEXT_BYTES {
+        return Err(ApiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "file_too_large",
+            "The editor works on files up to 5 MiB.",
+        ));
+    }
+    let problem = tokio::task::spawn_blocking(move || check::check(format, &body.content))
+        .await
+        .map_err(|error| ApiError::internal(&error))?;
+    Ok(Json(Checked {
+        format: Some(format),
+        problems: problem.into_iter().collect(),
+    }))
 }
 
 /// A file as-is, or a folder as a zip made on the fly.

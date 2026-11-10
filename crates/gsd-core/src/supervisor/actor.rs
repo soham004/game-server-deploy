@@ -88,6 +88,9 @@ pub(crate) enum Command {
     Snapshot {
         reply: oneshot::Sender<Snapshot>,
     },
+    Players {
+        reply: oneshot::Sender<Vec<String>>,
+    },
 }
 
 enum ProcessEvent {
@@ -176,6 +179,17 @@ impl SupervisorHandle {
         let (reply, response) = oneshot::channel();
         self.commands
             .send(Command::Snapshot { reply })
+            .await
+            .map_err(|_| SupervisorError::Gone)?;
+        response.await.map_err(|_| SupervisorError::Gone)
+    }
+
+    /// Who is online, without copying the console as [`Self::snapshot`] does (autocomplete asks
+    /// as commands are typed).
+    pub async fn players(&self) -> Result<Vec<String>, SupervisorError> {
+        let (reply, response) = oneshot::channel();
+        self.commands
+            .send(Command::Players { reply })
             .await
             .map_err(|_| SupervisorError::Gone)?;
         response.await.map_err(|_| SupervisorError::Gone)
@@ -284,6 +298,9 @@ impl Actor {
                     diagnostics: self.diagnostics.clone(),
                     console: self.console.iter().cloned().collect(),
                 });
+            }
+            Command::Players { reply } => {
+                let _ = reply.send(self.players.iter().cloned().collect());
             }
         }
     }

@@ -420,3 +420,69 @@ async fn only_users_with_file_permissions_get_in() {
         [json!({ "operation": "create_folder", "paths": ["by-manager"] })]
     );
 }
+
+#[tokio::test]
+async fn the_editor_checks_json_yaml_and_toml_before_saving() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let server = server(&app, &cookie).await;
+    let check = |path: &str, content: &str| {
+        let body = json!({ "path": path, "content": content });
+        let url = format!("/api/v1/instances/{}/files/check", server.id);
+        let (app, cookie) = (&app, cookie.clone());
+        async move {
+            let response = app.post(&url, body, Some(&cookie)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            json_body(response).await
+        }
+    };
+
+    assert_eq!(
+        check("config/a.json", "{\n  \"a\": 1,\n}").await,
+        json!({ "format": "json", "problems": [{ "line": 3, "column": 1, "message": "trailing comma" }] })
+    );
+    assert_eq!(
+        check("bukkit.yml", "settings:\n  debug: false\n").await,
+        json!({ "format": "yaml", "problems": [] })
+    );
+    let toml = check("config/forge.toml", "[a]\nb = \n").await;
+    assert_eq!(toml["format"], "toml");
+    assert_eq!(toml["problems"][0]["line"], 2);
+    // Other files aren't checked, and nothing is read from disk (this one doesn't exist).
+    assert_eq!(
+        check("server.properties", "{{{").await,
+        json!({ "format": null, "problems": [] })
+    );
+    // Deep nesting is refused before a parser sees it.
+    let deep = check("x.yml", &"[".repeat(10_000)).await;
+    assert_eq!(deep["problems"][0]["message"], "nested more than 100 levels deep");
+
+    let url = format!("/api/v1/instances/{}/files/check", server.id);
+    let outside = app
+        .post(
+            &url,
+            json!({ "path": "../x.json", "content": "{}" }),
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(outside.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        app.post(&url, json!({ "path": "x.json", "content": "{}" }), None)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    app.create_user("stranger", GlobalRole::Member).await;
+    let stranger = app.login("stranger").await;
+    assert_eq!(
+        app.post(
+            &url,
+            json!({ "path": "x.json", "content": "{}" }),
+            Some(&stranger)
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND,
+        "a member without a grant doesn't see the server"
+    );
+}

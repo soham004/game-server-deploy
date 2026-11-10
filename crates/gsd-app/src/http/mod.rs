@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router {
         .merge(routes::control::routes())
         .merge(routes::players::routes())
         .merge(routes::gamerules::routes())
+        .merge(routes::commands::routes())
         .merge(routes::worlds::routes())
         .merge(routes::users::routes())
         .merge(routes::jobs::routes())

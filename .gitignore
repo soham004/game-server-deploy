@@ -5,3 +5,4 @@
 *.sqlite-shm
 .env
 .env.*
+/tools/codemirror/node_modules

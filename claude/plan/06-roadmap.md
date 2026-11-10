@@ -94,11 +94,11 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [x] Players: online, heads, op/allowlist/ban/kick/message, lookup by name, visit history (D-053).
 - [x] Gamerules editor: live, through the console, or in a stopped world's own file (D-054).
 - [x] Worlds manager: facts from the files, make active, download, upload, delete and reset after a backup (D-055).
-- [ ] Command autocomplete (datagen tree + help parsing + dynamic values).
-- [ ] Code editor: CodeMirror 6 vendored as one ESM file (D-008; deferred in D-031) for the file manager, the raw
+- [x] Command autocomplete: the data generator's tree and ids per version, mods' and plugins' commands from `help`, players online (D-056).
+- [x] Code editor: CodeMirror 6 vendored as one ESM file (D-008; deferred in D-031) for the file manager, the raw
       `server.properties` view and the log viewer: syntax highlighting (json, yaml, toml, properties, cfg/ini, mcfunction,
-      snbt, log), line numbers, search. Check it works under the strict CSP (`style-src 'self'`).
-- [ ] Editor checks: JSON/YAML/TOML validation on save with the error location; diff view before saving (P2).
+      snbt, log), line numbers, search. Check it works under the strict CSP (`style-src 'self'`) (D-057).
+- [x] Editor checks: JSON/YAML/TOML validation on save with the error location; diff view before saving (P2) (D-058).
 - [ ] File manager extras (`features/file-manager.md` → UI): folder tree pane, multi-select, context menu, shortcuts
       (F2, Del, Ctrl+C/V), image preview, "set server icon" helper (resize to 64×64).
 

@@ -10,3 +10,4 @@ deploy/docker/data
 **/.env
 .env.*
 **/.env.*
+tools/codemirror/node_modules

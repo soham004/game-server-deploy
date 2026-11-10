@@ -7,6 +7,7 @@
 //! instance's user; deleted files go to the instance's `trash/`, outside the server's reach.
 
 mod archive;
+pub mod check;
 mod copy;
 mod error;
 mod path;

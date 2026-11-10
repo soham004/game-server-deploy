@@ -1,6 +1,6 @@
 //! Turns an instance definition into a concrete, sandboxed JVM command line.
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use crate::{
     instances::{
@@ -93,20 +93,34 @@ pub fn installer_process(
     jar: &str,
     installer_args: &[String],
 ) -> ProcessSpec {
+    let mut args = vec!["-jar".to_owned(), jar.to_owned()];
+    args.extend(installer_args.iter().cloned());
+    helper_process(definition, layout, java, layout.server_dir(), &args)
+}
+
+/// `java <java_args>` for a short run besides the server (a loader installer, the data generator),
+/// from `cwd` (one of the instance's writable folders), in the same sandbox as the server except
+/// that it may not listen on any port. Its heap is capped at 1 GiB.
+pub fn helper_process(
+    definition: &InstanceDefinition,
+    layout: &InstanceLayout,
+    java: &JavaRuntime,
+    cwd: PathBuf,
+    java_args: &[String],
+) -> ProcessSpec {
     let mut args = vec![INSTALLER_HEAP.to_owned(), "-Djava.awt.headless=true".to_owned()];
     args.extend(common_jvm_args(layout));
-    args.extend(["-jar".to_owned(), jar.to_owned()]);
-    args.extend(installer_args.iter().cloned());
+    args.extend(java_args.iter().cloned());
 
     let mut sandbox = sandbox_for(definition, layout, java);
     sandbox.bind_tcp.clear();
-    // Not the server's control group: preparing it kills whatever runs there. The installer's
+    // Not the server's control group: preparing it kills whatever runs there. The helper's
     // heap is capped by INSTALLER_HEAP and it only runs briefly.
     sandbox.cgroup = None;
     ProcessSpec {
         program: java.executable.clone(),
         args,
-        cwd: layout.server_dir(),
+        cwd,
         env: environment(layout, java),
         sandbox: Some(sandbox),
     }

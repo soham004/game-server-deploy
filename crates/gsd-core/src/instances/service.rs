@@ -208,6 +208,14 @@ impl InstanceService {
         Ok(())
     }
 
+    /// Who is online now (nobody while the server isn't running).
+    pub async fn players(&self, id: InstanceId) -> Result<Vec<String>, InstanceError> {
+        match self.supervisors.get(id) {
+            Some(handle) => Ok(handle.players().await?),
+            None => Ok(Vec::new()),
+        }
+    }
+
     /// Runtime view; a stopped instance that never ran has an empty console.
     pub async fn snapshot(&self, id: InstanceId) -> Result<Snapshot, InstanceError> {
         self.get(id).await?;
