@@ -371,7 +371,10 @@ impl JobRunner {
                 }
             }
             let snapshot = entry.snapshot.clone();
-            let _ = entry.done.send(true);
+            // `send_replace`, not `send`: with nobody waiting yet, `send` fails and doesn't store
+            // the value, and a `wait` that starts later (a job that finished quickly) would wait
+            // for ever.
+            entry.done.send_replace(true);
             if let Some(instance) = snapshot.instance_id {
                 state.busy_instances.remove(&instance);
             }
@@ -467,6 +470,22 @@ mod tests {
         assert!(finished.finished_at.is_some());
         let log = runner.log(id).unwrap();
         assert!(log.iter().any(|line| line.ends_with("done downloading")));
+    }
+
+    /// Regression (seen in CI): an import's job could finish before anything waited on it, and
+    /// a wait that started afterwards never returned.
+    #[tokio::test]
+    async fn waiting_on_a_job_that_already_finished_returns_at_once() {
+        let runner = JobRunner::new(EventBus::new());
+        let id = runner.spawn(spec(None), |_| async { Ok(()) }).unwrap();
+        while runner.get(id).is_some_and(|job| !job.status.is_finished()) {
+            tokio::task::yield_now().await;
+        }
+        let finished = tokio::time::timeout(Duration::from_secs(5), runner.wait(id))
+            .await
+            .expect("the wait returns")
+            .unwrap();
+        assert_eq!(finished.status, JobStatus::Succeeded);
     }
 
     #[tokio::test]
