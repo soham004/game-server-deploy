@@ -22,7 +22,7 @@ use bytes::Bytes;
 use futures_util::Stream;
 use gsd_core::{
     backups::{BackupKind, BackupRequest, BackupScope, BackupService},
-    files::{EntryKind, ExtractLimits, FilesError, SafeRelPath, ServerFiles},
+    files::{Entry, EntryKind, ExtractLimits, FilesError, SafeRelPath, ServerFiles},
     ids::{InstanceId, JobId, UserId},
     instances::{Instance, InstanceError, InstanceService},
     jobs::{JobError, JobFailure, JobRunner, JobSpec, error_chain},
@@ -205,7 +205,8 @@ impl WorldService {
         if !found {
             return Err(WorldError::NotFound(folder.to_owned()));
         }
-        if view.running {
+        // Also while a crash's restart is pending: the server would come up in the middle of it.
+        if !self.instances.state(id).is_settled() {
             return Err(WorldError::Running);
         }
         let instance = self.instances.get(id).await?;
@@ -233,29 +234,36 @@ impl WorldService {
         let instance = self.instances.get(id).await?;
         let files = ServerFiles::open(&instance).await?;
         let target = path(folder)?;
-        if files
-            .list(SafeRelPath::root())
-            .await?
-            .iter()
-            .any(|entry| entry.name == folder)
-        {
-            return Err(WorldError::Exists(folder.to_owned()));
+        let taken = || WorldError::Exists(folder.to_owned());
+        if files.kind(target.clone()).await?.is_some() {
+            return Err(taken());
         }
-        let zip = path(&format!(".gsd-world-upload-{folder}.zip"))?;
-        files.upload(zip.clone(), body, true, MAX_UPLOAD_BYTES).await?;
-        let unpacked = async {
+        // The zip and what it unpacks to stay under names only this upload knows, until a world
+        // has been found in them. Whatever goes wrong, only they are removed: never a folder
+        // someone else (another upload, the server) made under the world's name meanwhile.
+        let work = upload_work_folder()?;
+        let zip = path(&format!("{work}.zip"))?;
+        files.upload(zip.clone(), body, false, MAX_UPLOAD_BYTES).await?;
+        let placed = async {
             files
-                .extract(zip.clone(), target.clone(), ExtractLimits::default())
+                .extract(zip.clone(), work.clone(), ExtractLimits::default())
                 .await?;
-            hoist_single_folder(&files, folder).await
+            let world = world_in(&files, &work).await?;
+            // A job that began during the upload (a restore) is changing these files now.
+            if self.instances.is_busy(id) {
+                return Err(WorldError::Busy);
+            }
+            match files.rename(world, target).await {
+                Err(FilesError::AlreadyExists(_)) => Err(taken()),
+                other => Ok(other?),
+            }
         }
         .await;
         let _ = files.remove_file(zip).await;
-        if let Err(error) = unpacked {
-            // What was unpacked isn't a world: it goes to the trash, not left lying around.
-            let _ = files.delete(vec![target]).await;
-            return Err(error);
-        }
+        // All of it when it held no world; what was beside the world otherwise (nothing, when the
+        // work folder itself became the world).
+        let _ = files.remove_tree(work).await;
+        placed?;
         if activate {
             set_property(&files, "level-name", folder).await?;
         }
@@ -349,8 +357,9 @@ impl WorldService {
         };
         let (backups, instances) = (self.backups.clone(), self.instances.clone());
         Ok(self.jobs.spawn(spec, move |job| async move {
-            // Checked again under the job's lock: the server may have been started meanwhile.
-            if instances.state(instance.id()).is_active() {
+            // Checked again under the job's lock: the server may have been started meanwhile. From
+            // here nobody can start it, and a crash's pending restart is cancelled.
+            if instances.ensure_stopped(instance.id()).await.is_err() {
                 return Err(JobFailure::msg("the server was started; stop it first"));
             }
             job.step("Backing up first");
@@ -451,30 +460,33 @@ async fn read_facts(files: &ServerFiles, folder: &str) -> Result<WorldFacts, Str
     Ok(info::facts(&level, world_gen.as_ref()))
 }
 
-/// A zip that held one folder with the world inside: that folder's contents become the world's.
-async fn hoist_single_folder(files: &ServerFiles, folder: &str) -> Result<(), WorldError> {
-    let top = files.list(path(folder)?).await?;
-    if top.iter().any(|entry| entry.name == LEVEL_DAT) {
-        return Ok(());
+/// A hidden folder name of this upload's own, at the top of the server folder.
+fn upload_work_folder() -> Result<SafeRelPath, WorldError> {
+    let token = gsd_core::random::random_token::<8>()
+        .map_err(|error| FilesError::InvalidOperation(format!("no randomness available: {error}")))?;
+    path(&format!(".gsd-world-upload-{token}"))
+}
+
+/// The world in what a zip unpacked to: the folder `unpacked` itself, or the one folder it holds
+/// (a zip of the world's folder rather than of its contents).
+async fn world_in(files: &ServerFiles, unpacked: &SafeRelPath) -> Result<SafeRelPath, WorldError> {
+    let has_level_dat = |entries: &[Entry]| {
+        entries
+            .iter()
+            .any(|entry| entry.name == LEVEL_DAT && entry.kind == EntryKind::File)
+    };
+    let top = files.list(unpacked.clone()).await?;
+    if has_level_dat(&top) {
+        return Ok(unpacked.clone());
     }
     let inner: Vec<_> = top.iter().filter(|entry| entry.name != MAC_FOLDER).collect();
     let [only] = inner.as_slice() else {
         return Err(WorldError::NoLevelDat);
     };
-    if only.kind != EntryKind::Directory
-        || !files
-            .list(only.path.clone())
-            .await?
-            .iter()
-            .any(|entry| entry.name == LEVEL_DAT)
-    {
+    if only.kind != EntryKind::Directory || !has_level_dat(&files.list(only.path.clone()).await?) {
         return Err(WorldError::NoLevelDat);
     }
-    let moved = path(&format!(".gsd-world-{folder}"))?;
-    files.rename(only.path.clone(), moved.clone()).await?;
-    files.delete(vec![path(folder)?]).await?;
-    files.rename(moved, path(folder)?).await?;
-    Ok(())
+    Ok(only.path.clone())
 }
 
 async fn level_name(files: &ServerFiles) -> Result<String, WorldError> {

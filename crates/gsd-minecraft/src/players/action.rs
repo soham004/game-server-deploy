@@ -209,7 +209,11 @@ impl PlayerAction {
     ///
     /// Players go by name only: the server resolves the name itself, and does nothing at all when an
     /// `id` disagrees with what it resolved (seen on a real 26.3 server).
-    pub fn management_call(&self, source: &str) -> (&'static str, Value) {
+    ///
+    /// An operator's level is always sent, `default_op_level` when none was asked for. Left out, the
+    /// running server would use the `op-permission-level` it started with, which can differ from the
+    /// file's value that the caller's rights were checked against.
+    pub fn management_call(&self, source: &str, default_op_level: u8) -> (&'static str, Value) {
         let player = |name: &str| json!({ "name": name });
         let expiry =
             |expires: &Option<DateTime<Utc>>| expires.map(|at| at.to_rfc3339_opts(SecondsFormat::Secs, true));
@@ -229,10 +233,11 @@ impl PlayerAction {
         };
         match self {
             Self::Op { name, level } => {
-                let mut operator = json!({ "player": player(name), "bypassesPlayerLimit": false });
-                if let Some(level) = level {
-                    operator["permissionLevel"] = (*level).into();
-                }
+                let operator = json!({
+                    "player": player(name),
+                    "permissionLevel": level.unwrap_or(default_op_level),
+                    "bypassesPlayerLimit": false,
+                });
                 ("minecraft:operators/add", json!({ "add": [operator] }))
             }
             Self::Deop { name } => ("minecraft:operators/remove", json!({ "remove": [player(name)] })),
@@ -490,7 +495,7 @@ mod tests {
             name: "E2E_Bot".into(),
             level: Some(3),
         }
-        .management_call("admin");
+        .management_call("admin", 4);
         assert_eq!(method, "minecraft:operators/add");
         assert_eq!(
             params,
@@ -502,7 +507,7 @@ mod tests {
             reason: Some("Testing".into()),
             expires: Some(at),
         }
-        .management_call("admin");
+        .management_call("admin", 4);
         assert_eq!(
             params,
             json!({ "add": [{ "player": { "name": "E2E_Bot" }, "source": "admin", "reason": "Testing", "expires": "2026-11-09T18:01:34Z" }] })
@@ -510,7 +515,7 @@ mod tests {
         let (method, params) = PlayerAction::PardonIp {
             ip: "10.1.2.3".into(),
         }
-        .management_call("admin");
+        .management_call("admin", 4);
         assert_eq!(
             (method, params),
             ("minecraft:ip_bans/remove", json!({ "ip": ["10.1.2.3"] }))
@@ -519,7 +524,7 @@ mod tests {
             name: "E2E_Bot".into(),
             reason: Some("Bye".into()),
         }
-        .management_call("admin");
+        .management_call("admin", 4);
         assert_eq!(
             params,
             json!({ "kick": [{ "player": { "name": "E2E_Bot" }, "message": { "literal": "Bye" } }] })

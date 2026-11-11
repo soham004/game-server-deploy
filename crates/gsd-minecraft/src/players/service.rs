@@ -153,6 +153,9 @@ impl PlayerService {
         if channel == ActionChannel::Files && self.instances.is_busy(id) {
             return Err(PlayersError::Busy);
         }
+        let watch_level = !may_give_any_level
+            && channel != ActionChannel::Files
+            && self.may_come_out_too_high(&instance, action, channel).await?;
         let via = match channel {
             ActionChannel::Management => {
                 self.through_management(&instance, action, author, &settings)
@@ -171,7 +174,49 @@ impl PlayerService {
             }
         };
         let players = self.confirmed(&instance, action).await?;
+        if watch_level && via == ActionChannel::Console {
+            self.undo_op_above_level(id, action, author, &players).await?;
+        }
         Ok(Applied { via, players })
+    }
+
+    /// Whether making this operator could give a level above what `players.manage` allows: only
+    /// someone who isn't above it already can end up there.
+    async fn may_come_out_too_high(
+        &self,
+        instance: &Instance,
+        action: &PlayerAction,
+        channel: ActionChannel,
+    ) -> Result<bool, PlayersError> {
+        let PlayerAction::Op { name, .. } = action else {
+            return Ok(false);
+        };
+        let before = self.view_of(instance, Some(channel)).await?;
+        Ok(!is_operator_above_level(&before, name))
+    }
+
+    /// The console's `op` gives the level the running server started with. That can be higher
+    /// than the `op-permission-level` now in its file, which is what the caller's rights were
+    /// checked against, and the console has no way to ask. So the lists are looked at afterwards:
+    /// an operator who came out above level 2 is removed again, and the action refused.
+    async fn undo_op_above_level(
+        &self,
+        id: InstanceId,
+        action: &PlayerAction,
+        author: &str,
+        players: &PlayersView,
+    ) -> Result<(), PlayersError> {
+        let PlayerAction::Op { name, .. } = action else {
+            return Ok(());
+        };
+        if !is_operator_above_level(players, name) {
+            return Ok(());
+        }
+        let undo = PlayerAction::Deop { name: name.clone() };
+        self.instances
+            .send_command(id, &undo.console_command(), Some(author.to_owned()))
+            .await?;
+        Err(PlayersError::LevelNotAllowed)
     }
 
     async fn view_of(
@@ -225,7 +270,7 @@ impl PlayerService {
             }
             Err(error) => return Err(error.into()),
         };
-        let (method, params) = action.management_call(author);
+        let (method, params) = action.management_call(author, settings.default_op_level);
         let reply = client
             .call(method, Some(params))
             .await
@@ -431,6 +476,14 @@ impl PlayerService {
             }
         }
     }
+}
+
+/// Whether `name` is an operator above the level `players.manage` may give.
+fn is_operator_above_level(players: &PlayersView, name: &str) -> bool {
+    players
+        .operators
+        .iter()
+        .any(|operator| operator.name.eq_ignore_ascii_case(name) && operator.level > PLAYERS_MANAGE_MAX_LEVEL)
 }
 
 /// How changes can be made in this state; `None` while it starts or stops.

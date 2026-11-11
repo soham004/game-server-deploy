@@ -3,6 +3,8 @@
 
 #![allow(clippy::unwrap_used)]
 
+mod hostile;
+
 use std::{io::Write, path::Path};
 
 use bytes::Bytes;

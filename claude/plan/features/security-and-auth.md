@@ -20,7 +20,7 @@ compromised panel is a compromised machine. Security defaults matter.
 - Session token = 32 random bytes; only its SHA-256 is stored. Cookie `gsd_session`: `HttpOnly`, `SameSite=Strict`,
   `Secure` when served over TLS, `Path=/`. 30-day sliding expiry; "log out other sessions".
 - CSRF: SameSite=Strict + a required custom header `X-CSRF: 1` on non-GET requests, plus an `Origin` check.
-- Login rate limiting: per IP + per username exponential backoff.
+- Login rate limiting (built, D-060): per address + username and per address, exponential backoff, `429` with `Retry-After`.
 - WebSocket upgrade checks the session cookie and `Origin` (built, D-041).
 
 ## Hardening

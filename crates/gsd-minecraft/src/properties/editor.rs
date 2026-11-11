@@ -5,10 +5,17 @@
 //! edit is refused instead of silently overwriting. Edits are validated against the schema, may
 //! not change app-managed keys (the ports the sandbox allows), and are written atomically and
 //! handed to the instance's user.
+//!
+//! The file is the server's own: it is read and written through the file manager
+//! ([`ServerFiles`]), which doesn't follow a link out of the server folder and reads no more than
+//! a settings file can hold, whatever the server put there.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::BTreeMap;
 
-use gsd_core::instances::{Instance, layout::assign_file_ownership};
+use gsd_core::{
+    files::{FilesError, SafeRelPath, ServerFiles},
+    instances::Instance,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -62,18 +69,29 @@ pub enum PropertiesError {
     Invalid(Vec<FieldError>),
     #[error("the file is larger than {MAX_FILE_BYTES} bytes")]
     TooLarge,
-    #[error("filesystem error at {path}")]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Files(FilesError),
+}
+
+impl From<FilesError> for PropertiesError {
+    fn from(error: FilesError) -> Self {
+        match error {
+            FilesError::TooLarge { .. } => Self::TooLarge,
+            // The server rewrote the file between the look and the save.
+            FilesError::Conflict(_) | FilesError::AlreadyExists(_) => Self::Conflict,
+            other => Self::Files(other),
+        }
+    }
 }
 
 /// Reads the current file (an empty document if it doesn't exist yet).
 pub async fn read(instance: &Instance) -> Result<PropertiesSnapshot, PropertiesError> {
-    let (bytes, exists) = read_bytes(instance).await?;
-    Ok(snapshot(&bytes, exists))
+    let files = ServerFiles::open(instance).await?;
+    let current = read_bytes(&files).await?;
+    Ok(snapshot(
+        current.as_deref().unwrap_or_default(),
+        current.is_some(),
+    ))
 }
 
 /// Applies `edit` if the file is still at `expected_revision`; returns the new state.
@@ -83,11 +101,13 @@ pub async fn apply(
     expected_revision: &str,
 ) -> Result<PropertiesSnapshot, PropertiesError> {
     let _guard = WRITE_LOCK.lock().await;
-    let (bytes, _) = read_bytes(instance).await?;
-    if revision(&bytes) != expected_revision {
+    let files = ServerFiles::open(instance).await?;
+    let on_disk = read_bytes(&files).await?;
+    let bytes = on_disk.as_deref().unwrap_or_default();
+    if revision(bytes) != expected_revision {
         return Err(PropertiesError::Conflict);
     }
-    let current = PropertiesDoc::from_bytes(&bytes);
+    let current = PropertiesDoc::from_bytes(bytes);
     let updated = edited(&current, edit)?;
     check(&current, &updated)?;
 
@@ -95,7 +115,11 @@ pub async fn apply(
     if text.len() > MAX_FILE_BYTES {
         return Err(PropertiesError::TooLarge);
     }
-    write(instance, text.as_bytes()).await?;
+    // Saved only over the file just read (or over none): the file manager checks again.
+    let replaces = on_disk.is_some().then(|| expected_revision.to_owned());
+    files
+        .write_bytes(file()?, text.clone().into_bytes(), replaces)
+        .await?;
     Ok(snapshot(text.as_bytes(), true))
 }
 
@@ -202,30 +226,13 @@ fn revision(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn path(instance: &Instance) -> PathBuf {
-    instance.layout.server_dir().join(FILE)
+fn file() -> Result<SafeRelPath, PropertiesError> {
+    Ok(SafeRelPath::parse(FILE).map_err(FilesError::from)?)
 }
 
-async fn read_bytes(instance: &Instance) -> Result<(Vec<u8>, bool), PropertiesError> {
-    let path = path(instance);
-    match tokio::fs::read(&path).await {
-        Ok(bytes) => Ok((bytes, true)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok((Vec::new(), false)),
-        Err(source) => Err(PropertiesError::Io { path, source }),
-    }
-}
-
-/// Atomic replace (temporary file + rename), then ownership back to the server's user.
-async fn write(instance: &Instance, bytes: &[u8]) -> Result<(), PropertiesError> {
-    let path = path(instance);
-    let temp = path.with_extension("properties.gsd-tmp");
-    let io = |source| PropertiesError::Io {
-        path: path.clone(),
-        source,
-    };
-    tokio::fs::write(&temp, bytes).await.map_err(io)?;
-    assign_file_ownership(&temp, instance.definition.sandbox).map_err(io)?;
-    tokio::fs::rename(&temp, &path).await.map_err(io)
+/// The file's bytes, or `None` when there is none yet.
+async fn read_bytes(files: &ServerFiles) -> Result<Option<Vec<u8>>, PropertiesError> {
+    Ok(files.read_optional(file()?, MAX_FILE_BYTES as u64).await?)
 }
 
 #[cfg(test)]

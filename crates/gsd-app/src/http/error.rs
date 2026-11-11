@@ -198,6 +198,7 @@ impl From<CreateError> for ApiError {
             CreateError::SourceNotInstalled | CreateError::NotInstalled => {
                 Self::new(StatusCode::CONFLICT, "not_installed", message)
             }
+            CreateError::SourceRunning => Self::new(StatusCode::CONFLICT, "instance_running", message),
             CreateError::VersionUnchanged(_) => invalid("version_unchanged"),
             CreateError::DowngradeNotConfirmed { .. } => {
                 Self::new(StatusCode::CONFLICT, "downgrade_not_confirmed", message)
@@ -264,7 +265,7 @@ impl From<gsd_minecraft::properties::PropertiesError> for ApiError {
                     .with_details(fields)
             }
             PropertiesError::TooLarge => Self::new(StatusCode::PAYLOAD_TOO_LARGE, "file_too_large", message),
-            PropertiesError::Io { .. } => Self::internal(&error),
+            PropertiesError::Files(error) => error.into(),
         }
     }
 }

@@ -16,7 +16,7 @@ use std::{
 use chrono::Utc;
 use serde::Serialize;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader},
+    io::{AsyncRead, AsyncWriteExt, BufReader},
     process::ChildStdin,
     sync::{mpsc, oneshot, watch},
     time::Instant,
@@ -35,10 +35,11 @@ use crate::{
 
 /// Console lines kept in memory per instance.
 pub const CONSOLE_HISTORY: usize = 2000;
-/// Longest console line kept (longer ones are truncated).
-const MAX_LINE_BYTES: usize = 16 * 1024;
 /// How long to wait for output pipes to close after the process exited.
 const PIPE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+/// How long the server may take to accept a console line. A server that stopped reading its
+/// console must not hold up the actor: stop, kill and the timers all wait behind a write.
+const STDIN_TIMEOUT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SupervisorError {
@@ -122,7 +123,7 @@ impl SupervisorHandle {
     ) -> Self {
         let (commands, receiver) = mpsc::channel(64);
         let (state_tx, state) = watch::channel(ServerState::initial());
-        let (process_tx, process_rx) = mpsc::unbounded_channel();
+        let (process_tx, process_rx) = mpsc::channel(process::LINE_BACKLOG);
         let actor = Actor {
             instance_id,
             adapter,
@@ -232,7 +233,7 @@ struct Actor {
     generation: u64,
     stdin: Option<ChildStdin>,
     kill_tx: Option<oneshot::Sender<()>>,
-    process_tx: mpsc::UnboundedSender<ProcessEvent>,
+    process_tx: mpsc::Sender<ProcessEvent>,
     console: VecDeque<LogLine>,
     seq: u64,
     players: BTreeSet<String>,
@@ -245,7 +246,7 @@ impl Actor {
     async fn run(
         mut self,
         mut commands: mpsc::Receiver<Command>,
-        mut process_rx: mpsc::UnboundedReceiver<ProcessEvent>,
+        mut process_rx: mpsc::Receiver<ProcessEvent>,
     ) {
         loop {
             tokio::select! {
@@ -415,6 +416,7 @@ impl Actor {
         ));
         tokio::spawn(wait_for_exit(
             spawned.child,
+            spawned.pid,
             kill_rx,
             [stdout, stderr],
             generation,
@@ -456,10 +458,11 @@ impl Actor {
                     LogLevel::Warn
                 };
                 self.system_line(level, format!("Server process exited ({how})."));
-                if let Some(cgroup) = self.cgroup.take()
-                    && cgroup.memory_limit_hit()
-                {
-                    self.report_memory_limit(&cgroup);
+                if let Some(cgroup) = self.cgroup.take() {
+                    if cgroup.memory_limit_hit() {
+                        self.report_memory_limit(&cgroup);
+                    }
+                    self.kill_leftovers(&cgroup);
                 }
                 let _ = self.input(Input::Exited(exit)).await;
             }
@@ -510,7 +513,9 @@ impl Actor {
             return Err(SupervisorError::NotAcceptingInput);
         }
         let command = line.trim().trim_start_matches('/');
-        if command.is_empty() || command.contains('\n') {
+        // Any control character, not only a line feed: Java's console also ends a line at a
+        // carriage return, which would make what follows a second command.
+        if command.is_empty() || command.chars().any(char::is_control) {
             return Err(SupervisorError::Write(
                 "commands must be a single non-empty line".into(),
             ));
@@ -540,12 +545,37 @@ impl Actor {
         let mut bytes = Vec::with_capacity(line.len() + 1);
         bytes.extend_from_slice(line.as_bytes());
         bytes.push(b'\n');
-        let result = async {
+        let write = async {
             stdin.write_all(&bytes).await?;
             stdin.flush().await
+        };
+        if let Ok(result) = tokio::time::timeout(STDIN_TIMEOUT, write).await {
+            return result.map_err(|error| SupervisorError::Write(error.to_string()));
         }
-        .await;
-        result.map_err(|error| SupervisorError::Write(error.to_string()))
+        // Part of the line may be in the pipe: nothing sent after it would arrive whole.
+        self.stdin = None;
+        self.system_line(
+            LogLevel::Warn,
+            "The server isn't reading its console; it takes no more commands until it is restarted.".into(),
+        );
+        Err(SupervisorError::Write(
+            "the server isn't reading its console".into(),
+        ))
+    }
+
+    /// Stops what the server started and left running in its control group.
+    fn kill_leftovers(&mut self, cgroup: &CgroupSlot) {
+        match cgroup.kill_leftovers() {
+            Ok(false) => {}
+            Ok(true) => self.system_line(
+                LogLevel::Warn,
+                "The server left processes running; they were stopped.".into(),
+            ),
+            Err(error) => self.system_line(
+                LogLevel::Warn,
+                format!("Could not stop the processes the server left running: {error}"),
+            ),
+        }
     }
 
     /// A lifecycle message: shown in the console and written to the app log.
@@ -630,46 +660,37 @@ impl Actor {
     }
 }
 
-/// Reads lines (lossy UTF-8, CR/LF trimmed, length-capped) and forwards them to the actor.
+/// Reads lines (see [`process::read_line`]) and forwards them to the actor. When the actor falls
+/// behind, this waits, and so does the server on its pipe.
 async fn forward_lines(
     pipe: impl AsyncRead + Unpin,
     source: LineSource,
     generation: u64,
-    sender: mpsc::UnboundedSender<ProcessEvent>,
+    sender: mpsc::Sender<ProcessEvent>,
 ) {
     let mut reader = BufReader::new(pipe);
     let mut buffer = Vec::with_capacity(256);
-    loop {
-        buffer.clear();
-        match reader.read_until(b'\n', &mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                buffer.truncate(MAX_LINE_BYTES);
-                let raw = String::from_utf8_lossy(&buffer)
-                    .trim_end_matches(['\r', '\n'])
-                    .to_owned();
-                if sender
-                    .send(ProcessEvent::Line {
-                        generation,
-                        source,
-                        raw,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
+    while let Ok(Some(raw)) = process::read_line(&mut reader, &mut buffer).await {
+        let line = ProcessEvent::Line {
+            generation,
+            source,
+            raw,
+        };
+        if sender.send(line).await.is_err() {
+            break;
         }
     }
 }
 
-/// Waits for the process (killing it on request), lets the readers drain, then reports the exit.
+/// Waits for the process (killing it on request), stops what it left running in its process
+/// group, lets the readers drain, then reports the exit.
 async fn wait_for_exit(
     mut child: tokio::process::Child,
+    pid: Option<u32>,
     kill: oneshot::Receiver<()>,
     readers: [tokio::task::JoinHandle<()>; 2],
     generation: u64,
-    sender: mpsc::UnboundedSender<ProcessEvent>,
+    sender: mpsc::Sender<ProcessEvent>,
 ) {
     let status = tokio::select! {
         status = child.wait() => status,
@@ -678,6 +699,7 @@ async fn wait_for_exit(
             child.wait().await
         }
     };
+    process::kill_group(pid);
     for reader in readers {
         let _ = tokio::time::timeout(PIPE_DRAIN_TIMEOUT, reader).await;
     }
@@ -688,7 +710,7 @@ async fn wait_for_exit(
         },
         process::exit_info,
     );
-    let _ = sender.send(ProcessEvent::Exited { generation, exit });
+    let _ = sender.send(ProcessEvent::Exited { generation, exit }).await;
 }
 
 async fn sleep_until(deadline: Option<Instant>) {

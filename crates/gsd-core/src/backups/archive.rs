@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 use super::model::Manifest;
+use crate::files::regular::open_regular;
 
 /// The manifest's name at the top of the archive.
 pub const MANIFEST_NAME: &str = "gsd-backup.json";
@@ -227,9 +228,16 @@ fn add_entry(
     if !metadata.is_file() {
         return Ok(false);
     }
+    // Opened before its entry is started: the server may have swapped it for a FIFO since the
+    // look above, and that is then left out like any other special file.
+    let mut file = match open_regular(dir, Path::new(name)) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::InvalidInput => return Ok(false),
+        Err(error) => return Err(error),
+    };
     zip.start_file(path, file_options(metadata.len()))
         .map_err(io::Error::other)?;
-    totals.bytes += io::copy(&mut dir.open(name)?, zip)?;
+    totals.bytes += io::copy(&mut file, zip)?;
     totals.files += 1;
     Ok(true)
 }

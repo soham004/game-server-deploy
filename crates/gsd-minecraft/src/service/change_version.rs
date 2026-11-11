@@ -4,14 +4,15 @@
 //! something fails after the backup, the error names the backup to restore.
 //!
 //! Going to an older Minecraft version can corrupt a world (newer chunks don't load in older
-//! versions), so it must be confirmed (`allow_downgrade`). The caller makes sure the server is
-//! stopped.
+//! versions), so it must be confirmed (`allow_downgrade`). The job itself makes sure the server
+//! is stopped and stays so (`InstanceService::ensure_stopped`).
 
 use std::path::{Component, Path, PathBuf};
 
 use chrono::Utc;
 use gsd_core::{
     backups::{BackupKind, BackupRequest, BackupScope, BackupService},
+    files::{FilesError, SafeRelPath, ServerFiles},
     ids::{InstanceId, JobId, UserId},
     instances::{
         Instance,
@@ -80,6 +81,9 @@ impl MinecraftService {
         };
         let (service, backups) = (self.clone(), backups.clone());
         Ok(self.jobs.spawn(spec, move |job| async move {
+            // Checked here, holding the instance's lock: nobody can start the server from now on,
+            // and a crash's pending restart is cancelled rather than left to fire mid-install.
+            service.instances.ensure_stopped(instance.id()).await?;
             let backup = service
                 .safety_backup(&instance, &current, &target, request.by, &backups, &job)
                 .await?;
@@ -270,13 +274,18 @@ async fn remove_old_loader_files(instance: &Instance, new_launch: &LaunchSpec, j
     let Some(old_folder) = old_loader_folder(&instance.definition.launch, new_launch) else {
         return;
     };
-    let path = instance.layout.server_dir().join(&old_folder);
-    match tokio::fs::remove_dir_all(&path).await {
+    // Through the file manager: a folder on the way that the server turned into a link must not
+    // lead the removal somewhere else.
+    let removed = async {
+        let path = SafeRelPath::parse(&old_folder.to_string_lossy().replace('\\', "/"))?;
+        ServerFiles::open(instance).await?.remove_tree(path).await
+    };
+    match removed.await {
         Ok(()) => job.log(format!(
             "Removed the old version's files: {}",
             old_folder.display()
         )),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(FilesError::NotFound(_)) => {}
         Err(error) => job.log(format!("Could not remove {}: {error}", old_folder.display())),
     }
 }

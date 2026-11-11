@@ -4,7 +4,7 @@
 use std::{io, path::PathBuf, process::Stdio, time::Duration};
 
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, BufReader},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader},
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
     sync::mpsc,
 };
@@ -105,7 +105,10 @@ pub enum RunOutcome {
 }
 
 /// Longest output line passed on (longer lines are truncated).
-const MAX_LINE_BYTES: usize = 16 * 1024;
+pub(crate) const MAX_LINE_BYTES: usize = 16 * 1024;
+/// Output lines that may wait to be handled. A process that prints faster than that waits on its
+/// pipe, as it would with a slow terminal, instead of filling the app's memory.
+pub(crate) const LINE_BACKLOG: usize = 1024;
 /// How long to keep reading buffered output after the process exited.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -121,14 +124,19 @@ pub async fn run_to_completion(
 ) -> io::Result<RunOutcome> {
     let mut spawned = spawn(spec, host)?;
     drop(spawned.stdin);
-    let (lines_tx, mut lines) = mpsc::unbounded_channel();
+    let (lines_tx, mut lines) = mpsc::channel(LINE_BACKLOG);
     tokio::spawn(send_lines(spawned.stdout, lines_tx.clone()));
     tokio::spawn(send_lines(spawned.stderr, lines_tx));
 
+    let group = spawned.pid;
     let status = loop {
         tokio::select! {
             Some(line) = lines.recv() => on_line(&line),
-            status = spawned.child.wait() => break status?,
+            status = spawned.child.wait() => {
+                // What it started in its group must not outlive it.
+                kill_group(group);
+                break status?;
+            }
             () = cancel.cancelled() => {
                 kill(&mut spawned.child);
                 let _ = spawned.child.wait().await;
@@ -147,34 +155,64 @@ pub async fn run_to_completion(
     Ok(RunOutcome::Exited(exit_info(status)))
 }
 
-/// Forwards lines (lossy UTF-8, CR/LF trimmed, length-capped) until EOF.
-async fn send_lines(pipe: impl AsyncRead + Unpin, sender: mpsc::UnboundedSender<String>) {
+/// Forwards lines (see [`read_line`]) until EOF.
+async fn send_lines(pipe: impl AsyncRead + Unpin, sender: mpsc::Sender<String>) {
     let mut reader = BufReader::new(pipe);
     let mut buffer = Vec::with_capacity(256);
-    loop {
-        buffer.clear();
-        match reader.read_until(b'\n', &mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                buffer.truncate(MAX_LINE_BYTES);
-                let line = String::from_utf8_lossy(&buffer)
-                    .trim_end_matches(['\r', '\n'])
-                    .to_owned();
-                if sender.send(line).is_err() {
-                    break;
-                }
-            }
+    while let Ok(Some(line)) = read_line(&mut reader, &mut buffer).await {
+        if sender.send(line).await.is_err() {
+            break;
         }
     }
 }
 
+/// The next line of a process's output: lossy UTF-8, without its line ending, and at most
+/// [`MAX_LINE_BYTES`] of it. The rest of a longer line is read and dropped as it comes, so output
+/// that never ends its line can't grow the app's memory. `None` at the end of the output.
+pub(crate) async fn read_line(
+    reader: &mut (impl AsyncBufRead + Unpin),
+    buffer: &mut Vec<u8>,
+) -> io::Result<Option<String>> {
+    buffer.clear();
+    let mut read_any = false;
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            break;
+        }
+        read_any = true;
+        let line_end = available.iter().position(|byte| *byte == b'\n');
+        let part = &available[..line_end.unwrap_or(available.len())];
+        let room = MAX_LINE_BYTES.saturating_sub(buffer.len());
+        buffer.extend_from_slice(&part[..part.len().min(room)]);
+        let consumed = part.len() + usize::from(line_end.is_some());
+        reader.consume(consumed);
+        if line_end.is_some() {
+            break;
+        }
+    }
+    if !read_any {
+        return Ok(None);
+    }
+    let line = String::from_utf8_lossy(buffer);
+    Ok(Some(line.trim_end_matches('\r').to_owned()))
+}
+
 /// Kills the process and its whole process group.
 pub(crate) fn kill(child: &mut Child) {
+    kill_group(child.id());
+    let _ = child.start_kill();
+}
+
+/// Kills the process group `pid` leads, if any of it is left. Also used once the leader has exited
+/// by itself: what it started in its group must not outlive it.
+pub(crate) fn kill_group(pid: Option<u32>) {
     #[cfg(unix)]
-    if let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) {
+    if let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()) {
         let _ = nix::sys::signal::killpg(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL);
     }
-    let _ = child.start_kill();
+    #[cfg(not(unix))]
+    let _ = pid;
 }
 
 pub(crate) fn exit_info(status: std::process::ExitStatus) -> ExitInfo {
@@ -266,6 +304,73 @@ mod tests {
         assert!(matches!(outcome, RunOutcome::Exited(exit) if exit.code == Some(0)));
         assert_eq!(lines, ["done"]);
         assert!(started.elapsed() < Duration::from_secs(4), "drain is bounded");
+    }
+
+    fn is_alive(pid: &str) -> bool {
+        std::path::Path::new("/proc").join(pid.trim()).exists()
+    }
+
+    /// What a process started in its group must not go on running after it: its files would keep
+    /// changing under whatever the app does next.
+    #[tokio::test]
+    async fn a_child_left_in_the_group_is_stopped_when_the_process_exits() {
+        let (outcome, lines) = run("sleep 300 & echo $!; exit 0", &CancellationToken::new()).await;
+        assert!(matches!(outcome, RunOutcome::Exited(exit) if exit.code == Some(0)));
+        let child = lines.first().expect("the child's pid was printed");
+        for _ in 0..50 {
+            if !is_alive(child) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the child {child} outlived the process that started it");
+    }
+
+    async fn lines_of(output: &[u8]) -> Vec<String> {
+        let mut reader = BufReader::with_capacity(64, output);
+        let (mut buffer, mut lines) = (Vec::new(), Vec::new());
+        while let Some(line) = read_line(&mut reader, &mut buffer).await.unwrap() {
+            lines.push(line);
+        }
+        lines
+    }
+
+    #[tokio::test]
+    async fn lines_are_split_trimmed_and_the_last_one_needs_no_ending() {
+        assert_eq!(lines_of(b"one\r\ntwo\n\nlast").await, ["one", "two", "", "last"]);
+        assert_eq!(lines_of(b"").await, Vec::<String>::new());
+        assert_eq!(lines_of(b"\n").await, [""]);
+        assert_eq!(lines_of(&[b'a', 0xff, b'b', b'\n']).await, ["a\u{fffd}b"]);
+    }
+
+    /// A line is kept up to the limit and the rest of it dropped as it is read, so the line after
+    /// it still arrives whole.
+    #[tokio::test]
+    async fn an_overlong_line_is_cut_and_the_next_one_is_intact() {
+        let mut output = vec![b'x'; MAX_LINE_BYTES * 3 + 17];
+        output.extend_from_slice(b"\nnext\n");
+        let lines = lines_of(&output).await;
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].len(), MAX_LINE_BYTES);
+        assert_eq!(lines[1], "next");
+    }
+
+    /// Output that never ends its line used to be collected until the line ended: never. Half a
+    /// gigabyte goes through here; if any of it were kept, this test's memory would show it, and
+    /// reading it into a buffer first would take far longer than this allows.
+    #[tokio::test]
+    async fn output_that_never_ends_its_line_does_not_grow_memory() {
+        let started = Instant::now();
+        let (outcome, lines) = run(
+            "head -c 536870912 /dev/zero | tr '\\0' 'x'; echo; echo after",
+            &CancellationToken::new(),
+        )
+        .await;
+        assert!(matches!(outcome, RunOutcome::Exited(exit) if exit.code == Some(0)));
+        assert_eq!(lines.len(), 2, "one cut line, then the next");
+        assert_eq!(lines[0].len(), MAX_LINE_BYTES);
+        assert_eq!(lines[1], "after");
+        assert!(started.elapsed() < Duration::from_secs(60));
     }
 
     /// Silently running without the sandbox would be the worst way for this to go wrong.

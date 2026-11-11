@@ -45,6 +45,17 @@ pub fn fixture_text(name: &str) -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
+/// The file manager on a plain folder, for tests of what the app does inside a server folder.
+pub async fn server_files(folder: &Path) -> gsd_core::files::ServerFiles {
+    let ids = gsd_core::instances::SandboxIds {
+        uid: 20000,
+        gid: 20000,
+    };
+    gsd_core::files::ServerFiles::open_folder(folder.to_owned(), folder.join(".trash"), ids)
+        .await
+        .unwrap()
+}
+
 pub fn hash_hex<D: Digest>(bytes: &[u8]) -> String {
     hex::encode(D::digest(bytes))
 }
@@ -184,8 +195,9 @@ pub fn catalog_for(server: &MockServer, cache: &Path) -> Catalog {
 /// - run with `--reports --output <dir>` (the data generator): refuses unless `server.jar` is in
 ///   the working directory, then copies `datagen-output/` (the real 26.3 `commands.json` and
 ///   `registries.json`) to `<dir>`. A `fail-datagen` file makes it fail with exit code 5.
-/// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `say`, `join <name>`,
-///   `leave <name>`, `kick <name>`, `op <name>` (writes `ops.json` with just them), `save-off`,
+/// - otherwise: plays a Minecraft server on stdin/stdout (`stop`, `crash` (exits with code 3),
+///   `say`, `join <name>`, `leave <name>`, `kick <name>`, `op <name>` (writes `ops.json` with just
+///   them, at level 4, whatever `server.properties` says), `deop <name>` (empties it), `save-off`,
 ///   `save-all flush`, `save-on`; `write <text>` puts `<text>` in `world/level.dat`; `help`
 ///   answers with `help.txt`, one usage a line, a mod's `chunky` among vanilla ones). A `no-save`
 ///   file in `java_home` makes it never confirm a save.
@@ -275,6 +287,7 @@ echo '[12:00:01] [Server thread/INFO]: Done (0.42s)! For help, type "help"'
 while IFS= read -r line; do
   case "$line" in
     stop) echo "[12:00:09] [Server thread/INFO]: Stopping the server"; exit 0 ;;
+    crash) echo "[12:00:09] [Server thread/ERROR]: Encountered an unexpected exception"; exit 3 ;;
     say\ *) echo "[12:00:05] [Server thread/INFO]: [Server] ${line#say }" ;;
     join\ *) echo "[12:00:05] [Server thread/INFO]: ${line#join } joined the game" ;;
     leave\ *) echo "[12:00:05] [Server thread/INFO]: System chat: ${line#leave } left the game" ;;
@@ -283,6 +296,8 @@ while IFS= read -r line; do
     op\ *) who="${line#op }"
       printf '[{"uuid":"11111111-1111-4111-8111-111111111111","name":"%s","level":4,"bypassesPlayerLimit":false}]\n' "$who" > ops.json
       echo "[12:00:05] [Server thread/INFO]: System chat: Made $who a server operator" ;;
+    deop\ *) printf '[]\n' > ops.json
+      echo "[12:00:05] [Server thread/INFO]: System chat: Made ${line#deop } no longer a server operator" ;;
     save-off) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now disabled" ;;
     save-on) echo "[12:00:06] [Server thread/INFO]: System chat: Automatic saving is now enabled" ;;
     save-all\ flush)

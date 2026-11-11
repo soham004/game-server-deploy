@@ -12,7 +12,7 @@ use chrono::Utc;
 use gsd_core::{
     ids::JobId,
     instances::{
-        Instance, InstanceRegistry, NewInstance,
+        Instance, InstanceRegistry, InstanceService, NewInstance,
         definition::{Behavior, JavaSettings, JvmPreset, LaunchSpec, RuntimeChoice},
         registry::RegistryError,
     },
@@ -86,6 +86,8 @@ pub enum CreateError {
     },
     #[error("the server to copy has not finished installing")]
     SourceNotInstalled,
+    #[error("stop the server before copying it")]
+    SourceRunning,
     #[error("the server isn't installed yet")]
     NotInstalled,
     #[error("the server already runs {0}")]
@@ -128,6 +130,8 @@ impl From<CatalogError> for CreateError {
 #[derive(Debug, Clone)]
 pub struct MinecraftService {
     catalog: Catalog,
+    /// For what an install must know about the running server: it has to be stopped, and stay so.
+    instances: InstanceService,
     registry: InstanceRegistry,
     java: JavaRuntimes,
     jobs: JobRunner,
@@ -148,18 +152,18 @@ pub struct MinecraftPaths {
 impl MinecraftService {
     pub fn new(
         catalog: Catalog,
-        registry: InstanceRegistry,
+        instances: InstanceService,
         java: JavaRuntimes,
         jobs: JobRunner,
-        host: HostSandbox,
         paths: MinecraftPaths,
     ) -> Self {
         Self {
             catalog,
-            registry,
+            registry: instances.registry().clone(),
+            host: instances.supervisors().host().clone(),
+            instances,
             java,
             jobs,
-            host,
             paths,
         }
     }
@@ -248,6 +252,9 @@ impl MinecraftService {
         };
         let service = self.clone();
         Ok(self.jobs.spawn(spec, move |job| async move {
+            // A reinstall replaces the files a server would be running from. A crash's pending
+            // restart is cancelled here; a server that runs is refused.
+            service.instances.ensure_stopped(instance.id()).await?;
             let java_major = instance.definition.java.major;
             job.step(format!("Checking Java {java_major}"));
             let java = service.java.ensure(java_major, &job).await?;

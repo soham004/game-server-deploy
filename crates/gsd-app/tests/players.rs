@@ -540,6 +540,61 @@ async fn levels_above_two_need_console_write_and_banned_addresses_need_players_m
     );
 }
 
+/// The console's `op` gives the level the running server started with; the file may say less by
+/// now. A moderator's rights are checked against the file, so what the server actually gave is
+/// checked afterwards, and taken back when it is more than they may give.
+#[tokio::test]
+async fn an_operator_made_above_a_moderators_rights_through_the_console_is_undone() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let id = app.installed_instance("Levels", &cookie).await;
+    start(&app, &id, &cookie).await;
+    // After the start: the fake server, like a real one, keeps giving level 4.
+    std::fs::write(
+        server_dir(&app, &id).await.join("server.properties"),
+        "online-mode=false\nop-permission-level=2\n",
+    )
+    .unwrap();
+
+    let moderator = app.create_user("moderator", GlobalRole::Member).await;
+    app.state
+        .auth
+        .grants()
+        .set(moderator, id.parse().unwrap(), Grant::Moderator)
+        .await
+        .unwrap();
+    let moderator = app.login("moderator").await;
+
+    assert_eq!(
+        refused(&app, &id, &moderator, json!({ "action": "op", "name": "Steve" })).await,
+        (StatusCode::FORBIDDEN, "missing_permission".into())
+    );
+    // Taken back (the server answers the console in its own time).
+    players_until(&app, &id, &cookie, |view| view["operators"] == json!([])).await;
+    let console: Vec<String> = json_body(
+        app.get(&format!("/api/v1/instances/{id}/console"), Some(&cookie))
+            .await,
+    )
+    .await["console"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|line| line["text"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert!(
+        console.iter().any(|line| line == "[moderator] > deop Steve"),
+        "{console:?}"
+    );
+
+    // Someone who was an operator at level 4 already isn't touched by a moderator's `op`.
+    done(&app, &id, &cookie, json!({ "action": "op", "name": "Alex" })).await;
+    done(&app, &id, &moderator, json!({ "action": "op", "name": "Alex" })).await;
+    let after = players(&app, &id, &cookie).await;
+    assert_eq!(after["operators"][0]["name"], "Alex", "{after}");
+    assert_eq!(after["operators"][0]["level"], 4);
+    stop(&app, &id, &cookie).await;
+}
+
 #[tokio::test]
 async fn heads_come_from_skins_and_need_a_session() {
     let app = TestApp::new().await;

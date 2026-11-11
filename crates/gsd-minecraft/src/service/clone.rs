@@ -4,12 +4,12 @@
 
 use chrono::Utc;
 use gsd_core::{
-    files::copy_server_dir,
+    files::{ServerFiles, copy_server_dir},
     ids::{InstanceId, JobId},
     instances::{
         Instance, NewInstance, definition::Behavior, registry::RegistryError, settings::MAX_NAME_CHARS,
     },
-    jobs::{JobFailure, JobSpec},
+    jobs::{InstanceHold, JobError, JobFailure, JobSpec},
 };
 
 use super::{CreateError, MinecraftService};
@@ -26,8 +26,9 @@ pub struct CloneRequest {
 }
 
 impl MinecraftService {
-    /// Registers the clone and starts the copy job. The caller makes sure the source is stopped
-    /// (a running server's world is mid-write).
+    /// Registers the clone and starts the copy job. The source must be stopped (a running
+    /// server's world is mid-write) and free of other work. It is held from here until the copy
+    /// is done, so it can't be started, restored or reinstalled in the middle of it.
     pub async fn clone_instance(
         &self,
         source_id: InstanceId,
@@ -46,6 +47,13 @@ impl MinecraftService {
         if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
             return Err(CreateError::InvalidName);
         }
+        let source_held = self
+            .instances
+            .hold(source_id)
+            .map_err(|_| CreateError::Job(JobError::InstanceBusy))?;
+        if self.instances.ensure_stopped(source_id).await.is_err() {
+            return Err(CreateError::SourceRunning);
+        }
 
         let definition = &source.definition;
         let clone = self
@@ -62,13 +70,15 @@ impl MinecraftService {
                 },
             })
             .await?;
-        let job = self.copy_job(source, clone.clone(), request.include_worlds)?;
+        let job = self.copy_job(source, source_held, clone.clone(), request.include_worlds)?;
         Ok((clone, job))
     }
 
+    /// The job's own lock is on the copy; `source_held` keeps the source until the job ends.
     fn copy_job(
         &self,
         source: Instance,
+        source_held: InstanceHold,
         clone: Instance,
         include_worlds: bool,
     ) -> Result<JobId, CreateError> {
@@ -79,6 +89,7 @@ impl MinecraftService {
         };
         let registry = self.registry.clone();
         Ok(self.jobs.spawn(spec, move |job| async move {
+            let _source_held = source_held;
             let skip = skipped_folders(&source, include_worlds);
             job.step("Copying files");
             job.log(format!("Leaving out: {}", skip.join(", ")));
@@ -93,7 +104,8 @@ impl MinecraftService {
             ));
 
             job.step("Giving the copy its own port");
-            point_at_port(&clone.layout.server_dir(), clone.definition.ports.game)?;
+            let files = ServerFiles::open(&clone).await?;
+            point_at_port(&files, clone.definition.ports.game).await?;
             clone.layout.assign_ownership(clone.definition.sandbox)?;
             registry
                 .update(clone.id(), |definition| {

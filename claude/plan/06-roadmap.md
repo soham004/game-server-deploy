@@ -22,7 +22,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 - [x] Dockerfile + compose (app only). Verified 2026-11-07 on Docker Desktop: image 33.5 MB, reports healthy, runs with
       only `SETUID SETGID CHOWN DAC_OVERRIDE FOWNER KILL`, `/data` is `700` and the DB `600`, the setup-token gate activates
       (bound to `0.0.0.0` in the container), setup works only with the token, and `docker stop` shuts down cleanly (exit 0).
-- [ ] Login rate limiting (moved to M6, as planned).
+- [x] Login rate limiting: done early, with the hardening of D-060.
 
 ## M1: First server runs, isolated (Vanilla, Paper, Fabric) — done 2026-11-07
 - [x] Catalog: Mojang manifest (sorted by release time, not id), Paper Fill v3 (stable builds, URLs from responses), Fabric
@@ -107,7 +107,7 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
 ## M6: Updates, observability, release
 - [ ] Update checker + apply with backup and rollback.
 - [ ] Metrics + charts; notifications (Discord/webhooks); audit log UI.
-- [ ] **nginx reverse-proxy docs + compose example**; trusted proxies; login rate limiting.
+- [ ] **nginx reverse-proxy docs + compose example**; trusted proxies (login rate limiting is done, D-060).
 - [ ] Multi-arch images (amd64/arm64) on ghcr; systemd `service install` for bare metal (`Delegate=yes`).
 
 ## Later (P2/P3)

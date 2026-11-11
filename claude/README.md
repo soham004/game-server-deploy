@@ -23,7 +23,7 @@ D-043, D-044), CurseForge checked against the real API (D-046). Modpacks found o
 D-049, D-050).
 
 **M5 in progress:** log history and crash reports (D-051), the control channel (D-052), players (D-053), game rules (D-054), worlds (D-055), console autocomplete (D-056), the code editor (D-057) and its checks (D-058) are done. Every route needs a session except signing in (D-041). Servers stop by themselves if the app is killed (D-047), and our code has
-no `unsafe`: a launcher applies the sandbox (D-048).
+no `unsafe`: a launcher applies the sandbox (D-048). An audit hardened the app against what a compromised server can leave in its folder, closed the lifecycle's races, and added sign-in throttling (D-060).
 
 CI (`.github/workflows/ci.yml`) also publishes a multi-arch image to GHCR on pushes to `main` and `v*` tags.
 

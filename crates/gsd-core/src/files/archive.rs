@@ -14,7 +14,7 @@ use cap_std::fs::OpenOptions;
 use serde::Serialize;
 use zip::{CompressionMethod, write::SimpleFileOptions};
 
-use super::{FilesError, SafeRelPath, root::Root};
+use super::{FilesError, SafeRelPath, regular::without_waiting, root::Root};
 use crate::instances::SandboxIds;
 
 /// How much one extraction may unpack (protects the disk from zip bombs).
@@ -115,11 +115,7 @@ impl Root {
             FilesError::InvalidOperation(format!("{archive} is not a .zip, .tar, .tar.gz or .tgz archive"))
         })?;
         self.ensure_dir(destination)?;
-        let file = self
-            .dir
-            .open(archive.as_path())
-            .map_err(|e| FilesError::io(archive, e))?
-            .into_std();
+        let file = self.open_file(archive)?.into_std();
         let mut extraction = Extraction {
             root: self,
             destination: destination.clone(),
@@ -206,9 +202,6 @@ impl Root {
             .dir
             .symlink_metadata(source.as_path())
             .map_err(|e| FilesError::io(source, e))?;
-        if metadata.is_symlink() {
-            return Ok(());
-        }
         if metadata.is_dir() {
             zip.add_directory(format!("{name}/"), options)
                 .map_err(zip_error)?;
@@ -217,11 +210,12 @@ impl Root {
             }
             return Ok(());
         }
+        // Links, and what only looks like a file (a FIFO, a device), are left out.
+        if !metadata.is_file() {
+            return Ok(());
+        }
+        let mut file = self.open_file(source)?;
         zip.start_file(name, options).map_err(zip_error)?;
-        let mut file = self
-            .dir
-            .open(source.as_path())
-            .map_err(|e| FilesError::io(source, e))?;
         io::copy(&mut file, zip).map_err(|e| FilesError::io(source, e))?;
         Ok(())
     }
@@ -352,11 +346,16 @@ impl Extraction<'_> {
         let remaining = self.limits.max_bytes.saturating_sub(self.summary.bytes);
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
+        // The name may be taken by a FIFO, which would otherwise be waited on.
+        without_waiting(&mut options);
         let mut file = self
             .root
             .dir
             .open_with(path.as_path(), &options)
             .map_err(|e| FilesError::io(path, e))?;
+        if !file.metadata().is_ok_and(|metadata| metadata.is_file()) {
+            return Err(FilesError::InvalidOperation(format!("{path} is not a regular file")).into());
+        }
         let written = io::copy(&mut contents.take(remaining + 1), &mut file)
             .map_err(|e| ExtractError::Archive(format!("could not read {path} from the archive: {e}")))?;
         if written > remaining {

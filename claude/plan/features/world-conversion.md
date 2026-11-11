@@ -1,7 +1,7 @@
 # World conversion between server types (planned, researched 2026-11-10)
 
 A world uploaded from one kind of server to another can fail to load. This file records what was found on real 26.3 servers
-and what to build. Nothing here is built yet; the next decision number is D-060.
+and what to build. Nothing here is built yet; the next decision number is D-061.
 
 ## What happens today (reproduced)
 

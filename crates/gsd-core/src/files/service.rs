@@ -13,10 +13,10 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::io::{ReaderStream, SyncIoBridge};
 
 use super::{
-    Entry, ExtractLimits, ExtractSummary, FilesError, SafeRelPath, TextFile,
+    Entry, EntryKind, ExtractLimits, ExtractSummary, FilesError, SafeRelPath, TextFile,
     root::{Root, temp_sibling},
 };
-use crate::instances::Instance;
+use crate::instances::{Instance, SandboxIds};
 
 /// File access to one instance's server directory. Cheap to clone.
 #[derive(Debug, Clone)]
@@ -48,8 +48,44 @@ impl ServerFiles {
         Ok(Self { root: Arc::new(root) })
     }
 
+    /// Any folder under the same rules, with deleted entries going to `trash`: a server folder
+    /// known only by its path, or one the app is filling.
+    pub async fn open_folder(
+        folder: std::path::PathBuf,
+        trash: std::path::PathBuf,
+        ids: SandboxIds,
+    ) -> Result<Self, FilesError> {
+        let root = run_blocking(move || {
+            Root::at(&folder, trash, ids).map_err(|e| FilesError::io(&SafeRelPath::root(), e))
+        })
+        .await?;
+        Ok(Self { root: Arc::new(root) })
+    }
+
     pub async fn list(&self, path: SafeRelPath) -> Result<Vec<Entry>, FilesError> {
         self.run(move |root| root.list(&path)).await
+    }
+
+    /// What is at `path` (a link counts as a link, wherever it points); `None` when nothing is.
+    pub async fn kind(&self, path: SafeRelPath) -> Result<Option<EntryKind>, FilesError> {
+        self.run(move |root| root.kind(&path)).await
+    }
+
+    /// A file's bytes when it exists, for settings the app reads: at most `limit` bytes, whatever
+    /// the file claims to be.
+    pub async fn read_optional(&self, path: SafeRelPath, limit: u64) -> Result<Option<Vec<u8>>, FilesError> {
+        self.run(move |root| match root.read_limited(&path, limit) {
+            Ok((bytes, _)) => Ok(Some(bytes)),
+            Err(FilesError::NotFound(_)) => Ok(None),
+            Err(error) => Err(error),
+        })
+        .await
+    }
+
+    /// Puts `content` at `path`, replacing what is there (see [`Root::replace_bytes`]): for files
+    /// the app writes as a whole, such as `eula.txt`.
+    pub async fn replace_file(&self, path: SafeRelPath, content: Vec<u8>) -> Result<(), FilesError> {
+        self.run(move |root| root.replace_bytes(&path, &content)).await
     }
 
     pub async fn read_text(&self, path: SafeRelPath) -> Result<TextFile, FilesError> {
@@ -139,18 +175,9 @@ impl ServerFiles {
     pub async fn open_file(&self, path: SafeRelPath) -> Result<(tokio::fs::File, u64), FilesError> {
         let (file, size) = self
             .run(move |root| {
-                let metadata = root
-                    .dir
-                    .metadata(path.as_path())
-                    .map_err(|e| FilesError::io(&path, e))?;
-                if metadata.is_dir() {
-                    return Err(FilesError::IsADirectory(path));
-                }
-                let file = root
-                    .dir
-                    .open(path.as_path())
-                    .map_err(|e| FilesError::io(&path, e))?;
-                Ok((file.into_std(), metadata.len()))
+                let file = root.open_file(&path)?;
+                let size = file.metadata().map_err(|e| FilesError::io(&path, e))?.len();
+                Ok((file.into_std(), size))
             })
             .await?;
         Ok((tokio::fs::File::from_std(file), size))

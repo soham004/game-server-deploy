@@ -55,6 +55,10 @@ fn instance(dir: &std::path::Path) -> Instance {
     }
 }
 
+fn path(instance: &Instance) -> std::path::PathBuf {
+    instance.layout.server_dir().join(FILE)
+}
+
 fn with_file(text: &str) -> (tempfile::TempDir, Instance) {
     let dir = tempfile::tempdir().unwrap();
     let instance = instance(dir.path());
@@ -126,7 +130,11 @@ async fn changes_touch_only_their_lines() {
     assert_eq!(after.text, expected);
     let motd = after.values.iter().find(|kv| kv.key == "motd").unwrap();
     assert_eq!(motd.value, "Friends \u{a7}aSMP");
-    assert!(!path(&instance).with_extension("properties.gsd-tmp").exists());
+    let left: Vec<_> = std::fs::read_dir(instance.layout.server_dir())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(left, [FILE], "no temporary file stays behind");
 }
 
 #[tokio::test]
@@ -245,4 +253,78 @@ async fn redaction_hides_secrets_in_values_and_text() {
     assert!(!redacted.text.contains("hunter2"));
     assert!(!redacted.values.iter().any(|kv| kv.value.contains("hunter2")));
     assert_eq!(redacted.revision, full.revision);
+}
+
+/// The server owns the folder and may have made the file a link. Reading must not show what the
+/// link points at, and saving must not write there.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_out_of_the_server_folder_is_neither_read_nor_written_through() {
+    let dir = tempfile::tempdir().unwrap();
+    let instance = instance(dir.path());
+    let secret = dir.path().join("secret.toml");
+    std::fs::write(&secret, "password=hunter2\n").unwrap();
+    std::os::unix::fs::symlink(&secret, path(&instance)).unwrap();
+
+    let read = read(&instance).await;
+    assert!(
+        !matches!(&read, Ok(snapshot) if snapshot.text.contains("hunter2")),
+        "{read:?}"
+    );
+    let saved = apply(
+        &instance,
+        &PropertiesEdit::Replace("motd=owned\n".into()),
+        &revision(b"password=hunter2\n"),
+    )
+    .await;
+    assert!(saved.is_err(), "{saved:?}");
+    assert_eq!(std::fs::read_to_string(&secret).unwrap(), "password=hunter2\n");
+}
+
+/// The old temporary name was fixed (`server.properties.gsd-tmp`), so a link planted there sent the
+/// next save anywhere on the machine.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_link_planted_where_the_temporary_file_was_is_not_written_through() {
+    let (dir, instance) = with_file(&generated());
+    let target = dir.path().join("instance.toml");
+    std::fs::write(&target, "untouched").unwrap();
+    std::os::unix::fs::symlink(&target, path(&instance).with_extension("properties.gsd-tmp")).unwrap();
+
+    let before = read(&instance).await.unwrap();
+    apply(&instance, &changes(&[("motd", Some("Hello"))]), &before.revision)
+        .await
+        .unwrap();
+
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "untouched");
+    assert!(on_disk(&instance).contains("motd=Hello"));
+}
+
+/// A sparse file claims any size for free; reading it whole would use up the app's memory.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_file_grown_beyond_any_settings_file_is_refused_not_read() {
+    let (_dir, instance) = with_file("motd=x\n");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path(&instance))
+        .unwrap();
+    file.set_len(64 * 1024 * 1024 * 1024).unwrap();
+    let result = read(&instance).await;
+    assert!(matches!(result, Err(PropertiesError::TooLarge)), "{result:?}");
+}
+
+/// A FIFO in the file's place would hold a reader until someone writes to it: nobody will.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fifo_in_the_files_place_is_refused_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let instance = instance(dir.path());
+    let made = std::process::Command::new("mkfifo")
+        .arg(path(&instance))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), read(&instance)).await;
+    assert!(matches!(result, Ok(Err(_))), "{result:?}");
 }

@@ -207,7 +207,8 @@ impl ContentService {
         })
     }
 
-    /// Applies the update in a job. The caller makes sure the server is stopped.
+    /// Applies the update in a job. The server must be stopped: the caller checks for a quick
+    /// answer, and the job checks again while it holds the server, so it stays stopped.
     pub async fn start_pack_update(
         &self,
         id: InstanceId,
@@ -232,6 +233,7 @@ impl ContentService {
             .inner
             .jobs
             .spawn(spec, move |job| async move {
+                service.inner.instances.ensure_stopped(instance.id()).await?;
                 let backup = pack_backup(&instance, &pack.info, request.by, &backups, &job).await?;
                 let applied = service
                     .apply_update(

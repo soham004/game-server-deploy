@@ -32,7 +32,7 @@ use gsd_minecraft::{
 use gsd_mods::{ContentService, SourceApis, Sources};
 use tokio_util::sync::CancellationToken;
 
-use crate::config::Config;
+use crate::{config::Config, http::throttle::LoginThrottle};
 
 /// Everything handlers need. Cheap to clone (handles and `Arc`s only).
 #[derive(Debug, Clone)]
@@ -56,6 +56,8 @@ pub struct AppState {
     pub gamerules: GameruleService,
     pub commands: CommandService,
     pub worlds: WorldService,
+    /// Failed sign-ins, counted to slow password guessing down.
+    pub login_throttle: Arc<LoginThrottle>,
     /// Cancelled when the app shuts down (closes live connections so shutdown isn't held open).
     pub shutdown: CancellationToken,
 }
@@ -165,10 +167,9 @@ impl AppState {
         let commands = command_service(&config, &instances, &events, &jobs, &catalog, &java, &host);
         let minecraft = MinecraftService::new(
             catalog,
-            registry,
+            instances.clone(),
             java.clone(),
             jobs.clone(),
-            host,
             MinecraftPaths {
                 download_cache: config.download_cache_dir(),
                 imports: config.imports_dir(),
@@ -194,6 +195,7 @@ impl AppState {
             settings,
             history,
             players,
+            login_throttle: Arc::default(),
             shutdown: CancellationToken::new(),
         })
     }

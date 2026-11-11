@@ -60,6 +60,22 @@ impl ServerState {
         )
     }
 
+    /// A crash's automatic restart is waiting: no process now, but one comes by itself.
+    pub fn restart_pending(&self) -> bool {
+        matches!(
+            self,
+            Self::Crashed {
+                restart_at: Some(_),
+                ..
+            }
+        )
+    }
+
+    /// No process, and none coming unless someone starts one: the files stay as they are.
+    pub fn is_settled(&self) -> bool {
+        !self.is_active() && !self.restart_pending()
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Stopped { .. } => "stopped",
@@ -159,6 +175,9 @@ pub struct Machine {
     crashes: VecDeque<DateTime<Utc>>,
     /// A stop was requested (by a user or the restart flow), so the next exit is expected.
     stop_requested: bool,
+    /// When the game's stop command was last typed into the console. An exit within the stop
+    /// timeout of it is that stop; a server that ignored the command and crashes later has crashed.
+    stop_typed_at: Option<DateTime<Utc>>,
     /// Start again once the current process has exited.
     restart_after_stop: bool,
 }
@@ -170,6 +189,7 @@ impl Machine {
             policy,
             crashes: VecDeque::new(),
             stop_requested: false,
+            stop_typed_at: None,
             restart_after_stop: false,
         }
     }
@@ -195,7 +215,7 @@ impl Machine {
             Input::Ready => Ok(self.ready(now)),
             Input::StopTyped => {
                 if self.state.is_active() {
-                    self.stop_requested = true;
+                    self.stop_typed_at = Some(now);
                 }
                 Ok(vec![])
             }
@@ -237,8 +257,10 @@ impl Machine {
                     Effect::StartStopTimer(self.policy.stop_timeout),
                 ])
             }
+            // The latest request decides what follows the exit: a stop cancels a restart that is
+            // under way, a restart turns a stop into one.
             ServerState::Stopping { .. } => {
-                self.restart_after_stop |= then_restart;
+                self.restart_after_stop = then_restart;
                 Ok(vec![])
             }
             // Stopping a crashed server cancels its pending automatic restart.
@@ -305,11 +327,12 @@ impl Machine {
         if !self.state.is_active() {
             return vec![];
         }
-        let expected = std::mem::take(&mut self.stop_requested);
-        if expected && std::mem::take(&mut self.restart_after_stop) {
+        let requested = std::mem::take(&mut self.stop_requested);
+        if requested && std::mem::take(&mut self.restart_after_stop) {
             self.begin_start(now);
             return vec![Effect::Spawn];
         }
+        let expected = requested || self.stop_was_just_typed(now);
         // A clean exit nobody asked for while running: the server stopped itself (e.g. a plugin
         // ran `stop`). Before it was ready, the start failed: Minecraft exits with 0 after
         // "Failed to initialize server", and that must not look like a normal stop.
@@ -379,8 +402,17 @@ impl Machine {
         }
     }
 
+    /// Whether the stop command was typed recently enough for an exit now to be its doing.
+    fn stop_was_just_typed(&mut self, now: DateTime<Utc>) -> bool {
+        let window = chrono::TimeDelta::from_std(self.policy.stop_timeout).unwrap_or(chrono::TimeDelta::MAX);
+        self.stop_typed_at
+            .take()
+            .is_some_and(|typed_at| now - typed_at <= window)
+    }
+
     fn begin_start(&mut self, now: DateTime<Utc>) {
         self.stop_requested = false;
+        self.stop_typed_at = None;
         self.restart_after_stop = false;
         self.state = ServerState::Starting {
             since: now,
@@ -549,6 +581,43 @@ mod tests {
         assert_eq!(machine.state().name(), "crashed");
     }
 
+    /// A server (a plugin, a confirmation prompt) can ignore the typed command and run on. A crash
+    /// hours later is a crash: it restarts, and isn't put down as the stop someone once asked for.
+    #[test]
+    fn a_typed_stop_the_server_ignored_does_not_excuse_a_later_crash() {
+        let typed = Utc::now();
+        let mut machine = running(typed);
+        machine.handle(Input::StopTyped, typed).unwrap();
+
+        let later = typed + TimeDelta::seconds(61);
+        assert_eq!(
+            machine.handle(crash(), later),
+            Ok(vec![Effect::ScheduleRestart(BACKOFF[0])]),
+            "past the stop timeout of 60 seconds"
+        );
+        assert_eq!(machine.state().name(), "crashed");
+    }
+
+    /// Some modded servers exit with an error code while shutting down. Within the stop timeout
+    /// of the typed command that is still the stop that was asked for.
+    #[test]
+    fn a_typed_stop_covers_an_unclean_exit_that_follows_it() {
+        let typed = Utc::now();
+        let mut machine = running(typed);
+        machine.handle(Input::StopTyped, typed).unwrap();
+        assert_eq!(
+            machine.handle(crash(), typed + TimeDelta::seconds(30)),
+            Ok(vec![])
+        );
+        assert_eq!(machine.state().name(), "stopped");
+
+        // It was used up: the next run's crash is a crash.
+        machine.handle(Input::Start, typed).unwrap();
+        machine.handle(Input::Ready, typed).unwrap();
+        machine.handle(crash(), typed).unwrap();
+        assert_eq!(machine.state().name(), "crashed");
+    }
+
     #[test]
     fn restart_stops_then_starts() {
         let now = Utc::now();
@@ -561,6 +630,64 @@ mod tests {
         // Restarting a stopped server just starts it.
         let mut stopped = Machine::new(policy());
         assert_eq!(stopped.handle(Input::Restart, now), Ok(vec![Effect::Spawn]));
+    }
+
+    /// The latest request decides: someone who asks for a stop while a restart is stopping the
+    /// server gets a stopped server, not one that comes back up.
+    #[test]
+    fn a_stop_during_a_restart_cancels_the_start_that_would_follow() {
+        let now = Utc::now();
+        let mut machine = running(now);
+        machine.handle(Input::Restart, now).unwrap();
+        assert_eq!(machine.handle(Input::Stop, now), Ok(vec![]));
+        assert_eq!(machine.handle(clean_exit(), now), Ok(vec![]));
+        assert_eq!(machine.state().name(), "stopped");
+    }
+
+    #[test]
+    fn a_restart_during_a_stop_brings_the_server_back() {
+        let now = Utc::now();
+        let mut machine = running(now);
+        machine.handle(Input::Stop, now).unwrap();
+        assert_eq!(machine.handle(Input::Restart, now), Ok(vec![]));
+        assert_eq!(machine.handle(clean_exit(), now), Ok(vec![Effect::Spawn]));
+        assert_eq!(machine.state().name(), "starting");
+
+        // And a kill is final, whatever was asked before.
+        machine.handle(Input::Ready, now).unwrap();
+        machine.handle(Input::Restart, now).unwrap();
+        machine.handle(Input::Kill, now).unwrap();
+        machine.handle(crash(), now).unwrap();
+        assert_eq!(machine.state().name(), "stopped");
+    }
+
+    #[test]
+    fn only_a_server_with_no_process_coming_is_settled() {
+        let now = Utc::now();
+        let mut machine = Machine::new(policy());
+        assert!(machine.state().is_settled());
+
+        machine.handle(Input::Start, now).unwrap();
+        assert!(!machine.state().is_settled(), "starting");
+        machine.handle(Input::Ready, now).unwrap();
+        assert!(!machine.state().is_settled(), "running");
+
+        machine.handle(crash(), now).unwrap();
+        assert!(!machine.state().is_active());
+        assert!(
+            machine.state().restart_pending() && !machine.state().is_settled(),
+            "crashed, and about to be started again"
+        );
+        machine.handle(Input::Stop, now).unwrap();
+        assert!(machine.state().is_settled(), "the restart was cancelled");
+
+        machine.set_policy(RestartPolicy {
+            auto_restart: false,
+            ..policy()
+        });
+        machine.handle(Input::Start, now).unwrap();
+        machine.handle(crash(), now).unwrap();
+        assert!(machine.state().is_settled(), "crashed, and staying down");
     }
 
     #[test]

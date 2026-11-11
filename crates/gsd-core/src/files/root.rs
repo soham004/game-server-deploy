@@ -19,7 +19,10 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::{FilesError, SafeRelPath};
+use super::{
+    FilesError, SafeRelPath,
+    regular::{open_regular, read_at_most},
+};
 use crate::instances::{InstanceLayout, SandboxIds, layout::can_change_ownership};
 
 /// Largest file the text editor opens or saves.
@@ -96,15 +99,7 @@ impl Root {
             let Ok(child) = path.join(&name) else { continue };
             let file_type = entry.file_type().map_err(io)?;
             let metadata = entry.metadata().ok();
-            let kind = if file_type.is_symlink() {
-                EntryKind::Symlink
-            } else if file_type.is_dir() {
-                EntryKind::Directory
-            } else if file_type.is_file() {
-                EntryKind::File
-            } else {
-                EntryKind::Other
-            };
+            let kind = kind_of(file_type);
             entries.push(Entry {
                 name,
                 path: child,
@@ -138,30 +133,45 @@ impl Root {
         Ok((bytes, revision))
     }
 
-    fn read_limited(
+    /// A regular file's bytes, if it has at most `limit` of them (see `regular.rs`).
+    pub(crate) fn read_limited(
         &self,
         path: &SafeRelPath,
         limit: u64,
     ) -> Result<(Vec<u8>, Option<DateTime<Utc>>), FilesError> {
-        let metadata = self
-            .dir
-            .metadata(path.as_path())
-            .map_err(|e| FilesError::io(path, e))?;
-        if metadata.is_dir() {
-            return Err(FilesError::IsADirectory(path.clone()));
-        }
-        if metadata.len() > limit {
-            return Err(FilesError::TooLarge {
+        let mut file = self.open_file(path)?;
+        let modified = file
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .map(|time| to_utc(time.into_std()));
+        let bytes = read_at_most(&mut file, limit)
+            .map_err(|e| FilesError::io(path, e))?
+            .ok_or_else(|| FilesError::TooLarge {
                 path: path.clone(),
                 limit,
-            });
-        }
-        let bytes = self
-            .dir
-            .read(path.as_path())
-            .map_err(|e| FilesError::io(path, e))?;
-        let modified = metadata.modified().ok().map(|t| to_utc(t.into_std()));
+            })?;
         Ok((bytes, modified))
+    }
+
+    /// Opens a regular file for reading. A FIFO or device the server put there is refused, not
+    /// waited on.
+    pub(crate) fn open_file(&self, path: &SafeRelPath) -> Result<cap_std::fs::File, FilesError> {
+        open_regular(&self.dir, path.as_path()).map_err(|error| match error.kind() {
+            io::ErrorKind::InvalidInput => {
+                FilesError::InvalidOperation(format!("{path} is not a regular file"))
+            }
+            _ => FilesError::io(path, error),
+        })
+    }
+
+    /// What is at `path`, without following a link there; `None` when nothing is.
+    pub(crate) fn kind(&self, path: &SafeRelPath) -> Result<Option<EntryKind>, FilesError> {
+        match self.dir.symlink_metadata(path.as_path()) {
+            Ok(metadata) => Ok(Some(kind_of(metadata.file_type()))),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(FilesError::io(path, error)),
+        }
     }
 
     /// Saves `content`. `expected_revision`: the revision the editor opened (`None` creates a
@@ -183,33 +193,39 @@ impl Root {
         content: &[u8],
         expected_revision: Option<&str>,
     ) -> Result<(), FilesError> {
-        let name = path
-            .file_name()
-            .ok_or_else(|| FilesError::InvalidOperation("choose a file name".into()))?;
+        if path.is_root() {
+            return Err(FilesError::InvalidOperation("choose a file name".into()));
+        }
         if content.len() as u64 > MAX_TEXT_BYTES {
             return Err(FilesError::TooLarge {
                 path: path.clone(),
                 limit: MAX_TEXT_BYTES,
             });
         }
-        let current = match self.dir.read(path.as_path()) {
-            Ok(bytes) => Some(bytes),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
-            Err(error) => return Err(FilesError::io(path, error)),
-        };
-        match (expected_revision, &current) {
-            (Some(expected), Some(bytes)) if revision(bytes) != expected => {
-                return Err(FilesError::Conflict(path.clone()));
-            }
-            (Some(_), None) => return Err(FilesError::Conflict(path.clone())),
-            (None, Some(_)) => return Err(FilesError::AlreadyExists(path.clone())),
-            _ => {}
+        match (expected_revision, self.current(path)?) {
+            (Some(expected), Current::Revision(current)) if current == expected => {}
+            (None, Current::Missing) => {}
+            (Some(_), _) => return Err(FilesError::Conflict(path.clone())),
+            (None, _) => return Err(FilesError::AlreadyExists(path.clone())),
         }
+        self.replace_bytes(path, content)
+    }
+
+    /// Puts `content` at `path` whatever is there now (a link is replaced, not followed). Atomic:
+    /// a temporary file next to it, handed to the instance's user, then renamed.
+    pub(crate) fn replace_bytes(&self, path: &SafeRelPath, content: &[u8]) -> Result<(), FilesError> {
+        let name = path
+            .file_name()
+            .ok_or_else(|| FilesError::InvalidOperation("choose a file name".into()))?;
         let temp = temp_sibling(path, name)?;
-        self.dir
-            .write(temp.as_path(), content)
-            .map_err(|e| FilesError::io(path, e))?;
-        let replaced = self.own(&temp).and_then(|()| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        let written = self
+            .dir
+            .open_with(temp.as_path(), &options)
+            .and_then(|mut file| file.write_all(content))
+            .map_err(|e| FilesError::io(path, e));
+        let replaced = written.and_then(|()| self.own(&temp)).and_then(|()| {
             self.dir
                 .rename(temp.as_path(), &self.dir, path.as_path())
                 .map_err(|e| FilesError::io(path, e))
@@ -219,6 +235,17 @@ impl Root {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// What a save would replace. Never reads more than the editor's limit: a file the server
+    /// grew past it can't be the one an editor opened.
+    fn current(&self, path: &SafeRelPath) -> Result<Current, FilesError> {
+        match self.read_limited(path, MAX_TEXT_BYTES) {
+            Ok((bytes, _)) => Ok(Current::Revision(revision(&bytes))),
+            Err(FilesError::NotFound(_)) => Ok(Current::Missing),
+            Err(FilesError::TooLarge { .. }) => Ok(Current::TooLarge),
+            Err(error) => Err(error),
+        }
     }
 
     pub(crate) fn create_dir(&self, path: &SafeRelPath) -> Result<(), FilesError> {
@@ -409,10 +436,7 @@ impl Root {
     }
 
     fn copy_file(&self, from: &SafeRelPath, to: &SafeRelPath) -> Result<(), FilesError> {
-        let mut source = self
-            .dir
-            .open(from.as_path())
-            .map_err(|e| FilesError::io(from, e))?;
+        let mut source = self.open_file(from)?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         let mut target = self
@@ -445,6 +469,25 @@ impl Root {
             std::fs::set_permissions(&self.trash, std::fs::Permissions::from_mode(0o700))?;
         }
         Dir::open_ambient_dir(&self.trash, ambient_authority())
+    }
+}
+
+/// The file a save is about to replace.
+enum Current {
+    Missing,
+    Revision(String),
+    TooLarge,
+}
+
+fn kind_of(file_type: cap_std::fs::FileType) -> EntryKind {
+    if file_type.is_symlink() {
+        EntryKind::Symlink
+    } else if file_type.is_dir() {
+        EntryKind::Directory
+    } else if file_type.is_file() {
+        EntryKind::File
+    } else {
+        EntryKind::Other
     }
 }
 

@@ -90,6 +90,12 @@ impl ActionContext<'_> {
             return Ok(());
         }
         self.count_down("Restarting", warn_secs).await?;
+        // Someone who stopped the server during the countdown wants it stopped.
+        if !self.is_running() {
+            self.job
+                .log("The server was stopped during the countdown; not starting it again.");
+            return Ok(());
+        }
         self.instances
             .restart_from_job(self.instance.id())
             .await
@@ -140,10 +146,12 @@ impl ActionContext<'_> {
         let Some(handle) = self.instances.supervisors().get(self.instance.id()) else {
             return Err(ActionFailed("the server has no process".into()));
         };
-        // Not "stopped": a restart passes through it on the way up.
+        // A restart goes from stopping straight to starting, so "stopped" is an end too: the
+        // start failed, or someone stopped the server. Waiting on would hold the instance's
+        // lock for the whole timeout, and nobody could start it meanwhile.
         let settled = tokio::select! {
             settled = handle.wait_for(START_TIMEOUT, |state| {
-                matches!(state, ServerState::Running { .. } | ServerState::Crashed { .. })
+                !matches!(state, ServerState::Starting { .. } | ServerState::Stopping { .. })
             }) => settled,
             () = self.job.cancel_token().cancelled() => return Err(ActionFailed("cancelled".into())),
         };

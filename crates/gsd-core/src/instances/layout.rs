@@ -143,17 +143,52 @@ fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Gives `path` and everything beneath it to `ids`.
+///
+/// The tree belongs to a server that may be compromised, and something it started may still run.
+/// So nothing is reached by its full path, which could be redirected by swapping a folder for a
+/// link between two steps. Each folder is opened beneath the top one (`cap-std` refuses a way out
+/// of it) and its entries are changed by name through that handle, never following a link.
 fn chown_recursive(path: &Path, ids: SandboxIds) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        let mut stack = vec![path.to_owned()];
-        while let Some(current) = stack.pop() {
-            // lchown: never follow symlinks out of the tree.
-            std::os::unix::fs::lchown(&current, Some(ids.uid), Some(ids.gid))?;
-            let metadata = std::fs::symlink_metadata(&current)?;
-            if metadata.is_dir() {
-                for entry in std::fs::read_dir(&current)? {
-                    stack.push(entry?.path());
+        use cap_std::{ambient_authority, fs::Dir};
+        use rustix::fs::{AtFlags, Gid, Uid, chownat};
+
+        let gone = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+        // The top folder's parent is the app's own, so its name can't be swapped.
+        std::os::unix::fs::lchown(path, Some(ids.uid), Some(ids.gid))?;
+        let top = Dir::open_ambient_dir(path, ambient_authority())?;
+        // Folders still to walk, as paths beneath `top` (one handle open at a time).
+        let mut pending = vec![PathBuf::new()];
+        while let Some(folder) = pending.pop() {
+            let dir = if folder.as_os_str().is_empty() {
+                top.try_clone()?
+            } else {
+                match top.open_dir(&folder) {
+                    Ok(dir) => dir,
+                    Err(error) if gone(&error) => continue,
+                    Err(error) => return Err(error),
+                }
+            };
+            for entry in dir.entries()? {
+                let entry = entry?;
+                let name = entry.file_name();
+                let owned = chownat(
+                    &dir,
+                    &name,
+                    Some(Uid::from_raw(ids.uid)),
+                    Some(Gid::from_raw(ids.gid)),
+                    AtFlags::SYMLINK_NOFOLLOW,
+                )
+                .map_err(std::io::Error::from);
+                match owned {
+                    Ok(()) => {}
+                    Err(error) if gone(&error) => continue,
+                    Err(error) => return Err(error),
+                }
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    pending.push(folder.join(&name));
                 }
             }
         }
@@ -195,6 +230,61 @@ mod tests {
             let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode(layout.root()), 0o711);
             assert_eq!(mode(&layout.server_dir()), 0o700);
+        }
+    }
+
+    /// As root the tree goes to a server's user; otherwise to the caller (all it may set), which
+    /// still walks the same way. Either way a link is changed itself, never what it points at.
+    #[cfg(unix)]
+    #[test]
+    fn ownership_is_given_inside_the_tree_and_never_through_a_link() {
+        use std::os::unix::fs::{MetadataExt, symlink};
+
+        let dir = tempfile::tempdir().unwrap();
+        let (tree, outside) = (dir.path().join("server"), dir.path().join("outside"));
+        std::fs::create_dir_all(tree.join("world/region")).unwrap();
+        std::fs::write(tree.join("world/region/r.0.0.mca"), "x").unwrap();
+        std::fs::write(tree.join("server.properties"), "x").unwrap();
+        std::fs::create_dir_all(outside.join("inner")).unwrap();
+        std::fs::write(outside.join("inner/secret"), "x").unwrap();
+        symlink(&outside, tree.join("link-to-folder")).unwrap();
+        symlink(outside.join("inner/secret"), tree.join("world/link-to-file")).unwrap();
+        symlink("/nonexistent", tree.join("dangling")).unwrap();
+
+        let owner_of = |path: &Path| std::fs::symlink_metadata(path).unwrap().uid();
+        let before = owner_of(&outside);
+        let ids = if nix::unistd::geteuid().is_root() {
+            SandboxIds {
+                uid: 20123,
+                gid: 20123,
+            }
+        } else {
+            SandboxIds {
+                uid: nix::unistd::geteuid().as_raw(),
+                gid: nix::unistd::getegid().as_raw(),
+            }
+        };
+
+        chown_recursive(&tree, ids).unwrap();
+
+        for inside in [
+            "",
+            "world",
+            "world/region",
+            "world/region/r.0.0.mca",
+            "server.properties",
+            "link-to-folder",
+            "world/link-to-file",
+            "dangling",
+        ] {
+            assert_eq!(owner_of(&tree.join(inside)), ids.uid, "{inside}");
+        }
+        for untouched in [
+            outside.clone(),
+            outside.join("inner"),
+            outside.join("inner/secret"),
+        ] {
+            assert_eq!(owner_of(&untouched), before, "{}", untouched.display());
         }
     }
 }

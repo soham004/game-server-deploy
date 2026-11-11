@@ -23,7 +23,7 @@ const MAX_EMPTY_SECS: u64 = 86_400;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-    #[error("the name must be 1 to {MAX_NAME_CHARS} characters")]
+    #[error("the name must be one line of 1 to {MAX_NAME_CHARS} characters")]
     Name,
     #[error("add 1 to {MAX_ACTIONS} actions")]
     ActionCount,
@@ -43,8 +43,9 @@ pub enum PlanError {
 
 /// Checks `plan`; `now` decides whether a one-off time is in the past.
 pub fn validate(plan: &SchedulePlan, now: DateTime<Utc>) -> Result<(), PlanError> {
+    // One line: the console shows the name next to every command the schedule sends.
     let name = plan.name.trim();
-    if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
+    if name.is_empty() || name.chars().count() > MAX_NAME_CHARS || name.chars().any(char::is_control) {
         return Err(PlanError::Name);
     }
     validate_trigger(&plan.trigger, now)?;

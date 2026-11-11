@@ -297,7 +297,7 @@ async fn an_uploaded_zip_becomes_a_world_only_if_it_is_one() {
         (status, body["error"]["code"].as_str()),
         (StatusCode::UNPROCESSABLE_ENTITY, Some("not_a_world"))
     );
-    assert!(!dir.join("junk").exists(), "it went to the trash");
+    assert!(!dir.join("junk").exists(), "nothing of it stays");
     let (status, _) = upload(
         &app,
         &id,

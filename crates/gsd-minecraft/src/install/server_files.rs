@@ -1,61 +1,78 @@
 //! Files every installed server gets: `eula.txt` from the recorded consent, and a minimal
 //! `server.properties` with the values the app manages (port, MOTD). The server fills in every
 //! other property on first start.
+//!
+//! They go into a folder the server owns, and on a reinstall it has had its hands on it. So they are
+//! written through the file manager ([`ServerFiles`]): a link the server left under one of these
+//! names is replaced, never written through.
 
-use std::{fmt::Write as _, path::Path};
+use std::fmt::Write as _;
 
 use chrono::{DateTime, Utc};
+use gsd_core::files::{EntryKind, FilesError, SafeRelPath, ServerFiles};
 
 use super::InstallError;
+use crate::properties::{MAX_FILE_BYTES, PropertiesDoc};
 
-pub async fn write_eula(server_dir: &Path, accepted_at: DateTime<Utc>) -> Result<(), InstallError> {
-    let path = server_dir.join("eula.txt");
+const EULA: &str = "eula.txt";
+const PROPERTIES: &str = "server.properties";
+
+pub async fn write_eula(files: &ServerFiles, accepted_at: DateTime<Utc>) -> Result<(), InstallError> {
     let text = format!(
         "# Accepted by the server owner on {} in {}.\n# https://aka.ms/MinecraftEULA\neula=true\n",
         accepted_at.to_rfc3339(),
         gsd_brand::NAME
     );
-    tokio::fs::write(&path, text)
-        .await
-        .map_err(|source| InstallError::Io { path, source })
+    files.replace_file(file(EULA)?, text.into_bytes()).await?;
+    Ok(())
 }
 
-/// Points an existing configuration at `port` (`server-port` and `query.port`): the sandbox
-/// only lets a server bind its own port. Used for copied servers (clones, imports, packs); creates the
-/// file if there is none. Everything else in the file stays as it was.
-pub fn point_at_port(server_dir: &Path, port: u16) -> Result<(), InstallError> {
-    let path = server_dir.join("server.properties");
-    let io = |source| InstallError::Io {
-        path: path.clone(),
-        source,
+/// Points an existing configuration at `port` (see [`point_doc_at_port`]). Used for copied servers
+/// (clones, imports); creates the file if there is none, or replaces a link of that name.
+/// Everything else in it stays as it was.
+pub async fn point_at_port(files: &ServerFiles, port: u16) -> Result<(), InstallError> {
+    let path = file(PROPERTIES)?;
+    let bytes = if files.kind(path.clone()).await? == Some(EntryKind::File) {
+        files
+            .read_optional(path.clone(), MAX_FILE_BYTES as u64)
+            .await?
+            .unwrap_or_default()
+    } else {
+        Vec::new()
     };
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(error) => return Err(io(error)),
-    };
-    let mut doc = crate::properties::PropertiesDoc::from_bytes(&bytes);
+    let mut doc = PropertiesDoc::from_bytes(&bytes);
+    point_doc_at_port(&mut doc, port);
+    files.replace_file(path, doc.render().into_bytes()).await?;
+    Ok(())
+}
+
+/// Sets `server-port` and `query.port` to `port`: the sandbox only lets a server bind its own
+/// port. A copied configuration also loses its control channel's secrets, which stay with the
+/// server they came from; the next start makes new ones.
+pub fn point_doc_at_port(doc: &mut PropertiesDoc, port: u16) {
     doc.set("server-port", &port.to_string());
     doc.set("query.port", &port.to_string());
-    // Its control channel's secrets stay with the server they came from; the next start makes new ones.
     doc.remove("rcon.password");
     doc.remove("management-server-secret");
-    std::fs::write(&path, doc.render()).map_err(io)
 }
 
 /// Writes the managed properties, unless a configuration already exists (reinstalls keep it).
-pub async fn seed_properties(server_dir: &Path, port: u16, motd: &str) -> Result<(), InstallError> {
-    let path = server_dir.join("server.properties");
-    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+/// Only a real file counts as one: a link (or anything else) under its name is replaced.
+pub async fn seed_properties(files: &ServerFiles, port: u16, motd: &str) -> Result<(), InstallError> {
+    let path = file(PROPERTIES)?;
+    if files.kind(path.clone()).await? == Some(EntryKind::File) {
         return Ok(());
     }
     let text = format!(
         "server-port={port}\nquery.port={port}\nmotd={}\n",
         escape_property(motd)
     );
-    tokio::fs::write(&path, text)
-        .await
-        .map_err(|source| InstallError::Io { path, source })
+    files.replace_file(path, text.into_bytes()).await?;
+    Ok(())
+}
+
+fn file(name: &str) -> Result<SafeRelPath, InstallError> {
+    Ok(SafeRelPath::parse(name).map_err(FilesError::from)?)
 }
 
 /// Java `.properties` value escaping (backslashes, line breaks, non-ASCII as `\uXXXX`).
@@ -95,8 +112,12 @@ mod tests {
         assert_eq!(escape_property("Friends' server #1"), "Friends' server #1");
     }
 
-    #[test]
-    fn points_an_existing_configuration_at_a_new_port() {
+    async fn folder(dir: &std::path::Path) -> ServerFiles {
+        crate::test_support::server_files(dir).await
+    }
+
+    #[tokio::test]
+    async fn points_an_existing_configuration_at_a_new_port() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("server.properties"),
@@ -104,10 +125,11 @@ mod tests {
 motd=Hi
 server-port=25565
 query.port=25565
+rcon.password=theirs
 ",
         )
         .unwrap();
-        point_at_port(dir.path(), 25570).unwrap();
+        point_at_port(&folder(dir.path()).await, 25570).await.unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("server.properties")).unwrap(),
             "#comment
@@ -117,7 +139,7 @@ query.port=25570
 "
         );
         let fresh = tempfile::tempdir().unwrap();
-        point_at_port(fresh.path(), 25571).unwrap();
+        point_at_port(&folder(fresh.path()).await, 25571).await.unwrap();
         assert_eq!(
             std::fs::read_to_string(fresh.path().join("server.properties")).unwrap(),
             "server-port=25571
@@ -129,24 +151,60 @@ query.port=25571
     #[tokio::test]
     async fn writes_eula_and_seeds_properties_once() {
         let dir = tempfile::tempdir().unwrap();
-        write_eula(dir.path(), Utc::now()).await.unwrap();
+        let files = folder(dir.path()).await;
+        write_eula(&files, Utc::now()).await.unwrap();
         assert!(
             std::fs::read_to_string(dir.path().join("eula.txt"))
                 .unwrap()
                 .contains("eula=true")
         );
 
-        seed_properties(dir.path(), 25570, "Friends' server")
-            .await
-            .unwrap();
+        seed_properties(&files, 25570, "Friends' server").await.unwrap();
         let props = std::fs::read_to_string(dir.path().join("server.properties")).unwrap();
         assert!(props.contains("server-port=25570") && props.contains("motd=Friends' server"));
 
-        seed_properties(dir.path(), 1, "changed").await.unwrap();
+        seed_properties(&files, 1, "changed").await.unwrap();
         assert_eq!(
             std::fs::read_to_string(dir.path().join("server.properties")).unwrap(),
             props,
             "not overwritten"
+        );
+    }
+
+    /// On a reinstall the folder has been the server's: a link it left where these files go must
+    /// be replaced by the file, not followed to what it points at.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn links_the_server_left_are_replaced_not_written_through() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let server = dir.path().join("server");
+        std::fs::create_dir(&server).unwrap();
+        let outside = dir.path().join("outside.txt");
+        std::fs::write(&outside, "untouched").unwrap();
+        let missing = dir.path().join("made-by-the-app");
+        symlink(&outside, server.join("eula.txt")).unwrap();
+        symlink(&missing, server.join("server.properties")).unwrap();
+        let files = folder(&server).await;
+
+        write_eula(&files, Utc::now()).await.unwrap();
+        seed_properties(&files, 25570, "x").await.unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched");
+        assert!(!missing.exists());
+        for name in ["eula.txt", "server.properties"] {
+            let kind = std::fs::symlink_metadata(server.join(name)).unwrap();
+            assert!(kind.is_file(), "{name}: the link was replaced by the file");
+        }
+
+        // A copied server can bring a link along too.
+        std::fs::remove_file(server.join("server.properties")).unwrap();
+        symlink(&outside, server.join("server.properties")).unwrap();
+        point_at_port(&files, 25571).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched");
+        assert_eq!(
+            std::fs::read_to_string(server.join("server.properties")).unwrap(),
+            "server-port=25571\nquery.port=25571\n"
         );
     }
 }

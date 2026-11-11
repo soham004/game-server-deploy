@@ -32,7 +32,10 @@ use gsd_core::{
     jobs::{JobContext, JobFailure, error_chain},
     random,
 };
-use gsd_minecraft::{CreateError, CreateRequest, LoaderKind, MinecraftService, install::point_at_port};
+use gsd_minecraft::{
+    CreateError, CreateRequest, LoaderKind, MinecraftService, install::point_doc_at_port,
+    properties::PropertiesDoc,
+};
 use serde::Serialize;
 use tokio::io::AsyncWriteExt;
 use tokio_util::io::ReaderStream;
@@ -286,8 +289,13 @@ fn keep_settings_of_this_server(staging: &Path, port: u16) -> Result<(), Modpack
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    if staging.join("server.properties").is_file() {
-        point_at_port(staging, port).map_err(|error| io::Error::other(error.to_string()))?;
+    // Plain file access is right here, and only here: the staging folder is the app's own, filled
+    // by `unpack_folders`, which leaves links out. Nothing of a server's is in it.
+    let properties = staging.join("server.properties");
+    if properties.is_file() {
+        let mut doc = PropertiesDoc::from_bytes(&std::fs::read(&properties)?);
+        point_doc_at_port(&mut doc, port);
+        std::fs::write(&properties, doc.render())?;
     }
     Ok(())
 }

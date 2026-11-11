@@ -93,37 +93,82 @@ pub async fn download_verified(
             .await
             .map_err(io_error(parent))?;
     }
-    let partial = destination.with_extension("part");
-    let mut file = tokio::fs::File::create(&partial)
+    // A name of its own, in a file that must not exist yet: two downloads of the same file
+    // (the cache is shared) then never write into each other's, and nothing already there,
+    // such as a link, is written through.
+    let partial = partial_path(destination).map_err(io_error(destination))?;
+    let file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&partial)
         .await
         .map_err(io_error(&partial))?;
 
+    let written = write_verified(response, file, expected, url, cancel, progress)
+        .await
+        .map_err(|error| match error {
+            Written::Download(error) => error,
+            Written::Io(source) => io_error(&partial)(source),
+        });
+    let finished = match written {
+        Ok(()) => tokio::fs::rename(&partial, destination)
+            .await
+            .map_err(io_error(destination)),
+        Err(error) => Err(error),
+    };
+    if finished.is_err() {
+        let _ = tokio::fs::remove_file(&partial).await;
+    }
+    finished
+}
+
+/// `<destination>.<random>.part`, next to the destination so the final rename is atomic.
+fn partial_path(destination: &Path) -> std::io::Result<std::path::PathBuf> {
+    let token = crate::random::random_token::<6>().map_err(std::io::Error::other)?;
+    let mut name = destination
+        .file_name()
+        .map(std::ffi::OsStr::to_os_string)
+        .unwrap_or_default();
+    name.push(format!(".{token}.part"));
+    Ok(destination.with_file_name(name))
+}
+
+/// Why a download didn't end up whole in its partial file.
+enum Written {
+    Download(DownloadError),
+    Io(std::io::Error),
+}
+
+/// Streams the response into `file`, checking the hash of what arrived.
+async fn write_verified(
+    response: reqwest::Response,
+    mut file: tokio::fs::File,
+    expected: &ExpectedHash,
+    url: &str,
+    cancel: &CancellationToken,
+    progress: ProgressFn<'_>,
+) -> Result<(), Written> {
     let total = response.content_length();
     let mut hasher = Hasher::for_expected(expected);
     let mut done = 0_u64;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         if cancel.is_cancelled() {
-            drop(file);
-            let _ = tokio::fs::remove_file(&partial).await;
-            return Err(DownloadError::Cancelled);
+            return Err(Written::Download(DownloadError::Cancelled));
         }
-        let chunk = chunk.map_err(request_error)?;
+        let chunk = chunk.map_err(|source| {
+            Written::Download(DownloadError::Request {
+                url: url.to_owned(),
+                source,
+            })
+        })?;
         hasher.update(&chunk);
-        file.write_all(&chunk).await.map_err(io_error(&partial))?;
+        file.write_all(&chunk).await.map_err(Written::Io)?;
         done += chunk.len() as u64;
         progress(done, total);
     }
-    file.flush().await.map_err(io_error(&partial))?;
-    drop(file);
-
-    if let Err(error) = hasher.verify(expected, url) {
-        let _ = tokio::fs::remove_file(&partial).await;
-        return Err(error);
-    }
-    tokio::fs::rename(&partial, destination)
-        .await
-        .map_err(io_error(destination))
+    file.flush().await.map_err(Written::Io)?;
+    hasher.verify(expected, url).map_err(Written::Download)
 }
 
 enum Hasher {
@@ -313,8 +358,60 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(DownloadError::Checksum { .. })));
-        assert!(!destination.exists());
-        assert!(!destination.with_extension("part").exists());
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            0,
+            "neither the file nor its partial copy is left"
+        );
+    }
+
+    /// Two servers installing the same jar download it into the shared cache at once. Each must
+    /// write its own partial file: sharing one let the second keep writing into the file the
+    /// first had already checked and moved into place.
+    #[tokio::test]
+    async fn downloads_of_the_same_file_at_once_do_not_share_a_partial_file() {
+        let server = server_with_file().await;
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("cached.jar");
+        let url = format!("{}/file.jar", server.uri());
+        let client = http_client().unwrap();
+        let expected = ExpectedHash::Sha256(sha256_hex(BODY));
+        let cancel = CancellationToken::new();
+
+        let downloads =
+            (0..8).map(|_| download_verified(&client, &url, &destination, &expected, &cancel, &|_, _| {}));
+        let results = futures_util::future::join_all(downloads).await;
+
+        assert!(results.iter().all(Result::is_ok), "{results:?}");
+        assert_eq!(std::fs::read(&destination).unwrap(), BODY);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    /// A link where a partial file used to be named (`<name>.part`) is not written through.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_link_planted_at_the_old_partial_name_is_left_alone() {
+        let server = server_with_file().await;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside.txt");
+        std::fs::write(&outside, "untouched").unwrap();
+        let folder = dir.path().join("server");
+        std::fs::create_dir(&folder).unwrap();
+        std::os::unix::fs::symlink(&outside, folder.join("server.part")).unwrap();
+
+        download_verified(
+            &http_client().unwrap(),
+            &format!("{}/file.jar", server.uri()),
+            &folder.join("server.jar"),
+            &ExpectedHash::None,
+            &CancellationToken::new(),
+            &|_, _| {},
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched");
+        assert_eq!(std::fs::read(folder.join("server.jar")).unwrap(), BODY);
     }
 
     #[tokio::test]

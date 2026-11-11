@@ -15,8 +15,10 @@ use crate::{
         registry::RegistryError,
     },
     java::{JavaRuntime, JavaRuntimes},
-    jobs::JobRunner,
-    supervisor::{SandboxUnusable, ServerState, Snapshot, SupervisorError, SupervisorHandle, Supervisors},
+    jobs::{InstanceHold, JobRunner},
+    supervisor::{
+        CommandError, SandboxUnusable, ServerState, Snapshot, SupervisorError, SupervisorHandle, Supervisors,
+    },
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -116,25 +118,47 @@ impl InstanceService {
         };
         let state = handle.state();
         let was_running = matches!(state, ServerState::Running { .. } | ServerState::Starting { .. });
-        let restart_pending = matches!(
-            state,
-            ServerState::Crashed {
-                restart_at: Some(_),
-                ..
-            }
-        );
-        if !state.is_active() && !restart_pending {
+        if state.is_settled() {
             return Ok(false);
         }
-        if !matches!(state, ServerState::Stopping { .. }) {
-            handle.stop().await?;
+        // Also when it is stopping already: that may be a restart's stop, and this one cancels
+        // the start that would follow. It may have stopped by itself since the look above.
+        match handle.stop().await {
+            Ok(()) | Err(SupervisorError::Command(CommandError::NotRunning)) => {}
+            Err(error) => return Err(error.into()),
         }
         // The supervisor kills the process after the stop timeout; allow for that and the exit.
         let limit = Duration::from_secs(instance.definition.behavior.stop_timeout_secs + 30);
-        if !handle.wait_for(limit, |state| !state.is_active()).await {
+        if !handle.wait_for(limit, ServerState::is_settled).await {
             return Err(InstanceError::StillRunning);
         }
         Ok(was_running)
+    }
+
+    /// For a job that changes the server's files and holds the instance's lock: the server must
+    /// be stopped, and stays so. A crash's pending restart is cancelled (it would start the
+    /// server in the middle of the job); a running server is refused. While the job holds the
+    /// lock nobody else can start it.
+    pub async fn ensure_stopped(&self, id: InstanceId) -> Result<(), InstanceError> {
+        let Some(handle) = self.supervisors.get(id) else {
+            return Ok(());
+        };
+        if handle.state().restart_pending() {
+            match handle.stop().await {
+                Ok(()) | Err(SupervisorError::Command(CommandError::NotRunning)) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        if handle.state().is_settled() {
+            Ok(())
+        } else {
+            Err(InstanceError::StillRunning)
+        }
+    }
+
+    /// The instance's lock for something that isn't a job (see [`JobRunner::hold_instance`]).
+    pub fn hold(&self, id: InstanceId) -> Result<InstanceHold, InstanceError> {
+        self.jobs.hold_instance(id).map_err(|_| InstanceError::Busy)
     }
 
     /// The adapter of the instance's game.
@@ -155,7 +179,8 @@ impl InstanceService {
     }
 
     async fn start_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
-        let (_, handle) = self.prepare(id, caller).await?;
+        let _hold = self.hold_unless_held(id, caller)?;
+        let (_, handle) = self.prepare(id).await?;
         let instance = self.prepare_control(id).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
@@ -175,7 +200,8 @@ impl InstanceService {
     }
 
     async fn restart_as(&self, id: InstanceId, caller: Caller) -> Result<(), InstanceError> {
-        let (_, handle) = self.prepare(id, caller).await?;
+        let _hold = self.hold_unless_held(id, caller)?;
+        let (_, handle) = self.prepare(id).await?;
         let instance = self.prepare_control(id).await?;
         let java = self.resolve_java(&instance).await?;
         let process = build_process(&instance.definition, &instance.layout, &java);
@@ -230,15 +256,15 @@ impl InstanceService {
         }
     }
 
-    /// Deletes a stopped instance (its folder goes to the trash).
+    /// Deletes a stopped instance (its folder goes to the trash). It is held meanwhile, so no
+    /// job or start can begin on a server that is going away.
     pub async fn delete(&self, id: InstanceId) -> Result<(), InstanceError> {
         self.get(id).await?;
         if self.state(id).is_active() {
             return Err(InstanceError::StillRunning);
         }
-        if self.is_busy(id) {
-            return Err(InstanceError::Busy);
-        }
+        let _hold = self.hold(id)?;
+        self.ensure_stopped(id).await?;
         self.supervisors.remove(id);
         if let Some(cgroups) = self.supervisors.host().cgroups() {
             cgroups.remove(&id.to_string());
@@ -291,15 +317,22 @@ impl InstanceService {
         self.supervisors.stop_all(timeout).await;
     }
 
-    async fn prepare(
+    /// A request takes the instance's lock for as long as it starts the server. Checking that
+    /// no job runs isn't enough: one could begin while the start gets ready (its control port,
+    /// its Java), find the server stopped, and change its files as it comes up.
+    fn hold_unless_held(
         &self,
         id: InstanceId,
         caller: Caller,
-    ) -> Result<(Instance, SupervisorHandle), InstanceError> {
-        let instance = self.get(id).await?;
-        if caller == Caller::Request && self.is_busy(id) {
-            return Err(InstanceError::Busy);
+    ) -> Result<Option<InstanceHold>, InstanceError> {
+        match caller {
+            Caller::Request => self.hold(id).map(Some),
+            Caller::LockHolder => Ok(None),
         }
+    }
+
+    async fn prepare(&self, id: InstanceId) -> Result<(Instance, SupervisorHandle), InstanceError> {
+        let instance = self.get(id).await?;
         if instance.definition.installed_at.is_none() {
             return Err(InstanceError::NotInstalled);
         }
@@ -313,7 +346,7 @@ impl InstanceService {
         self.supervisors
             .get(id)
             .ok_or(InstanceError::Supervisor(SupervisorError::Command(
-                crate::supervisor::CommandError::NotRunning,
+                CommandError::NotRunning,
             )))
     }
 

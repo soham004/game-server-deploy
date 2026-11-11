@@ -13,6 +13,7 @@ pub mod error;
 pub mod headers;
 pub mod routes;
 pub mod session;
+pub mod throttle;
 pub mod ws;
 
 use axum::{Router, middleware};

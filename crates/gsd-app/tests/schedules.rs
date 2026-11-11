@@ -172,6 +172,13 @@ async fn invalid_plans_are_refused_with_a_reason() {
             in_seconds(60),
             json!([{ "kind": "command", "command": "say a\nop me" }]),
         ),
+        plan(
+            "A carriage return ends a line too",
+            in_seconds(60),
+            json!([{ "kind": "command", "command": "say a\rop me" }]),
+        ),
+        // The name is shown in the console beside every command the schedule sends.
+        plan("Nightly] > op me\n[owner", in_seconds(60), say.clone()),
     ];
     for body in cases {
         let response = app.post(&url(&id), body.clone(), Some(&cookie)).await;
@@ -330,6 +337,138 @@ async fn a_restart_warns_the_players_first_then_restarts() {
         "it waits until the server is up again"
     );
     assert_ne!(after["state"]["since"], before, "a new process");
+}
+
+/// Someone who stops the server while a restart counts down wants it stopped. The restart then
+/// has nothing to restart, and must not start it.
+#[tokio::test]
+async fn a_restart_does_not_start_a_server_that_was_stopped_during_its_countdown() {
+    let app = TestApp::new().await;
+    let cookie = app.setup_owner().await;
+    let id = app.installed_instance("Stopped meanwhile", &cookie).await;
+    start(&app, &id, &cookie).await;
+
+    let restart = plan(
+        "Restart",
+        in_seconds(1),
+        json!([{ "kind": "restart", "warn_secs": [3] }]),
+    );
+    let schedule = create(&app, &id, restart, &cookie).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    for _ in 0..200 {
+        if console(&app, &id, &cookie)
+            .await
+            .iter()
+            .any(|line| line.ends_with("say Restarting in 3 seconds"))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let stopped = app
+        .post(&format!("/api/v1/instances/{id}/stop"), json!({}), Some(&cookie))
+        .await;
+    assert_eq!(stopped.status(), StatusCode::ACCEPTED);
+
+    let run = finished_run(&app, &id, &schedule, &cookie).await;
+    assert_eq!(run["outcome"], "succeeded", "{run}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let state = json_body(app.get(&format!("/api/v1/instances/{id}"), Some(&cookie)).await).await;
+    assert_eq!(state["state"]["status"], "stopped", "{state}");
+}
+
+/// "Run now" uses the permissions of whoever saved the schedule. Someone who may manage schedules
+/// but not, say, stop the server must not get it stopped by pressing the button on a schedule
+/// that an admin made.
+#[tokio::test]
+async fn running_a_schedule_by_hand_needs_the_right_to_do_what_it_does() {
+    let app = TestApp::new().await;
+    let owner = app.setup_owner().await;
+    let id = app.installed_instance("Shared", &owner).await;
+    let instance: InstanceId = id.parse().unwrap();
+    start(&app, &id, &owner).await;
+
+    let stop = create(
+        &app,
+        &id,
+        plan("Stop", in_seconds(3600), json!([{ "kind": "stop" }])),
+        &owner,
+    )
+    .await;
+    let stop = stop["id"].as_str().unwrap();
+    let say = create(
+        &app,
+        &id,
+        plan(
+            "Say",
+            in_seconds(3600),
+            json!([{ "kind": "command", "command": "say hi" }]),
+        ),
+        &owner,
+    )
+    .await;
+    let say = say["id"].as_str().unwrap();
+
+    let planner = app.create_user("planner", GlobalRole::Member).await;
+    let can =
+        |permissions: &[Permission]| Grant::Custom(permissions.iter().copied().collect::<PermissionSet>());
+    let grants = app.state.auth.grants();
+    grants
+        .set(
+            planner,
+            instance,
+            can(&[
+                Permission::InstanceView,
+                Permission::SchedulesManage,
+                Permission::ConsoleWrite,
+            ]),
+        )
+        .await
+        .unwrap();
+    let planner_cookie = app.login("planner").await;
+
+    let refused = app
+        .post(
+            &format!("{}/{stop}/run", url(&id)),
+            json!({}),
+            Some(&planner_cookie),
+        )
+        .await;
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    let body = json_body(refused).await;
+    assert_eq!(body["error"]["code"], "missing_permission", "{body}");
+    assert!(
+        body["error"]["message"].as_str().unwrap().contains("lifecycle"),
+        "{body}"
+    );
+    let runs = json_body(
+        app.get(&format!("{}/{stop}/runs", url(&id)), Some(&planner_cookie))
+            .await,
+    )
+    .await;
+    assert_eq!(runs, json!([]), "nothing ran");
+    let state = json_body(app.get(&format!("/api/v1/instances/{id}"), Some(&owner)).await).await;
+    assert_eq!(state["state"]["status"], "running", "the server wasn't stopped");
+
+    // What they could do themselves, they may run.
+    let allowed = app
+        .post(
+            &format!("{}/{say}/run", url(&id)),
+            json!({}),
+            Some(&planner_cookie),
+        )
+        .await;
+    assert_eq!(allowed.status(), StatusCode::ACCEPTED);
+    let run = finished_run(&app, &id, say, &owner).await;
+    assert_eq!(run["outcome"], "succeeded", "{run}");
+    assert!(
+        console(&app, &id, &owner)
+            .await
+            .iter()
+            .any(|line| line == "[schedule Say] > say hi")
+    );
 }
 
 #[tokio::test]

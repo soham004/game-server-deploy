@@ -170,9 +170,17 @@ impl Scheduler {
     }
 
     /// Runs the actions now, whatever the conditions say. Returns at once; the run shows up in
-    /// the history and the job tray.
-    pub async fn run_now(&self, instance: InstanceId, id: ScheduleId) -> Result<(), ScheduleError> {
+    /// the history and the job tray. `by` must be able to do every action themselves: the run
+    /// uses the permissions of whoever saved the schedule, and pressing "Run now" must not lend
+    /// them to someone who lacks them.
+    pub async fn run_now(
+        &self,
+        instance: InstanceId,
+        id: ScheduleId,
+        by: &Actor,
+    ) -> Result<(), ScheduleError> {
         let schedule = self.get(instance, id).await?;
+        check_author(&schedule.plan, by, instance)?;
         let scheduler = self.clone();
         tokio::spawn(async move {
             let previous = schedule.last_run_at;
@@ -202,7 +210,7 @@ impl Scheduler {
     }
 }
 
-/// The author must be able to do every action themselves: the schedule runs as them.
+/// The author (or whoever runs it by hand) must be able to do every action themselves.
 fn check_author(plan: &SchedulePlan, author: &Actor, instance: InstanceId) -> Result<(), ScheduleError> {
     match plan
         .actions

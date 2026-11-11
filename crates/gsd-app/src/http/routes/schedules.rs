@@ -145,7 +145,10 @@ async fn run_now(
     Path((_, schedule_id)): Path<(InstanceId, ScheduleId)>,
 ) -> Result<StatusCode, ApiError> {
     let schedule = state.scheduler.get(auth.instance_id, schedule_id).await?;
-    state.scheduler.run_now(auth.instance_id, schedule_id).await?;
+    state
+        .scheduler
+        .run_now(auth.instance_id, schedule_id, &auth.actor)
+        .await?;
     audit(&state, &auth, actions::SCHEDULE_RUN_REQUESTED, &schedule).await;
     Ok(StatusCode::ACCEPTED)
 }

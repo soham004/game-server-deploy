@@ -1,12 +1,15 @@
 //! Creating and installing servers for every loader, against the mock upstream (recorded API
 //! responses) and a fake `java` that behaves like the loader installers.
 
+use std::{collections::HashMap, sync::Arc};
+
 use gsd_core::{
     events::EventBus,
+    game::GameAdapter,
     instances::AllocationPolicy,
     jobs::{JobSnapshot, JobStatus},
     net::http_client,
-    supervisor::SandboxSupport,
+    supervisor::{SandboxSupport, Supervisors},
 };
 
 use super::*;
@@ -46,19 +49,26 @@ async fn fixture_with(host: HostSandbox) -> Fixture {
         events.clone(),
     )
     .unwrap();
-    let jobs = JobRunner::new(events);
+    let jobs = JobRunner::new(events.clone());
     let java = JavaRuntimes::with_api(
         dir.path().join("runtimes"),
         http_client().unwrap(),
         server.uri(),
         false,
     );
+    let adapter: Arc<dyn GameAdapter> = Arc::new(crate::MinecraftAdapter);
+    let instances = InstanceService::new(
+        registry.clone(),
+        Supervisors::new(events.clone(), host),
+        java.clone(),
+        jobs.clone(),
+        HashMap::from([(GAME_ID.to_owned(), adapter)]),
+    );
     let service = MinecraftService::new(
         catalog_for(&server, &dir.path().join("cache/meta")),
-        registry.clone(),
+        instances,
         java,
         jobs.clone(),
-        host,
         MinecraftPaths {
             download_cache: dir.path().join("cache/downloads"),
             imports: dir.path().join("imports"),

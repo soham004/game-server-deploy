@@ -4,7 +4,7 @@
 
 use chrono::Utc;
 use gsd_core::{
-    files::{SafeRelPath, copy_server_dir},
+    files::{SafeRelPath, ServerFiles, copy_server_dir},
     ids::JobId,
     instances::{
         Instance, NewInstance,
@@ -150,9 +150,10 @@ impl MinecraftService {
             let java_major = instance.definition.java.major;
             service.java.ensure(java_major, &job).await?;
             let port = instance.definition.ports.game;
+            let files = ServerFiles::open(&instance).await?;
             let launch = finish_existing(
                 server.loader,
-                &target,
+                &files,
                 jar.as_deref(),
                 server.eula_accepted_at,
                 port,

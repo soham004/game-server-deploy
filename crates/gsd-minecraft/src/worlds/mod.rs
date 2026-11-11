@@ -14,9 +14,16 @@ use crate::properties::PropertiesDoc;
 
 const DEFAULT_LEVEL_NAME: &str = "world";
 
-/// The main world's folder name, from `server.properties` (`world` when unset or unusable).
+/// The main world's folder name, from `server.properties` (`world` when unset or unusable). The
+/// file is the server's: a link out of the folder, a FIFO, or more than a settings file holds
+/// counts as unusable rather than being followed, waited on or read whole.
 pub fn level_name(server_dir: &Path) -> String {
-    let properties = std::fs::read(server_dir.join("server.properties")).unwrap_or_default();
+    let properties = gsd_core::files::read_small_file(
+        server_dir,
+        "server.properties",
+        crate::properties::MAX_FILE_BYTES as u64,
+    )
+    .unwrap_or_default();
     level_name_in(&PropertiesDoc::from_bytes(&properties))
 }
 
@@ -76,5 +83,45 @@ mod tests {
             .unwrap();
             assert_eq!(level_name(dir.path()), "world", "{bad:?}");
         }
+    }
+
+    /// Backups ask for the world's name by path. What the server put where its settings go must
+    /// not be followed out of the folder, waited on, or read without end.
+    #[cfg(unix)]
+    #[test]
+    fn a_settings_file_that_is_no_plain_small_file_counts_as_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = dir.path().join("server");
+        std::fs::create_dir(&server).unwrap();
+        let file = server.join("server.properties");
+
+        let outside = dir.path().join("elsewhere.properties");
+        std::fs::write(&outside, "level-name=stolen\n").unwrap();
+        std::os::unix::fs::symlink(&outside, &file).unwrap();
+        assert_eq!(level_name(&server), "world", "a link out of the folder");
+
+        std::fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink("/dev/zero", &file).unwrap();
+        assert_eq!(level_name(&server), "world", "a file without end");
+
+        std::fs::remove_file(&file).unwrap();
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&file)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert_eq!(level_name(&server), "world", "a FIFO nobody writes to");
+
+        std::fs::remove_file(&file).unwrap();
+        std::fs::write(&file, "level-name=big\n").unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_len(8 * 1024 * 1024 * 1024)
+            .unwrap();
+        assert_eq!(level_name(&server), "world", "larger than any settings file");
     }
 }

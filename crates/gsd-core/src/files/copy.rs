@@ -12,6 +12,8 @@ use cap_std::{
 };
 use tokio_util::sync::CancellationToken;
 
+use super::regular::open_regular;
+
 /// What a copy did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CopySummary {
@@ -59,7 +61,15 @@ fn copy_dir(
             let child_target = target.open_dir(&name)?;
             copy_dir(&child_source, &child_target, &[], cancel, summary)?;
         } else if file_type.is_file() {
-            let mut input = source.open(&name)?;
+            let mut input = match open_regular(source, Path::new(&name)) {
+                Ok(input) => input,
+                // Swapped for a FIFO or device since it was listed: left out like one.
+                Err(error) if error.kind() == io::ErrorKind::InvalidInput => {
+                    summary.skipped += 1;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let mut options = OpenOptions::new();
             options.write(true).create_new(true);
             let mut output = target.open_with(&name, &options)?;

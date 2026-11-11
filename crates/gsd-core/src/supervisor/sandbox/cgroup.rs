@@ -251,6 +251,17 @@ impl CgroupSlot {
         oom_kills(&self.dir) > self.oom_kills_before
     }
 
+    /// Kills whatever the server left running here when it exited (a process it started that
+    /// moved to a session of its own), so "stopped" means nothing of it runs. Returns whether
+    /// anything was left.
+    pub fn kill_leftovers(&self) -> io::Result<bool> {
+        if !populated(&self.dir) {
+            return Ok(false);
+        }
+        write_if_present(&self.dir.join("cgroup.kill"), "1")?;
+        Ok(true)
+    }
+
     #[cfg(test)]
     fn dir(&self) -> &Path {
         &self.dir

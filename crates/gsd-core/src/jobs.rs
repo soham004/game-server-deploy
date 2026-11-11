@@ -177,6 +177,21 @@ impl JobContext {
     }
 }
 
+/// An instance's lock, held outside a job (see [`JobRunner::hold_instance`]); dropping it frees
+/// the instance.
+#[derive(Debug)]
+#[must_use = "the instance is free again as soon as this is dropped"]
+pub struct InstanceHold {
+    runner: JobRunner,
+    instance: InstanceId,
+}
+
+impl Drop for InstanceHold {
+    fn drop(&mut self) {
+        self.runner.state().busy_instances.remove(&self.instance);
+    }
+}
+
 /// Runs and tracks jobs. Cheap to clone.
 #[derive(Debug, Clone)]
 pub struct JobRunner {
@@ -271,6 +286,19 @@ impl JobRunner {
     /// True while a job holds this instance's lock.
     pub fn is_instance_busy(&self, instance: InstanceId) -> bool {
         self.state().busy_instances.contains(&instance)
+    }
+
+    /// Takes the instance's lock without a job, for as long as the returned hold lives: for
+    /// something short that must not overlap a job (starting the server), or for a second
+    /// instance a job works with (the server a copy is made from).
+    pub fn hold_instance(&self, instance: InstanceId) -> Result<InstanceHold, JobError> {
+        if !self.state().busy_instances.insert(instance) {
+            return Err(JobError::InstanceBusy);
+        }
+        Ok(InstanceHold {
+            runner: self.clone(),
+            instance,
+        })
     }
 
     /// Requests cancellation. Returns false if the job is unknown or already finished.
@@ -507,6 +535,36 @@ mod tests {
         runner.wait(first).await;
         assert!(!runner.is_instance_busy(instance));
         assert!(runner.spawn(spec(Some(instance)), |_| async { Ok(()) }).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_hold_keeps_jobs_and_other_holds_away_until_it_is_dropped() {
+        let runner = JobRunner::new(EventBus::new());
+        let instance = InstanceId::generate();
+        let hold = runner.hold_instance(instance).unwrap();
+        assert!(runner.is_instance_busy(instance));
+        assert_eq!(
+            runner.spawn(spec(Some(instance)), |_| async { Ok(()) }),
+            Err(JobError::InstanceBusy)
+        );
+        assert!(runner.hold_instance(instance).is_err());
+        assert!(runner.hold_instance(InstanceId::generate()).is_ok());
+
+        drop(hold);
+        assert!(!runner.is_instance_busy(instance));
+        let job = runner
+            .spawn(spec(Some(instance)), |ctx| async move {
+                ctx.cancel_token().cancelled().await;
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            runner.hold_instance(instance).is_err(),
+            "a running job holds the instance too"
+        );
+        runner.cancel(job);
+        runner.wait(job).await;
+        assert!(runner.hold_instance(instance).is_ok());
     }
 
     #[tokio::test]
