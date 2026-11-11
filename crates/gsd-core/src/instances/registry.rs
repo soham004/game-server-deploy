@@ -433,13 +433,29 @@ mod tests {
         ));
     }
 
+    /// A port held here is skipped. The port after it is only known to be free at one moment:
+    /// tests running alongside open connections from ports the system hands out, and one can
+    /// take it meanwhile (seen in CI). So a pair is tried a few times, and the probe may only
+    /// pass over that port when it really is taken by then.
     #[tokio::test]
     async fn port_probe_skips_ports_in_use() {
-        let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
-        let busy = listener.local_addr().unwrap().port();
-        let range = PortRange::new(busy, busy.saturating_add(1)).unwrap();
-        assert_eq!(pick_port(range, &HashSet::new(), true), Some(busy + 1));
-        assert_eq!(pick_port(range, &HashSet::new(), false), Some(busy));
+        for _ in 0..20 {
+            let listener = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+            let busy = listener.local_addr().unwrap().port();
+            let Some(next) = busy.checked_add(1).filter(|next| is_port_free(*next)) else {
+                continue;
+            };
+            let range = PortRange::new(busy, next).unwrap();
+            assert_eq!(pick_port(range, &HashSet::new(), false), Some(busy), "no probe");
+            match pick_port(range, &HashSet::new(), true) {
+                Some(port) => {
+                    assert_eq!(port, next, "the held port is skipped");
+                    return;
+                }
+                None => assert!(!is_port_free(next), "{next} was free, yet skipped"),
+            }
+        }
+        panic!("no free port next to a held one in 20 tries");
     }
 
     #[tokio::test]
