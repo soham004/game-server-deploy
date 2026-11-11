@@ -99,6 +99,8 @@ isolation**, **mods and plugins equally**, CurseForge with a **user-supplied key
       `server.properties` view and the log viewer: syntax highlighting (json, yaml, toml, properties, cfg/ini, mcfunction,
       snbt, log), line numbers, search. Check it works under the strict CSP (`style-src 'self'`) (D-057).
 - [x] Editor checks: JSON/YAML/TOML validation on save with the error location; diff view before saving (P2) (D-058).
+- [ ] World conversion between server types (`features/world-conversion.md`, researched on real 26.3 servers): Paper/Purpur
+      worlds made loadable on vanilla-family servers, Bukkit-split sets, the Paper 26.x seed, version checks on upload.
 - [ ] File manager extras (`features/file-manager.md` → UI): folder tree pane, multi-select, context menu, shortcuts
       (F2, Del, Ctrl+C/V), image preview, "set server icon" helper (resize to 64×64).
 
